@@ -11,12 +11,15 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
-/** The road the car is on, as far as the map knows, and the country it's in (ISO 3166-1 alpha-2). */
-data class RoadInfo(val name: String?, val speedLimitKmh: Int?, val countryCode: String? = null)
+/**
+ * The road the car is on, as far as the map knows: its OpenStreetMap way, and the country it's in
+ * (ISO 3166-1 alpha-2).
+ */
+data class RoadInfo(val name: String?, val speedLimitKmh: Int?, val countryCode: String? = null, val wayId: Long? = null)
 
 /**
- * Finds the current road without a route (free drive) with Valhalla's `trace_attributes`: the last
- * few GPS fixes are matched to the road network, and the edge under the newest one is the road.
+ * Finds the current road with Valhalla's `trace_attributes`: the last few GPS fixes are matched to
+ * the road network, and the edge under the newest one is the road.
  */
 object TraceAttributes {
     /** Request body for `POST {routing}/trace_attributes`; [recent] is oldest first. */
@@ -30,6 +33,7 @@ object TraceAttributes {
             put("action", "include")
             putJsonArray("attributes") {
                 add("edge.speed_limit")
+                add("edge.way_id")
                 add("edge.names")
                 add("matched.edge_index")
                 add("node.admin_index")
@@ -44,7 +48,12 @@ object TraceAttributes {
         val edgeIndex = response.matchedPoints.lastOrNull()?.edgeIndex ?: return null
         val edge = response.edges.getOrNull(edgeIndex) ?: return null
         val country = edge.endNode?.adminIndex?.let { response.admins.getOrNull(it) }?.countryCode?.takeIf { it.length == 2 }
-        return RoadInfo(name = edge.names.firstOrNull(), speedLimitKmh = edge.speedLimit?.takeIf { it in 1..200 }, countryCode = country)
+        return RoadInfo(
+            name = edge.names.firstOrNull(),
+            speedLimitKmh = edge.speedLimit?.takeIf { it in 1..200 },
+            countryCode = country,
+            wayId = edge.wayId?.takeIf { it > 0 },
+        )
     }
 
     @Serializable
@@ -57,6 +66,7 @@ object TraceAttributes {
     @Serializable
     private class Edge(
         @SerialName("speed_limit") val speedLimit: Int? = null,
+        @SerialName("way_id") val wayId: Long? = null,
         val names: List<String> = emptyList(),
         @SerialName("end_node") val endNode: Node? = null,
     )

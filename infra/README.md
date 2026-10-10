@@ -9,6 +9,7 @@ Everything the app needs from a backend, running on your machine behind one orig
 | `/v1/ws`                           | FoxNav server                                    | Convoy relay (WebSocket), forwarding encrypted positions    |
 | `/v1/reports`                      | FoxNav server                                    | Reports: police, accidents, roadworks… and "still there?"   |
 | `/datapacks/FI/cameras.json`       | Caddy (static)                                   | Speed cameras for the app to match on the phone             |
+| `/datapacks/FI/speedlimits.json`   | Caddy (static)                                   | Winter (and other part-year) speed limits per road          |
 | `/tiles/region.pmtiles`            | Caddy (static)                                   | Vector map data for the region                              |
 | `/assets/fonts`, `/assets/sprites` | Caddy (static)                                   | Label fonts and map icons                                   |
 | `/valhalla/*`                      | [Valhalla](https://github.com/valhalla/valhalla) | Routing and turn-by-turn instructions                       |
@@ -49,7 +50,7 @@ OpenStreetMap changes daily; refresh whenever you like:
 - **Routing:** delete `data/valhalla/` and re-run `fetch-data.sh`. The next start rebuilds the graph.
 - **Search:** delete `data/photon/` and re-run `fetch-data.sh`. The next start re-imports.
 - **Map tiles:** delete `data/tiles/region.pmtiles` and re-run `fetch-data.sh`.
-- **Speed cameras:** after new routing data, rebuild the data packs with `docker compose -f infra/compose.yaml run --rm datapacks`. That takes seconds, so a public server can do it nightly.
+- **Speed cameras and winter limits:** after new routing data, rebuild the data packs with `docker compose -f infra/compose.yaml run --rm datapacks`. That takes under a minute, so a public server can do it nightly. When the road agency announces the winter dates, pass them, e.g. `… run --rm datapacks --region FI --season winter=10-27:04-12 --season summer=04-13:10-26 /osm/finland-latest.osm.pbf /out`.
 
 ## Map styles
 

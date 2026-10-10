@@ -169,7 +169,7 @@ These arrive in a later version of this document:
 
 ## 3. Data packs (draft)
 
-Data the app downloads per region and matches on the phone, so the server never learns where anyone drives. A server that has them lists the `datapacks` feature and a `datapacks` URL in its discovery document. Packs are plain files: clients revalidate them with `If-None-Match`, and servers should send them compressed.
+Data the app downloads per region and matches on the phone, so the server never learns where anyone drives. A server that has them lists the `datapacks` feature and a `datapacks` URL in its discovery document. Packs are plain files: clients revalidate them with `If-None-Match`, and servers should send them compressed. A server needn't have every kind of pack; one it lacks answers `404`, and clients do without.
 
 ### 3.1 Speed cameras
 
@@ -200,6 +200,36 @@ GET {datapacks}/{region}/cameras.json
 | `maxspeed` | The limit it enforces in km/h, when known. |
 
 The reference stack builds the pack from OpenStreetMap: `highway=speed_camera` nodes, and `type=enforcement` relations, whose `from` and `to` members give the direction. See `infra/datapacks/`. The app warns only where camera warnings are legal; see [`docs/architecture.md`](../docs/architecture.md#speed-limits-cameras-and-reports).
+
+### 3.2 Speed limits for part of the year
+
+```
+GET {datapacks}/{region}/speedlimits.json
+```
+
+Limits that hold only on some dates, above all the Nordic winter limits. Routing engines report a road's plain limit all year (Valhalla ignores `maxspeed:conditional`), so clients correct it with this pack. Ways are OpenStreetMap ways, which Valhalla's `trace_attributes` returns as `edge.way_id`.
+
+```json
+{
+  "format": 1,
+  "region": "FI",
+  "generated": "2026-10-10T18:00:00Z",
+  "attribution": "© OpenStreetMap contributors, ODbL",
+  "ways": [
+    { "way": 2287183, "maxspeed": 120,
+      "conditional": [{ "maxspeed": 100, "from": "10-15", "to": "04-30", "season": "winter" }] }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `format` | `1`. A client that doesn't know a pack's format ignores the pack. |
+| `way` | The OpenStreetMap way ID. |
+| `maxspeed` | The way's plain limit in km/h, as the routing engine reports it. Clients apply the way's conditional limits only while the engine reports this value there: a different value means the engine has moved on to another road, or the map has changed since the pack was built. |
+| `conditional` | Limits for parts of the year; the first that applies wins. `from` and `to` are the first and last day, `MM-DD` every year (a range may wrap round the new year) or `YYYY-MM-DD` once, in local time. `season`, when present, is `winter` or `summer`, for clients to show. |
+
+OpenStreetMap often says only "winter", whose dates vary by year and region. The reference builder (`infra/datapacks/`) turns it into dates per region, erring towards a long winter: a winter limit shown a little early means a slower drive, a summer limit shown too long means a fine. Server operators can set the dates with `--season`. Conditions other than dates (times of day, weekdays, wet roads) are left out for now, as are limits for one direction of a way.
 
 ## 4. Reports (draft)
 

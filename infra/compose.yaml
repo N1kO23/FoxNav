@@ -4,7 +4,7 @@
 #   /valhalla/*                      Valhalla (routing)
 #   /photon/*                        Photon (search)
 #   /tiles/*, /assets/*              static files (PMTiles map data, fonts, sprites)
-#   /datapacks/*                     static files (speed cameras, built by the datapacks service)
+#   /datapacks/*                     static files (speed cameras, winter limits; built by the datapacks service)
 #
 # Fetch the data first with infra/scripts/fetch-data.sh, then: docker compose up -d
 # The first start builds the routing graph and search index; see infra/README.md.

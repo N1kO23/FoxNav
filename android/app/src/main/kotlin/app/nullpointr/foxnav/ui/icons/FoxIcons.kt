@@ -38,6 +38,8 @@ object FoxIcons {
     /** The regroup point on the map (filled). */
     val FlagMarker = filledIcon("FlagMarker", "M5 22V3h2v1h12l-3 5 3 5H7v8Z")
 
+    val Snowflake = strokeIcon("Snowflake", "M12 3v18 M4.2 7.5l15.6 9 M4.2 16.5l15.6-9 M9.5 4.5L12 6.5l2.5-2 M9.5 19.5L12 17.5l2.5 2")
+
     /** Report something: a warning triangle. */
     val Report = strokeIcon("Report", "M12 4L21 19.5H3Z M12 10v4 M12 16.8v.2")
 

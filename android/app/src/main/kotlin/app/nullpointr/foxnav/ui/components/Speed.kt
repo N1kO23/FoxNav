@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,6 +33,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.nullpointr.foxnav.shared.speed.SpeedReading
+import app.nullpointr.foxnav.ui.icons.FoxIcons
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 
 // Vienna Convention sign colours, the same in every theme (design/tokens.json).
@@ -66,13 +70,13 @@ fun SpeedCluster(reading: SpeedReading, modifier: Modifier = Modifier) {
                 Text("km/h", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
             }
         }
-        reading.limitKmh?.let { SpeedLimitSign(it, pulsing = warn) }
+        reading.limitKmh?.let { SpeedLimitSign(it, pulsing = warn, winter = reading.limitSeason == "winter") }
     }
 }
 
 /** A round speed limit sign; it pulses while the driver is over the limit. */
 @Composable
-fun SpeedLimitSign(limitKmh: Int, pulsing: Boolean = false, size: Dp = 56.dp) {
+fun SpeedLimitSign(limitKmh: Int, pulsing: Boolean = false, size: Dp = 56.dp, winter: Boolean = false) {
     val scale = if (pulsing) {
         rememberInfiniteTransition(label = "limit pulse")
             .animateFloat(1f, 1.1f, infiniteRepeatable(tween(450), RepeatMode.Reverse), label = "scale")
@@ -80,15 +84,27 @@ fun SpeedLimitSign(limitKmh: Int, pulsing: Boolean = false, size: Dp = 56.dp) {
     } else {
         1f
     }
-    Box(
-        modifier = Modifier
-            .size(size)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .background(SignFace, CircleShape)
-            .border(size * 0.11f, SignRing, CircleShape)
-            .semantics { contentDescription = "Speed limit $limitKmh" },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("$limitKmh", fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.36f).sp, color = SignText)
+    Box(Modifier.size(size).graphicsLayer { scaleX = scale; scaleY = scale }) {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .background(SignFace, CircleShape)
+                .border(size * 0.11f, SignRing, CircleShape)
+                .semantics { contentDescription = if (winter) "Winter speed limit $limitKmh" else "Speed limit $limitKmh" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("$limitKmh", fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.36f).sp, color = SignText)
+        }
+        // A winter limit, from the date rather than the map: says why it isn't the summer number.
+        if (winter) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
+                modifier = Modifier.align(Alignment.BottomEnd).offset(x = size * 0.08f, y = size * 0.08f).size(size * 0.4f),
+            ) {
+                Icon(FoxIcons.Snowflake, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(size * 0.07f))
+            }
+        }
     }
 }

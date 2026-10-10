@@ -4,7 +4,7 @@ import android.content.Context
 import app.nullpointr.foxnav.convoy.ConvoyController
 import app.nullpointr.foxnav.convoy.ProfileStore
 import app.nullpointr.foxnav.convoy.TowerPlacementStore
-import app.nullpointr.foxnav.data.CameraPacks
+import app.nullpointr.foxnav.data.DataPacks
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.location.liveLocationProvider
@@ -60,7 +60,7 @@ class AppGraph(private val context: Context) {
 
     val alertSettings = AlertSettings(context)
 
-    val cameraPacks = CameraPacks(context, httpClient)
+    val dataPacks = DataPacks(context, httpClient)
 
     /** Says [text] with the guidance voice, which ducks music and respects mute. */
     fun speak(text: String) {

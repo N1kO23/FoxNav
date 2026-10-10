@@ -20,6 +20,7 @@ import app.nullpointr.foxnav.shared.geo.GeoPoint
 import app.nullpointr.foxnav.shared.reports.ReportCreated
 import app.nullpointr.foxnav.shared.reports.ReportFeed
 import app.nullpointr.foxnav.shared.safety.CameraPack
+import app.nullpointr.foxnav.shared.speed.SpeedLimitPack
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -137,6 +138,26 @@ class ConformanceSuite(
                 expect(pack.region == code) { "$url says it's for ${pack.region}" }
                 expect(pack.cameras.all { it.lat in -90.0..90.0 && it.lon in -180.0..180.0 && it.bearings.all { b -> b in 0.0..360.0 } }) { "$url has cameras out of range" }
             }
+        }
+        check(Group.MAP_SERVICES, "serves valid speed limit packs") {
+            val datapacks = document.datapacks?.takeIf { Feature.DATA_PACKS in document.features } ?: throw Skipped("no data packs listed")
+            if (document.regions.isEmpty()) throw Skipped("the server lists no regions")
+            var found = 0
+            for (code in document.regions) {
+                val url = datapacks.trimEnd('/') + "/$code/speedlimits.json"
+                val response = http.get(url)
+                if (response.status == HttpStatusCode.NotFound) continue
+                expect(response.status.isSuccess()) { "$url answered HTTP ${response.status.value}" }
+                val pack = runCatching { SpeedLimitPack.parse(response.bodyAsText()) }.getOrElse { fail("$url isn't a valid speed limit pack: ${it.message}") }
+                expect(pack.region == code) { "$url says it's for ${pack.region}" }
+                for (way in pack.ways) for (limit in way.conditional) {
+                    // Clients ignore ranges they can't read, so a server shouldn't publish them.
+                    expect(limit.maxspeed in 5..200) { "$url has way ${way.way} with a limit of ${limit.maxspeed}" }
+                    expect(DAY.matches(limit.from) && DAY.matches(limit.to)) { "$url has way ${way.way} with dates ${limit.from}–${limit.to}" }
+                }
+                found++
+            }
+            if (found == 0) throw Skipped("no region has one")
         }
         check(Group.MAP_SERVICES, "searches with Photon") {
             val search = document.search?.takeIf { it.type == "photon" } ?: throw Skipped("no Photon search listed")
@@ -388,6 +409,7 @@ class ConformanceSuite(
 
     private companion object {
         val CHECK_TIMEOUT = 20.seconds
+        val DAY = Regex("""^(\d{4}-)?(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$""")
         val OPAQUE_NONCE: ByteString = ByteString.of(*ByteArray(12) { it.toByte() })
 
         /** A short drive and a place to search for, in each region a server may list. */

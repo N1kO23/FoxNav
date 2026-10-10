@@ -24,6 +24,6 @@ If OSM-derived cameras and users' reports are merged into one database, ODbL sha
 
 ### Things to handle
 
-- **Winter speed limits.** Finland, Sweden and Norway lower limits on some roads in winter, with dates that vary by year and region. In OSM they appear as `maxspeed:conditional`; Digiroad has them as a separate dataset.
+- **Winter speed limits.** Finland, Sweden and Norway lower limits on some roads in winter, with dates that vary by year and region. In OSM they appear as `maxspeed:conditional`, mostly as "100 @ winter" without dates; FoxNav's speed limit pack takes them from there and sets the dates per region (`infra/datapacks/build.py`). Digiroad has them as a separate dataset, and the agencies announce the dates each autumn.
 - **Average-speed sections** (Norway's *streknings-ATK*). These need a running-average display, not a point alert.
 - **Showing camera locations is legal in all four countries.** Elsewhere it isn't always: Germany forbids drivers from using camera warnings, Switzerland bans them, and France allows only vague "danger zones". Camera alerts therefore have a per-country switch.

@@ -11,16 +11,16 @@ class TraceAttributesTest {
     fun requestListsThePointsAndAttributes() {
         val body = TraceAttributes.request(listOf(GeoPoint(60.1, 24.9), GeoPoint(60.2, 24.8)))
         assertTrue("\"shape\":[{\"lat\":60.1,\"lon\":24.9},{\"lat\":60.2,\"lon\":24.8}]" in body, body)
-        assertTrue("\"edge.speed_limit\"" in body && "\"matched.edge_index\"" in body, body)
+        assertTrue("\"edge.speed_limit\"" in body && "\"edge.way_id\"" in body && "\"matched.edge_index\"" in body, body)
     }
 
     @Test
     fun currentRoadIsTheEdgeUnderTheNewestPoint() {
         val json = """
-            {"edges":[{"speed_limit":30,"names":["Mannerheimintie","E 12"]},{"speed_limit":40,"names":["Korutie"]}],
+            {"edges":[{"speed_limit":30,"names":["Mannerheimintie","E 12"],"way_id":11},{"speed_limit":40,"names":["Korutie"],"way_id":22}],
              "matched_points":[{"edge_index":0,"type":"matched"},{"edge_index":1,"type":"matched"}]}
         """.trimIndent()
-        assertEquals(RoadInfo("Korutie", 40), TraceAttributes.parseCurrentRoad(json))
+        assertEquals(RoadInfo("Korutie", 40, wayId = 22), TraceAttributes.parseCurrentRoad(json))
     }
 
     @Test

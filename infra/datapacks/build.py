@@ -3,8 +3,13 @@
 
     build-datapacks --region FI extract.osm.pbf output-dir
 
-Writes output-dir/FI/cameras.json: fixed speed and red-light cameras, with the travel directions
-they enforce where OpenStreetMap knows them. Map data © OpenStreetMap contributors, ODbL.
+Writes into output-dir/FI/:
+- cameras.json: fixed speed and red-light cameras, with the travel directions they enforce where
+  OpenStreetMap knows them;
+- speedlimits.json: limits for parts of the year (maxspeed:conditional), such as winter limits,
+  which routing engines don't apply.
+
+Map data © OpenStreetMap contributors, ODbL.
 """
 import argparse
 import datetime
@@ -16,6 +21,20 @@ import subprocess
 import tempfile
 
 import osmium
+
+MONTHS = {name: index + 1 for index, name in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
+MONTH_LENGTHS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+# When "winter" and "summer" are, per region: OpenStreetMap leaves that to the reader. The dates
+# move every year, and lowering the limits takes weeks, so winter here errs long: a winter limit
+# shown a little early is a slower drive, a summer limit shown too long is a fine.
+SEASONS = {
+    "FI": {"winter": ("10-15", "04-30"), "summer": ("05-01", "10-14")},
+}
+
+DRIVABLE = {"motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential",
+            "living_street", "service", "road", "motorway_link", "trunk_link", "primary_link",
+            "secondary_link", "tertiary_link"}
 
 COMPASS = {name: index * 22.5 for index, name in enumerate(
     "N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW".split())}
@@ -136,13 +155,111 @@ def cameras(collected):
     return result
 
 
+def split_conditions(value):
+    """ "100 @ summer; 80 @ (Nov-Apr)" -> ["100 @ summer", "80 @ (Nov-Apr)"]: semicolons in brackets stay."""
+    parts, depth, current = [], 0, ""
+    for char in value:
+        depth += {"(": 1, ")": -1}.get(char, 0)
+        if char == ";" and depth == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    return [part.strip() for part in parts + [current] if part.strip()]
+
+
+def month_day(month, day, end):
+    """MM-DD; a month without a day means its first day, or its last at the end of a range."""
+    number = MONTHS[month]
+    day = int(day) if day else (MONTH_LENGTHS[number - 1] if end else 1)
+    return f"{number:02d}-{day:02d}"
+
+
+def date_range(condition, seasons):
+    """(from, to, season) for the date conditions FoxNav understands; None for the rest (times of day, weekdays, wet…)."""
+    condition = condition.strip()
+    if condition.startswith("(") and condition.endswith(")"):
+        condition = condition[1:-1].strip()
+    if condition in ("winter", "summer"):
+        span = seasons.get(condition)
+        return (span[0], span[1], condition) if span else None
+    month = "(" + "|".join(MONTHS) + ")"
+    match = re.fullmatch(month + r"(?:\s+(\d{1,2}))?\s*-\s*" + month + r"(?:\s+(\d{1,2}))?", condition)
+    if match:
+        start, end = month_day(match[1], match[2], False), month_day(match[3], match[4], True)
+        # Across the new year in the Nordics: a winter limit by another name.
+        return start, end, "winter" if start > end else None
+    match = re.fullmatch(r"(\d{4})\s+" + month + r"\s+(\d{1,2})\s*-\s*(\d{4})\s+" + month + r"\s+(\d{1,2})", condition)
+    if match:
+        return f"{match[1]}-{month_day(match[2], match[3], False)}", f"{match[4]}-{month_day(match[5], match[6], True)}", None
+    return None
+
+
+class ConditionalLimits(osmium.SimpleHandler):
+    """Drivable ways with maxspeed:conditional. Limits for one direction only are left out:
+    which way an edge runs along its OpenStreetMap way isn't something the app knows."""
+
+    def __init__(self, seasons):
+        super().__init__()
+        self.seasons = seasons
+        self.ways = []
+        self.skipped = 0
+
+    def way(self, way):
+        value = way.tags.get("maxspeed:conditional")
+        if not value or way.tags.get("highway") not in DRIVABLE:
+            return
+        conditional = []
+        for part in split_conditions(value):
+            limit, _, condition = part.partition("@")
+            span = date_range(condition, self.seasons) if condition else None
+            speed = parse_maxspeed(limit)
+            if span is None or speed is None:
+                self.skipped += 1
+                continue
+            start, end, season = span
+            rule = {"maxspeed": speed, "from": start, "to": end}
+            if season:
+                rule["season"] = season
+            conditional.append(rule)
+        if conditional:
+            entry = {"way": way.id}
+            maxspeed = parse_maxspeed(way.tags.get("maxspeed"))
+            if maxspeed:
+                entry["maxspeed"] = maxspeed
+            entry["conditional"] = conditional
+            self.ways.append(entry)
+
+
+def write_pack(output, region, name, pack):
+    directory = os.path.join(output, region)
+    os.makedirs(directory, exist_ok=True)
+    target = os.path.join(directory, name)
+    with open(target + ".part", "w", encoding="utf-8") as out:
+        json.dump(pack, out, ensure_ascii=False, separators=(",", ":"))
+    os.replace(target + ".part", target)
+    return target
+
+
+def parse_season(text):
+    """winter=10-15:04-30 -> ("winter", ("10-15", "04-30"))"""
+    match = re.fullmatch(r"(winter|summer)=(\d{2}-\d{2}):(\d{2}-\d{2})", text)
+    if not match:
+        raise argparse.ArgumentTypeError(f"expected winter=MM-DD:MM-DD or summer=MM-DD:MM-DD, not {text}")
+    return match[1], (match[2], match[3])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--region", required=True, help="ISO 3166-1 alpha-2 code, e.g. FI")
     parser.add_argument("extract", help="OpenStreetMap extract (.osm.pbf) covering the region")
     parser.add_argument("output", help="directory for the packs")
+    parser.add_argument("--season", type=parse_season, action="append", default=[],
+                        help="when winter or summer is in this region, e.g. winter=10-15:04-30 (repeatable)")
     args = parser.parse_args()
     region = args.region.upper()
+    seasons = dict(SEASONS.get(region, {}))
+    seasons.update(dict(args.season))
 
     with tempfile.TemporaryDirectory() as tmp:
         filtered = os.path.join(tmp, "enforcement.osm.pbf")
@@ -152,21 +269,28 @@ def main():
         collected = Collector()
         collected.apply_file(filtered)
 
-    pack = {
+        conditional_ways = os.path.join(tmp, "conditional.osm.pbf")
+        subprocess.run(["osmium", "tags-filter", args.extract, "w/maxspeed:conditional", "-R",
+                        "-o", conditional_ways, "--overwrite"], check=True)
+        limits = ConditionalLimits(seasons)
+        limits.apply_file(conditional_ways)
+
+    header = {
         "format": 1,
         "region": region,
         "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "attribution": "© OpenStreetMap contributors, ODbL",
-        "cameras": cameras(collected),
     }
-    directory = os.path.join(args.output, region)
-    os.makedirs(directory, exist_ok=True)
-    target = os.path.join(directory, "cameras.json")
-    with open(target + ".part", "w", encoding="utf-8") as out:
-        json.dump(pack, out, ensure_ascii=False, separators=(",", ":"))
-    os.replace(target + ".part", target)
-    with_bearings = sum(1 for camera in pack["cameras"] if "bearings" in camera)
-    print(f"{target}: {len(pack['cameras'])} cameras, {with_bearings} with known directions")
+    camera_list = cameras(collected)
+    target = write_pack(args.output, region, "cameras.json", {**header, "cameras": camera_list})
+    with_bearings = sum(1 for camera in camera_list if "bearings" in camera)
+    print(f"{target}: {len(camera_list)} cameras, {with_bearings} with known directions")
+
+    ways = sorted(limits.ways, key=lambda entry: entry["way"])
+    target = write_pack(args.output, region, "speedlimits.json", {**header, "ways": ways})
+    if not seasons:
+        print(f"No winter or summer dates for {region}: limits for those were left out. Pass --season.")
+    print(f"{target}: {len(ways)} ways with limits for part of the year ({limits.skipped} conditions not understood)")
 
 
 if __name__ == "__main__":

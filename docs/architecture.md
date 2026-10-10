@@ -136,9 +136,11 @@ Details are in the [protocol spec](../protocol/SPEC.md#2-realtime-draft); this i
 
 ## Speed limits, cameras and reports
 
-- **Speed limits** come from OpenStreetMap through Valhalla.
-  - Where a road has no limit, the app falls back to the country's legal default and shows it as "inferred".
-  - Seasonal winter limits (Finland, Sweden, Norway) need special handling. National road databases improve coverage later.
+- **Speed limits** come from OpenStreetMap through Valhalla: from the route while navigating, and from matching the last few positions to the road network (`trace_attributes`, every 5 s) otherwise.
+  - **Winter limits** (Finland, Sweden, Norway) are `maxspeed:conditional` in OpenStreetMap, which Valhalla ignores: it reports road 7's 120 all year where winter says 100. A **speed limit pack** ([spec §3.2](../protocol/SPEC.md#32-speed-limits-for-part-of-the-year)) lists the ways with limits for part of the year, about 5,000 in Finland (26 kB compressed). The road lookup gives the current way's ID, and today's limit wins, with a snowflake on the sign.
+  - While navigating, a winter limit replaces the route's limit only when the route reports the way's summer value there, so a lookup a few seconds behind can't put the motorway's winter limit on its exit ramp.
+  - OpenStreetMap mostly says just "winter". The dates move every year and region, so the pack builder errs long (Finland: 15 October to 30 April): a winter limit shown early is a slower drive, a summer limit shown late is a fine.
+  - Not yet: legal default limits where a road has none (about 40 % of main-road length in Finland has none), shown as "inferred"; national road databases (Digiroad, NVDB) for coverage; time-of-day limits such as school zones.
   - Never show a confident wrong number.
 - **Speed cameras** arrive as regional **data packs** ([spec §3](../protocol/SPEC.md#3-data-packs-draft)): the app downloads them and matches cameras on the phone.
   - This works offline, and no server learns your route. The app keeps each pack and revalidates it with its ETag.
@@ -195,7 +197,7 @@ On the car screen only the map is ours, so the app's look has to live in the map
    - live cars with motion prediction and the timing tower;
    - quick messages, a shared destination and a regroup point;
    - the convoy simulator and conformance tests.
-4. **Safety data:** _(in progress: camera packs from OpenStreetMap, camera warnings and reports work, with Fintraffic's messages in Finland)_
+4. **Safety data:** _(in progress: camera packs from OpenStreetMap, camera warnings, winter speed limits, and reports with Fintraffic's messages in Finland work)_
    - camera packs and warnings, from OpenStreetMap and national data;
    - national speed-limit data including winter limits;
    - crowd reports, seeded from national traffic feeds.
