@@ -43,9 +43,15 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
 
 ### The app
 
-- `NavigationService` is a foreground service of type `location` that owns the navigation session, the convoy connection and voice guidance. The phone UI and the Android Auto screen are both views of it.
-  - This is what lets navigation and convoys keep running with the screen off.
-  - Because the user starts the service from the UI, the app only needs _while-in-use_ location permission, not background location.
+- **Turn-by-turn** runs in Ferrostar's foreground service (type `location`), so it keeps going with the screen off.
+  - A FoxNav service that also covers free drive and convoys arrives with convoys. It will own the navigation session, the convoy connection and voice; the phone UI and Android Auto become views of it.
+  - Because the user starts navigation from the UI, the app only needs _while-in-use_ location permission, not background location.
+- **The screens** are Ferrostar's navigation view with FoxNav components swapped in:
+  - the maneuver card, drive panel (speed, limit, arrival) and road name;
+  - the free-drive overlay with search and route preview.
+
+  The colours and fonts come from the design tokens.
+- **Over the limit** (3 km/h of tolerance), the speedometer turns red and the kin-kon chime plays once. It re-arms only after you're back at the limit.
 - **Free drive is a first-class mode.** Without a destination, the app still follows you on the map and shows:
   - the road you're on and its speed limit;
   - cameras and reports ahead;
@@ -155,7 +161,7 @@ On the car screen only the map is ours, so the app's look has to live in the map
 ## Roadmap
 
 1. **Foundations:** repository, build, local backend stack, docs, design exploration. _(current)_
-2. **Navigation MVP:**
+2. **Navigation MVP:** _(in progress: everything below except a tested real-world drive)_
    - map, search, routes;
    - free drive: everything except turn-by-turn works without a destination;
    - Ferrostar turn-by-turn with voice;

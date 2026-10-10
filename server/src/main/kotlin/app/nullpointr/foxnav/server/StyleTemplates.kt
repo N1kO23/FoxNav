@@ -1,8 +1,10 @@
 package app.nullpointr.foxnav.server
 
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.plugins.origin
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
@@ -38,6 +40,8 @@ fun Route.styleRoutes(config: ServerConfig) {
         val defaultPort = if (origin.scheme == "https") 443 else 80
         val port = if (origin.serverPort == defaultPort) "" else ":${origin.serverPort}"
         val body = StyleTemplates.render(template.readText(), "${origin.scheme}://${origin.serverHost}$port")
+        // Map apps cache styles; revalidating keeps style updates from getting stuck behind old copies.
+        call.response.header(HttpHeaders.CacheControl, "no-cache")
         call.respondText(body, ContentType.Application.Json)
     }
 }

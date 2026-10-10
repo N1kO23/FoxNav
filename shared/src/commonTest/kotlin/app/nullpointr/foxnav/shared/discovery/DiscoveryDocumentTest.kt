@@ -50,6 +50,15 @@ class DiscoveryDocumentTest {
     }
 
     @Test
+    fun overridesReplaceSingleServices() {
+        val document = DiscoveryDocument.parse(sample).withOverrides(routing = "https://route.example.org", search = " ", style = "https://tiles.example.org/s.json")
+
+        assertEquals(ServiceEndpoint("valhalla", "https://route.example.org"), document.routing)
+        assertEquals(ServiceEndpoint("photon", "/photon"), document.search)
+        assertEquals(mapOf("night" to "https://tiles.example.org/s.json", "day" to "https://tiles.example.org/s.json"), document.styles)
+    }
+
+    @Test
     fun roundTripsThroughJsonWithoutEmptyOptionalFields() {
         val document = DiscoveryDocument(version = 1, name = "Minimal")
         val json = document.toJson()

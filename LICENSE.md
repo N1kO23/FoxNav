@@ -10,6 +10,8 @@ FoxNav is free software. Its parts use different licences, chosen so that the ap
 
 The full licence texts are in [LICENSES/](LICENSES/). Contributions are accepted under the licence of the directory they change; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+The bundled fonts, Chakra Petch and IBM Plex Sans in `android/app/src/main/res/font/`, are under the SIL Open Font License 1.1: see `LICENSES/OFL-1.1-*.txt`.
+
 Map data © OpenStreetMap contributors, available under the [Open Database License](https://www.openstreetmap.org/copyright).
 
 Copyright © 2026 Niko Huuskonen and the FoxNav contributors.

@@ -17,6 +17,18 @@ Thanks for helping. This guide covers setting up, the rules the project holds it
 
 **The Android app** only joins the build when an Android SDK is configured. That means `sdk.dir` in `local.properties`, which Android Studio writes when you open the project, or `ANDROID_HOME`. Without one, Gradle prints a note and builds the rest, so server-only work doesn't need the SDK. Debug builds talk to the local backend at `http://10.0.2.2:8080`, which is how the emulator reaches your machine. Start the backend as described in [infra/README.md](infra/README.md).
 
+## Testing on the emulator
+
+- Debug builds simulate the drive along the route by default: the switch is in the route preview.
+- For free drive, or to replay a recorded drive, feed locations with `android/scripts/emulator-location.py`. Current emulator images ignore `adb emu geo fix`.
+
+```sh
+android/scripts/emulator-location.py set 60.1699 24.9384           # stand in central Helsinki
+android/scripts/emulator-location.py replay android/scripts/tracks/helsinki-centre.gpx --speedup 3
+```
+
+If an Android build fails with `jlink executable … does not exist`, Gradle is running on an IDE's bundled Java runtime. Point the IDE's Gradle at a full JDK 21. For VS Code's Java extension that's `"java.import.gradle.java.home"` in `.vscode/settings.json`.
+
 ## Product rules
 
 These come from the project's goals. Please don't send changes that break them, and point them out in review.

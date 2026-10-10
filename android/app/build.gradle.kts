@@ -27,7 +27,8 @@ android {
 
     buildTypes {
         debug {
-            // The Android emulator reaches the host machine's localhost at 10.0.2.2 (see infra/README.md).
+            // The emulator reaches the host machine's localhost at 10.0.2.2 (see infra/README.md); used only
+            // when running in the emulator. On a phone the app asks for a server.
             buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://10.0.2.2:8080\"")
         }
         release {
@@ -40,6 +41,8 @@ android {
     }
 
     compileOptions {
+        // Ferrostar needs newer java.* APIs than minSdk 26 has.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -47,6 +50,11 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    lint {
+        // A dependency ships Timber's lint rules; FoxNav logs with android.util.Log.
+        disable += "LogNotTimber"
     }
 }
 
@@ -57,6 +65,7 @@ kotlin {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(project(":shared"))
 
     implementation(platform(libs.androidx.compose.bom))
@@ -66,8 +75,17 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.maplibre.android)
+    implementation(libs.okhttp)
+
+    implementation(libs.ferrostar.core)
+    implementation(libs.ferrostar.ui.compose)
+    implementation(libs.ferrostar.ui.maplibre)
+    implementation(libs.ferrostar.ui.shared)
+    implementation(libs.maplibre.compose)
+    // Only the Play Store build may use Google Play Services (fused location).
+    "playImplementation"(libs.ferrostar.google.play.services)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

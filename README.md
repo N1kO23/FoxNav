@@ -2,7 +2,12 @@
 
 Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras, and **live convoys** where you see your friends' cars and speeds on the map as you drive. Open source, built on OpenStreetMap, and you can run your own server.
 
-> **Status:** early development. The repository holds the foundations: the build, a local map backend, a reference server and the protocol draft. The app doesn't navigate yet. See the [roadmap](docs/architecture.md#roadmap).
+> **Status:** early development. The Android app navigates against the local backend:
+> - free drive with speed limits;
+> - search and route alternatives;
+> - turn-by-turn with voice.
+>
+> Convoys come next. See the [roadmap](docs/architecture.md#roadmap).
 
 ## What it will do
 

@@ -54,6 +54,7 @@ class ServerTest {
         val response = client.get("/styles/night.json") { header(HttpHeaders.Host, "10.0.2.2:8080") }
         assertEquals(HttpStatusCode.OK, response.status)
         assertTrue("pmtiles://http://10.0.2.2:8080/tiles/fi.pmtiles" in response.bodyAsText(), response.bodyAsText())
+        assertEquals("no-cache", response.headers[HttpHeaders.CacheControl])
     }
 
     @Test
