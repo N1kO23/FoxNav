@@ -78,6 +78,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    // The convoy connection (the session lives in :shared) and invite QR codes.
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.zxing.core)
 
     implementation(libs.ferrostar.core)
     implementation(libs.ferrostar.ui.compose)

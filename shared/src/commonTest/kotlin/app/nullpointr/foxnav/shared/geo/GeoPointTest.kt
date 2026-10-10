@@ -16,4 +16,13 @@ class GeoPointTest {
         val distance = GeoPoint(60.1699, 24.9384).distanceTo(GeoPoint(60.1700, 24.9384))
         assertTrue(abs(distance - 11.1) < 0.1, "was $distance")
     }
+
+    @Test
+    fun bearings() {
+        val helsinki = GeoPoint(60.1699, 24.9384)
+        assertTrue(abs(helsinki.bearingTo(GeoPoint(60.2699, 24.9384)) - 0.0) < 0.01)
+        assertTrue(abs(helsinki.bearingTo(GeoPoint(60.1699, 25.0384)) - 90.0) < 0.1)
+        assertTrue(abs(helsinki.bearingTo(GeoPoint(60.0699, 24.9384)) - 180.0) < 0.01)
+        assertTrue(abs(helsinki.bearingTo(GeoPoint(60.1699, 24.8384)) - 270.0) < 0.1)
+    }
 }

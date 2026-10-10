@@ -3,6 +3,7 @@ FROM eclipse-temurin:21-jdk AS build
 WORKDIR /src
 COPY gradlew settings.gradle.kts build.gradle.kts gradle.properties ./
 COPY gradle gradle
+COPY protocol protocol
 COPY shared shared
 COPY server server
 RUN ./gradlew --no-daemon :server:installDist

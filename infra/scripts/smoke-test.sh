@@ -27,6 +27,17 @@ route_helsinki_tampere() {
         | python3 -c 'import json, sys; s = json.load(sys.stdin)["trip"]["summary"]; print("%.0f km, %.0f min" % (s["length"], s["time"] / 60))'
 }
 
+# The convoy endpoint must upgrade to a WebSocket through the gateway (101 Switching Protocols).
+realtime_upgrade() {
+    local path code
+    path=$(json "$BASE/.well-known/foxnav" 'd.get("realtime")') || { echo "no realtime endpoint in the discovery document"; return 1; }
+    # After the upgrade the connection stays open, so curl always ends on its timeout.
+    code=$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' "$BASE$path" \
+        -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+        -H 'Sec-WebSocket-Key: Zm94bmF2LXNtb2tlLXRlc3Q=' -H 'Sec-WebSocket-Protocol: foxnav.v0')
+    [ "$code" = 101 ] && echo "$path upgrades" || { echo "HTTP $code from $path"; return 1; }
+}
+
 range_request() {
     local code
     code=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -r 0-126 "$BASE/tiles/region.pmtiles")
@@ -40,6 +51,7 @@ check "fonts" curl -fsS --max-time 30 -o /dev/null "$BASE/assets/fonts/Noto%20Sa
 check "sprites" json "$BASE/assets/sprites/v4/dark.json" 'f"{len(d)} icons"'
 check "routing: Helsinki -> Tampere" route_helsinki_tampere
 check "search: Tampere" json "$BASE/photon/api?q=Tampere&limit=1" 'd["features"][0]["properties"]["name"]'
+check "convoy realtime endpoint" realtime_upgrade
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed. Services still building their data answer with 502; see infra/README.md."

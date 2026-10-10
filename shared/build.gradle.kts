@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.wire)
 }
 
 kotlin {
@@ -18,9 +19,24 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(libs.kotlinx.serialization.json)
+            api(libs.kotlinx.coroutines.core)
+            api(libs.wire.runtime)
+            // The convoy client; consumers add an engine (OkHttp on Android, CIO for tools) and
+            // install the WebSockets plugin.
+            api(libs.ktor.client.core)
+            api(libs.ktor.client.websockets)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
+}
+
+// Kotlin types for the realtime protocol, generated from the spec's .proto files.
+wire {
+    sourcePath {
+        srcDir("../protocol/proto")
+    }
+    kotlin {}
 }

@@ -3,6 +3,7 @@ package app.nullpointr.foxnav.drive
 import android.os.SystemClock
 import androidx.lifecycle.viewModelScope
 import app.nullpointr.foxnav.BuildConfig
+import app.nullpointr.foxnav.convoy.ConvoyController
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.shared.format.kilometersPerHour
@@ -20,6 +21,8 @@ import com.stadiamaps.ferrostar.core.measurement.MeasurementSpeedUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +42,7 @@ import kotlinx.coroutines.launch
 import uniffi.ferrostar.GeographicCoordinate
 import uniffi.ferrostar.Route
 import uniffi.ferrostar.Speed
+import uniffi.ferrostar.TripState
 import uniffi.ferrostar.UserLocation
 import uniffi.ferrostar.Waypoint
 import uniffi.ferrostar.WaypointKind
@@ -65,6 +69,7 @@ class DriveViewModel(
     private val locationProvider: NavigationLocationProvider,
     private val placeSearch: PlaceSearch?,
     private val roadLookup: RoadLookup,
+    private val convoy: ConvoyController,
     private val playOverLimitChime: () -> Unit,
 ) : DefaultNavigationViewModel(core, valhallaExtendedOSRMAnnotationPublisher()) {
 
@@ -87,6 +92,13 @@ class DriveViewModel(
 
     private val _preview = MutableStateFlow<RoutePreview?>(null)
     val preview: StateFlow<RoutePreview?> = _preview.asStateFlow()
+
+    private var destination: Place? = null
+    private var arrivalJob: Job? = null
+    private val _arrivedAt = MutableStateFlow<String?>(null)
+
+    /** Where we just arrived, for a few seconds after a trip ends there. */
+    val arrivedAt: StateFlow<String?> = _arrivedAt.asStateFlow()
 
     // Debug builds drive the route themselves by default, so the emulator can navigate.
     private val _simulate = MutableStateFlow(BuildConfig.DEBUG)
@@ -135,6 +147,12 @@ class DriveViewModel(
                 .collect { location -> freeDriveLocation.value = location }
         }
         viewModelScope.launch { trackFreeDriveRoad() }
+        viewModelScope.launch {
+            // Arrived: end the trip, so the route line clears and a convoy stops seeing our
+            // destination. Ferrostar completes a trip only a few metres from the destination;
+            // parking a little short counts as arriving too.
+            core.state.map { it.tripState.hasArrived() }.distinctUntilChanged().filter { it }.collect { endTrip(arrived = true) }
+        }
         viewModelScope.launch {
             speed.map { it.overLimit }.distinctUntilChanged().filter { it }.collect {
                 if (core.spokenInstructionObserver?.isMuted != true) playOverLimitChime()
@@ -205,6 +223,11 @@ class DriveViewModel(
         }
     }
 
+    /** Previews a route to a place from the convoy: a shared destination or the regroup point. */
+    fun previewConvoyPlace(point: GeoPoint, name: String) {
+        preview(Place(title = name, detail = "From the convoy", latitude = point.latitude, longitude = point.longitude))
+    }
+
     fun selectRoute(index: Int) {
         _preview.update { it?.copy(selected = index) }
     }
@@ -219,15 +242,34 @@ class DriveViewModel(
 
     /** Starts turn-by-turn on the selected route. */
     fun startNavigation() {
-        val route = _preview.value?.selectedRoute ?: return
+        val preview = _preview.value ?: return
+        val route = preview.selectedRoute ?: return
         _preview.value = null
+        destination = preview.destination
+        arrivalJob?.cancel()
+        _arrivedAt.value = null
         if (_simulate.value) locationProvider.enableSimulationOn(route)
         core.startNavigation(route = route)
+        // In a convoy, the others can follow us there.
+        convoy.shareDestination(GeoPoint(preview.destination.latitude, preview.destination.longitude), preview.destination.title)
     }
 
-    override fun stopNavigation() {
+    override fun stopNavigation() = endTrip(arrived = false)
+
+    private fun endTrip(arrived: Boolean) {
+        val place = destination
+        destination = null
         locationProvider.disableSimulation()
         core.stopNavigation()
+        convoy.shareDestination(null)
+        if (arrived) {
+            _arrivedAt.value = place?.title ?: "Your destination"
+            arrivalJob?.cancel()
+            arrivalJob = viewModelScope.launch {
+                delay(ARRIVED_SHOWN_MS)
+                _arrivedAt.value = null
+            }
+        }
     }
 
     override fun toggleMute() {
@@ -238,6 +280,11 @@ class DriveViewModel(
         const val MIN_TRACE_SPACING_M = 15.0
         const val MAX_TRACE_POINTS = 6
         const val ROAD_LOOKUP_INTERVAL_MS = 5_000L
+        const val ARRIVAL_RADIUS_M = 30.0
+        const val ARRIVED_SHOWN_MS = 10_000L
+
+        fun TripState.hasArrived() =
+            this is TripState.Complete || (this is TripState.Navigating && progress.distanceRemaining <= ARRIVAL_RADIUS_M)
     }
 }
 
@@ -248,5 +295,9 @@ private fun UserLocation.withSpeedFrom(previous: UserLocation?): UserLocation {
     if (seconds <= 0 || seconds > 10) return this
     val meters = GeoPoint(previous.coordinates.lat, previous.coordinates.lng)
         .distanceTo(GeoPoint(coordinates.lat, coordinates.lng))
+    // A jump, not a drive: e.g. back to real GPS when a simulated drive ends.
+    if (meters / seconds > MAX_PLAUSIBLE_SPEED_MPS) return this
     return copy(speed = Speed(meters / seconds, null))
 }
+
+private const val MAX_PLAUSIBLE_SPEED_MPS = 100.0

@@ -103,12 +103,13 @@ private fun DistanceReadout(meters: Double) {
     }
 }
 
-/** Bottom panel while navigating: speed and limit, arrival, mute and end. */
+/** Bottom panel while navigating: speed and limit, arrival, mute, convoy and end. */
 @Composable
 fun DrivePanel(
     uiState: NavigationUiState,
     speed: SpeedReading,
     onToggleMute: () -> Unit,
+    onConvoy: () -> Unit,
     onEnd: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -143,6 +144,7 @@ fun DrivePanel(
                 OutlinedButton(onClick = onToggleMute, modifier = Modifier.weight(1f)) {
                     Text(if (uiState.isMuted == true) "Unmute" else "Mute")
                 }
+                OutlinedButton(onClick = onConvoy, modifier = Modifier.weight(1f)) { Text("Convoy") }
                 if (onEnd != null) {
                     Button(onClick = onEnd, modifier = Modifier.weight(1f)) { Text("End") }
                 }

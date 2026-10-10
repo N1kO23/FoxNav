@@ -6,7 +6,7 @@ This document is for anyone building a FoxNav client or server. A FoxNav backend
 - standard map services: MapLibre styles and tiles, Valhalla-compatible routing and Photon-compatible search;
 - the **realtime endpoint** for convoys (and later live reports).
 
-**Status:** discovery (§1) is implemented by the reference server in `server/`. The realtime protocol (§2) is a draft for the convoy work and will change before v1. Its message definitions are in [`proto/foxnav/convoy/v0/convoy.proto`](proto/foxnav/convoy/v0/convoy.proto).
+**Status:** the reference server in `server/` implements discovery (§1) and the convoy relay (§2), and `shared/` has the matching convoy client. The realtime protocol is still a draft and will change before v1. Its message definitions are in [`proto/foxnav/convoy/v0/convoy.proto`](proto/foxnav/convoy/v0/convoy.proto).
 
 ## 1. Discovery
 
@@ -57,9 +57,11 @@ What the local stack in `infra/` returns:
 {
   "foxnav": 1,
   "name": "FoxNav (local)",
+  "realtime": "/v1/ws",
   "styles": { "day": "/styles/day.json", "night": "/styles/night.json" },
   "routing": { "type": "valhalla", "url": "/valhalla" },
   "search": { "type": "photon", "url": "/photon" },
+  "features": ["convoy"],
   "regions": ["FI"]
 }
 ```
@@ -70,30 +72,55 @@ What the local stack in `infra/` returns:
 
 - A WebSocket connection to the `realtime` URL, using the subprotocol `foxnav.v0`.
 - Every frame is binary and holds exactly one protobuf message: `ClientMessage` from the client, `ServerMessage` from the server.
-- The client sends `Ping` when it has sent nothing for 15 s. The server closes connections that stay silent for 45 s.
-- After a dropped connection, clients reconnect with exponential backoff (1 s up to 30 s, with jitter) and send `Resume` with the token from `Joined`. After reconnecting, they publish only their latest state, because old positions are worthless.
+- The client opens with `Hello`. The server answers `Welcome` with its name and the most members a convoy may have.
+- The client sends `Ping` every 15 s and the server answers `Pong`, so a working connection is never silent for long. Clients treat 45 s without any message as a dead connection; servers close connections that stay silent that long.
+- After a dropped connection, clients reconnect with exponential backoff (1 s doubling up to 30 s, with ±20 % jitter) and send `Resume` with the token from `Joined`.
+  - If the seat has expired meanwhile, the server answers `Error` `NOT_FOUND`, and the client joins again with the invite on the same connection.
+  - After reconnecting, clients publish only their latest state, because old positions are worthless.
 
 ### 2.2 Convoys
 
 A convoy is a room on one server.
 
-1. **Create.** The client sends `CreateConvoy`. The server answers `ConvoyCreated` with a random `convoy_id` and a `join_token`. The client generates the convoy's encryption key locally (§2.3). The key never goes to the server.
+1. **Create.** The client sends `CreateConvoy`.
+   - The server answers `ConvoyCreated`, with a random 16-byte `convoy_id` and a `join_token`.
+   - Then it sends `Joined`: the creator is the convoy's first member and its **owner**.
+   - The client generates the convoy's encryption key locally (§2.3). The key never goes to the server.
 2. **Invite.** The creator shares a link:
 
    ```
    https://<link domain>/join#v=0&s=<server URL>&c=<convoy_id>&t=<join_token>&k=<key>
    ```
 
-   The parameters are form-encoded, with binary values in unpadded base64url. Everything sits in the URL fragment, which browsers never send to any server. So the operator of the link domain learns nothing, and the link works for convoys on any server. The same string can be shown as a QR code.
-3. **Join.** The client connects to the server named in the invite and sends `JoinConvoy` with the convoy ID and join token. The server answers `Joined` with the member ID it assigned, a resume token, its limits, and the last state of every member (still encrypted). Other members get `MemberJoined`.
+   - The parameters are form-encoded, with binary values in unpadded base64url.
+   - Everything sits in the URL fragment, which browsers never send to any server. So the operator of the link domain learns nothing, and the link works for convoys on any server.
+   - The same string can be shown as a QR code.
+   - Until FoxNav has a link domain, the app uses `foxnav://join#…` with the same fragment.
+3. **Join.** The client connects to the server named in the invite and sends `JoinConvoy` with the convoy ID and join token. The server answers `Joined`, with:
+   - the member ID it assigned, and a resume token;
+   - the owner's member ID;
+   - every other member, with their latest `STATE` payload (still encrypted) and how long ago the server received it. That lets a late joiner tell a quiet car from a live one.
+
+   Other members get `MemberJoined`. A wrong token gets `Error` `FORBIDDEN`, an unknown convoy `NOT_FOUND`, and a full convoy `CONVOY_FULL`.
 4. **Publish.** Members send `Publish` with an encrypted payload on one of two channels:
-   - `STATE` for things where only the latest value matters (position, profile, shared route). The server keeps the latest `STATE` payload per member for people who join later.
+   - `STATE` for things where only the latest value matters: everything about the member, bundled (§2.4). The server keeps the latest `STATE` payload per member for people who join later.
    - `EVENT` for one-off messages (quick messages, regroup pins, key rotations). The server relays them without keeping them.
 
-   The server forwards each payload to all other members as `Relay`. It may drop `STATE` messages that arrive faster than once per second.
-5. **Leave or remove.** `LeaveConvoy` removes yourself. The convoy's creator can send `RemoveMember`, after which the server stops relaying to and from that member. Others get `MemberLeft`.
+   The server forwards each payload to all other members as `Relay`, stamped with the sender and the server's clock (`server_time_ms`).
 
-Servers never store positions. Rooms live in memory and expire when they have been empty for a while.
+   Rates:
+   - Clients publish `STATE` at most once a second. They publish it again every 5 s while it stays the same, because the others take silence for a lost signal.
+   - Servers may rate-limit. The reference server relays at most 5 `STATE` payloads per member in any 3 s, since a burst arrives after a network stall, and drops the rest silently.
+   - It answers more than 10 `EVENT` payloads per member in 10 s with `Error` `RATE_LIMITED`.
+5. **Leave or remove.**
+   - `LeaveConvoy` removes yourself.
+   - The owner can send `RemoveMember`. The server tells the removed member with `MemberLeft` (`removed` set) and stops relaying to and from them.
+   - The others get `MemberLeft` either way.
+   - When the owner leaves, ownership passes to whoever has been in the convoy longest, named in `MemberLeft.new_owner`.
+
+A member whose connection drops keeps their seat for a few minutes (5 in the reference server) and can `Resume` it, without the others being told. After that, the server frees the seat and the others get `MemberLeft`.
+
+Servers never store positions. Rooms live in memory and expire when they have been empty for a while (an hour in the reference server).
 
 ### 2.3 End-to-end encryption
 
@@ -101,13 +128,21 @@ Servers never store positions. Rooms live in memory and expire when they have be
 - **Cipher:** AES-256-GCM with a fresh random 12-byte nonce per message and a 16-byte tag.
 - **Associated data:** `convoy_id ‖ sender member_id (8 bytes, big-endian) ‖ channel (1 byte)`. A server can't move a payload to another convoy, member or channel without detection.
 - **Plaintext:** a serialized `ConvoyPayload` message.
-- **Rotation:** after a removal, the creator sends a `KeyRotation` event with a new key and epoch, encrypted under the current key. Each `Sealed` payload names the epoch of its key.
+- **Rotation:** after a removal, the owner sends a `KeyRotation` event with a new key and epoch, encrypted under the current key. Each `Sealed` payload names the epoch of its key. The app doesn't rotate keys yet; until it does, a removed member keeps the key, though the server no longer relays anything to them.
 
 See [`docs/threat-model.md`](../docs/threat-model.md) for what this protects against and what it doesn't.
 
 ### 2.4 Payloads
 
-Defined in the `.proto` file: `Position` (location, speed, heading, accuracy, fix time), `Profile` (display name and car), `RouteShare` (destination and via points), `QuickMessage`, `RegroupPin` and `KeyRotation`.
+Defined in the `.proto` file.
+
+- **`STATE`** carries a `MemberState`, everything the others need about a member in one message, because the server keeps only the latest one:
+  - `Profile`: display name and car (make, model, colour, body style);
+  - `Position`: location, speed, heading, accuracy and fix time. It is absent until the first GPS fix;
+  - `RouteShare`: a shared destination and via points, with the destination last.
+- **`EVENT`** carries a `QuickMessage`, a `RegroupPin` or a `KeyRotation`.
+
+Receivers ignore a `STATE` whose position is older than the one they already have (a replay).
 
 ### 2.5 Not yet specified
 
@@ -119,4 +154,8 @@ These arrive in a later version of this document:
 
 ## 3. Conformance
 
-A conformance test suite will run against any server URL and report which parts of this spec the server implements correctly. Until it exists, the reference server's tests in `server/src/test/` are the executable description of §1.
+A conformance test suite will run against any server URL and report which parts of this spec the server implements correctly. Until it exists, the reference server's tests in `server/src/test/` are the executable description:
+
+- `ServerTest` covers §1;
+- `ConvoyRelayTest` covers §2 message by message;
+- `ConvoySessionTest` covers the client in `shared/` against the server over a real WebSocket.

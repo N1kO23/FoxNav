@@ -16,23 +16,24 @@ What convoy encryption ([ADR 0003](adr/0003-convoy-encryption.md), [spec §2.3](
 | Server operator | No. Payloads are encrypted with a key the server never sees. | Metadata (see below). Dropping or delaying messages. |
 | Someone on the network (Wi-Fi, ISP) | No. Everything goes over TLS. | That you talk to a FoxNav server, and how much. |
 | Operator of the invite-link domain | No for the app. Links open in the app, and the fragment holding the key is never sent to any server. | A web page served from that domain *can* read the fragment, so web joiners trust the link domain, like any end-to-end encrypted web app. |
-| Anyone the invite link is forwarded to | Yes. The link is the key. | Everything a member can see, until the creator removes them. |
+| Anyone the invite link is forwarded to | Yes. The link is the key. | Everything a member can see, until the owner removes them. |
 | Current members | Yes, by design. | |
-| Removed members | Not after the key rotation, as long as the server is honest. | With a malicious server's help: the rotated key, because it's sent under the old key. |
+| Removed members | Today, yes: the app doesn't rotate the key yet, so a removed member can still decrypt anything they get hold of. An honest server no longer relays anything to them. | Once rotation exists, with a malicious server's help: the rotated key, because it's sent under the old key. |
 
 ## Integrity
 
 - **Moving messages.** A payload is bound to its convoy, sender and channel by the encryption's associated data. A server that moves it elsewhere makes decryption fail.
 - **Impersonation.** The server stamps the real sender on every relayed message, and that sender is part of the associated data. So a member can't impersonate another member on their own, only with the server's help.
 - **Replay.** A malicious server could replay old payloads.
-  - Clients ignore positions older than the latest one they have from that member, using `fix_time_ms`.
+  - Clients ignore a state whose position is older than the latest one they have from that member, using `fix_time_ms`.
+  - An exact replay of the latest state passes as a refresh, so a server could make a member who went quiet look alive.
   - Events need a message ID or timestamp to drop duplicates. That's still to be done before v1.
 
 ## Metadata the server sees
 
 - IP addresses and connection times of members.
 - How many members a convoy has, and when they join and leave.
-- Message timing and size. Members send about once per second while moving and rarely when parked, so the server can tell moving from parked.
+- Message timing and size. Members send about once per second while their position changes and every 5 s otherwise, so the server can tell moving from parked.
 
 Possible later mitigations: sending at a constant rate, padding payloads, and connecting through a proxy or Tor.
 
@@ -40,6 +41,12 @@ Possible later mitigations: sending at a constant rate, padding payloads, and co
 
 - A compromised phone. Malware on a member's phone sees what that member sees.
 - Members screenshotting or sharing what they see.
+
+## How the app handles the key
+
+- The key exists only in memory while you're in the convoy, and inside the invite link.
+- The app never logs invite links. `Invite.toString()` leaves the key out.
+- A copied invite is marked sensitive, so Android leaves it out of the clipboard preview.
 
 ## Advice for users
 

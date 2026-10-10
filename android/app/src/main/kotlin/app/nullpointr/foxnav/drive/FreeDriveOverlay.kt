@@ -23,6 +23,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -51,7 +52,10 @@ import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.format.formatDistance
 import app.nullpointr.foxnav.shared.format.formatDuration
 import app.nullpointr.foxnav.ui.components.SpeedCluster
+import app.nullpointr.foxnav.ui.PanelBounds
+import app.nullpointr.foxnav.ui.bottomPanelOf
 import app.nullpointr.foxnav.ui.icons.FoxIcons
+import app.nullpointr.foxnav.ui.topPanelOf
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationMapState
 import java.text.DecimalFormatSymbols
@@ -63,10 +67,13 @@ fun BoxScope.FreeDriveOverlay(
     viewModel: DriveViewModel,
     document: DiscoveryDocument,
     navigationMapState: NavigationMapState,
+    panels: PanelBounds,
+    onOpenConvoy: () -> Unit,
 ) {
     val uiState by viewModel.navigationUiState.collectAsState()
     if (uiState.isNavigating()) return
     val preview by viewModel.preview.collectAsState()
+    val query by viewModel.query.collectAsState()
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
     Column(
@@ -77,17 +84,26 @@ fun BoxScope.FreeDriveOverlay(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (preview == null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+            Row(Modifier.topPanelOf(panels), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 SearchPanel(viewModel, Modifier.weight(1f))
+                val inConvoy = LocalContext.current.appGraph.convoy.active.collectAsState().value != null
+                PanelButton(onClick = onOpenConvoy) {
+                    Icon(FoxIcons.Convoy, contentDescription = "Convoy", tint = if (inConvoy) MaterialTheme.colorScheme.secondary else LocalContentColor.current)
+                }
                 PanelButton(onClick = { showSettings = true }) { Icon(FoxIcons.Settings, contentDescription = "Server settings") }
             }
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            PanelButton(onClick = { navigationMapState.recenter(isNavigating = false) }, modifier = Modifier.align(Alignment.BottomEnd)) {
-                Icon(FoxIcons.Locate, contentDescription = "Center on my location")
+        // While searching, the results and the keyboard need the room.
+        if (preview != null || query.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                PanelButton(onClick = { navigationMapState.recenter(isNavigating = false) }, modifier = Modifier.align(Alignment.BottomEnd)) {
+                    Icon(FoxIcons.Locate, contentDescription = "Center on my location")
+                }
+            }
+            Box(Modifier.bottomPanelOf(panels)) {
+                preview?.let { RoutePreviewPanel(it, viewModel) } ?: FreeDrivePanel(viewModel)
             }
         }
-        preview?.let { RoutePreviewPanel(it, viewModel) } ?: FreeDrivePanel(viewModel)
     }
 
     if (showSettings) {
@@ -112,14 +128,22 @@ fun BoxScope.FreeDriveOverlay(
 private fun FreeDrivePanel(viewModel: DriveViewModel) {
     val speed by viewModel.speed.collectAsState()
     val road by viewModel.road.collectAsState()
+    val arrivedAt by viewModel.arrivedAt.collectAsState()
     val colors = MaterialTheme.colorScheme
 
     Surface(shape = RoundedCornerShape(24.dp), color = colors.surface, border = BorderStroke(1.dp, colors.outline)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             SpeedCluster(speed)
             Column(Modifier.weight(1f)) {
-                Text(road?.name ?: "Free drive", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("FREE DRIVE", fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 2.sp, color = colors.secondary)
+                Text(arrivedAt ?: road?.name ?: "Free drive", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    if (arrivedAt != null) "ARRIVED" else "FREE DRIVE",
+                    fontFamily = ChakraPetch,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    letterSpacing = 2.sp,
+                    color = colors.secondary,
+                )
             }
         }
     }

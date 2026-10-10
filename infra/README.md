@@ -6,6 +6,7 @@ Everything the app needs from a backend, running on your machine behind one orig
 | ---------------------------------- | ------------------------------------------------ | ----------------------------------------------------------- |
 | `/.well-known/foxnav`              | FoxNav server                                    | Discovery document: tells the app where everything else is  |
 | `/styles/{night,day}.json`         | FoxNav server                                    | MapLibre styles, filled in with the address the client used |
+| `/v1/ws`                           | FoxNav server                                    | Convoy relay (WebSocket), forwarding encrypted positions    |
 | `/tiles/region.pmtiles`            | Caddy (static)                                   | Vector map data for the region                              |
 | `/assets/fonts`, `/assets/sprites` | Caddy (static)                                   | Label fonts and map icons                                   |
 | `/valhalla/*`                      | [Valhalla](https://github.com/valhalla/valhalla) | Routing and turn-by-turn instructions                       |

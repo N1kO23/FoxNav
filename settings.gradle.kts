@@ -34,6 +34,9 @@ rootProject.name = "foxnav"
 
 include(":shared", ":server")
 
+// Developer tools. Builds without them, like the server's Docker image, leave them out.
+if (file("tools/convoy-sim").isDirectory) include(":tools:convoy-sim")
+
 // The Android app needs an Android SDK. It is only included when one is configured
 // (local.properties `sdk.dir`, ANDROID_HOME or ANDROID_SDK_ROOT), so the server and
 // shared code still build on machines without it, e.g. for people who only self-host.

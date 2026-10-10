@@ -23,6 +23,8 @@ data class ServerConfig(
     val stylesDir: Path? = null,
     /** ISO 3166-1 alpha-2 codes of the countries this server has map data for. */
     val regions: List<String> = emptyList(),
+    /** Members per convoy. */
+    val maxConvoySize: Int = 20,
 ) {
     /** Theme names of the available style templates, e.g. `day` and `night`. */
     fun styleNames(): List<String> = stylesDir
@@ -46,6 +48,7 @@ data class ServerConfig(
                 stylesDir = env["FOXNAV_STYLES_DIR"]?.let { Path(it) },
                 regions = env["FOXNAV_REGIONS"]?.split(',')?.map { it.trim().uppercase() }?.filter { it.isNotEmpty() }
                     ?: defaults.regions,
+                maxConvoySize = env["FOXNAV_MAX_CONVOY_SIZE"]?.toInt() ?: defaults.maxConvoySize,
             )
         }
     }

@@ -12,13 +12,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import app.nullpointr.foxnav.appGraph
+import app.nullpointr.foxnav.convoy.ConvoyLayers
+import app.nullpointr.foxnav.convoy.ConvoyOverlay
+import app.nullpointr.foxnav.convoy.ConvoySheet
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
+import app.nullpointr.foxnav.shared.geo.GeoPoint
 import app.nullpointr.foxnav.shared.search.Place
+import app.nullpointr.foxnav.ui.ScreenPanels
+import app.nullpointr.foxnav.ui.bottomPanelOf
+import app.nullpointr.foxnav.ui.topPanelOf
 import com.stadiamaps.ferrostar.composeui.config.NavigationViewComponentBuilder
 import com.stadiamaps.ferrostar.composeui.config.VisualNavigationViewConfig
 import com.stadiamaps.ferrostar.composeui.config.withCustomOverlayView
@@ -34,6 +46,7 @@ import com.stadiamaps.ferrostar.maplibreui.routeline.RouteOverlayBuilder
 import com.stadiamaps.ferrostar.maplibreui.runtime.navigationCameraOptions
 import com.stadiamaps.ferrostar.maplibreui.runtime.rememberNavigationMapState
 import com.stadiamaps.ferrostar.maplibreui.views.DynamicallyOrientingNavigationView
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.maplibre.compose.map.MapOptions
 import org.maplibre.compose.map.OrnamentOptions
 import org.maplibre.compose.style.BaseStyle
@@ -47,6 +60,14 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
     val colors = MaterialTheme.colorScheme
     val navigationMapState = rememberNavigationMapState()
     val preview by viewModel.preview.collectAsState()
+    val graph = LocalContext.current.appGraph
+    val convoy = graph.convoy
+    val activeConvoy by convoy.active.collectAsState()
+    val convoyMembers by remember(activeConvoy) { activeConvoy?.session?.members ?: MutableStateFlow(emptyMap()) }.collectAsState()
+    val regroupPoint by convoy.regroupPoint.collectAsState()
+    var showConvoy by rememberSaveable { mutableStateOf(false) }
+    val panels = remember { ScreenPanels() }
+    val query by viewModel.query.collectAsState()
 
     // Frame the selected route while previewing.
     LaunchedEffect(preview?.selectedRoute) {
@@ -73,13 +94,33 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         // Speed, limit and mute live in our panels.
         config = VisualNavigationViewConfig(showMute = false, showZoom = false, showRecenter = true),
         views = NavigationViewComponentBuilder.Default()
-            .withInstructionsView { modifier, uiState -> ManeuverCard(uiState, modifier) }
+            .withInstructionsView { modifier, uiState -> ManeuverCard(uiState, modifier.topPanelOf(panels.navigation)) }
             .withProgressView { modifier, uiState, onTapExit ->
                 val speed by viewModel.speed.collectAsState()
-                DrivePanel(uiState, speed, onToggleMute = viewModel::toggleMute, onEnd = onTapExit, modifier = modifier)
+                DrivePanel(
+                    uiState,
+                    speed,
+                    onToggleMute = viewModel::toggleMute,
+                    onConvoy = { showConvoy = true },
+                    onEnd = onTapExit,
+                    modifier = modifier.bottomPanelOf(panels.navigation),
+                )
             }
             .withRoadNameView { modifier, roadName, _ -> RoadNamePill(roadName, modifier) }
-            .withCustomOverlayView { modifier -> FreeDriveOverlay(modifier, viewModel, document, navigationMapState) },
+            .withCustomOverlayView { modifier ->
+                FreeDriveOverlay(modifier, viewModel, document, navigationMapState, panels.freeDrive, onOpenConvoy = { showConvoy = true })
+                val uiState by viewModel.navigationUiState.collectAsState()
+                val route = remember(uiState.routeGeometry) { uiState.routeGeometry?.map { GeoPoint(it.lat, it.lng) } }
+                ConvoyOverlay(
+                    convoy = convoy,
+                    placements = graph.towerPlacement,
+                    panels = panels.of(navigating = uiState.isNavigating()),
+                    // Out of the way of search results.
+                    hidden = query.isNotEmpty() && !uiState.isNavigating(),
+                    route = route,
+                    onOpen = { showConvoy = true },
+                )
+            },
         routeOverlayBuilder = RouteOverlayBuilder(
             navigationPath = { uiState ->
                 uiState.routeGeometry?.let { geometry ->
@@ -95,6 +136,16 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         mapOptions = MapOptions(ornamentOptions = OrnamentOptions(isCompassEnabled = false, isScaleBarEnabled = false)),
     ) { uiState ->
         if (!uiState.isNavigating()) RoutePreviewLayers(preview)
+        ConvoyLayers(convoyMembers, regroupPoint)
+    }
+
+    if (showConvoy) {
+        ConvoySheet(
+            convoy = convoy,
+            serverUrl = graph.serverSettings.serverUrl.collectAsState().value,
+            onNavigateTo = viewModel::previewConvoyPlace,
+            onDismiss = { showConvoy = false },
+        )
     }
 }
 

@@ -17,6 +17,8 @@ captures/
 *.iml
 .vscode/
 .fleet/
+# VS Code's Java extension (Eclipse JDT) compiles into bin/ next to each module.
+bin/
 
 # OS
 .DS_Store

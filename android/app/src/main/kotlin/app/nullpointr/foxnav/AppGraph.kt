@@ -1,6 +1,9 @@
 package app.nullpointr.foxnav
 
 import android.content.Context
+import app.nullpointr.foxnav.convoy.ConvoyController
+import app.nullpointr.foxnav.convoy.ProfileStore
+import app.nullpointr.foxnav.convoy.TowerPlacementStore
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.location.liveLocationProvider
@@ -41,6 +44,15 @@ class AppGraph(private val context: Context) {
     val voice = AndroidTtsObserver(context)
 
     val chime by lazy { Chime(context) }
+
+    /** How we appear in convoys. */
+    val profiles = ProfileStore(context)
+
+    /** The convoy we're in, if any; it shares positions from [locationProvider]. */
+    val convoy by lazy { ConvoyController(context, locationProvider, profiles, voice) }
+
+    /** Where the user put the convoy tower on the map. */
+    val towerPlacement = TowerPlacementStore(context)
 
     // Keeps navigation (and location updates) running with the screen off.
     private val foregroundServiceManager by lazy {

@@ -4,6 +4,8 @@ syntax = "proto3";
 
 package foxnav.convoy.v0;
 
+option java_package = "app.nullpointr.foxnav.protocol.convoy.v0";
+
 // ---------------------------------------------------------------------------
 // Envelope: what the server sees. Payloads inside `Sealed` are end-to-end
 // encrypted and opaque to the server.
@@ -45,6 +47,8 @@ message Welcome {
   uint32 max_convoy_size = 2;  // members per convoy
 }
 
+// Creates a convoy and joins the creator, who becomes its owner. The server answers
+// ConvoyCreated, then Joined.
 message CreateConvoy {}
 
 message ConvoyCreated {
@@ -66,12 +70,14 @@ message Joined {
   bytes convoy_id = 1;
   uint64 member_id = 2;      // assigned by the server, unique within the convoy
   bytes resume_token = 3;
-  repeated Member members = 4;
+  repeated Member members = 4; // everyone else, with their latest STATE payload
+  uint64 owner = 5;            // the member who may remove others
 }
 
 message Member {
   uint64 member_id = 1;
-  Sealed last_state = 2; // latest STATE payload, if the member has sent one
+  Sealed last_state = 2;        // latest STATE payload, if the member has sent one
+  uint64 last_state_age_ms = 3; // how long ago the server received last_state
 }
 
 message MemberJoined {
@@ -80,7 +86,8 @@ message MemberJoined {
 
 message MemberLeft {
   uint64 member_id = 1;
-  bool removed = 2; // removed by the creator rather than leaving
+  bool removed = 2;   // removed by the owner rather than leaving
+  uint64 new_owner = 3; // set when the owner left and ownership moved on
 }
 
 enum Channel {
@@ -91,19 +98,19 @@ enum Channel {
 
 message Publish {
   Channel channel = 1;
-  Sealed sealed = 2;
+  Sealed payload = 2;
 }
 
 message Relay {
   uint64 sender = 1;
   Channel channel = 2;
-  Sealed sealed = 3;
+  Sealed payload = 3;
   int64 server_time_ms = 4; // Unix epoch milliseconds when the server relayed it
 }
 
 message LeaveConvoy {}
 
-// Only the convoy's creator may remove members.
+// Only the convoy's owner may remove members.
 message RemoveMember {
   uint64 member_id = 1;
 }
@@ -139,13 +146,19 @@ message Sealed {
 
 message ConvoyPayload {
   oneof payload {
-    Position position = 1;        // STATE
-    Profile profile = 2;          // STATE
-    RouteShare route_share = 3;   // STATE
-    QuickMessage quick_message = 4; // EVENT
-    RegroupPin regroup_pin = 5;   // EVENT
-    KeyRotation key_rotation = 6; // EVENT
+    MemberState state = 1;          // STATE
+    QuickMessage quick_message = 2; // EVENT
+    RegroupPin regroup_pin = 3;     // EVENT
+    KeyRotation key_rotation = 4;   // EVENT
   }
+}
+
+// Everything the others need to know about a member. The server keeps only each member's
+// latest STATE payload for people who join later, so it must be complete on its own.
+message MemberState {
+  Profile profile = 1;
+  Position position = 2; // absent until the first GPS fix
+  RouteShare route = 3;  // a shared destination, usually only the leader's
 }
 
 message Position {

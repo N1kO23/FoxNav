@@ -35,6 +35,7 @@ fun DriveRoute(document: DiscoveryDocument) {
             locationProvider = graph.locationProvider,
             placeSearch = search?.let(graph::placeSearch),
             roadLookup = graph.roadLookup(routing),
+            convoy = graph.convoy,
             playOverLimitChime = graph.chime::playKinKon,
         )
     }

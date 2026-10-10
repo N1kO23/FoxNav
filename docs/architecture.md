@@ -44,13 +44,21 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
 ### The app
 
 - **Turn-by-turn** runs in Ferrostar's foreground service (type `location`), so it keeps going with the screen off.
-  - A FoxNav service that also covers free drive and convoys arrives with convoys. It will own the navigation session, the convoy connection and voice; the phone UI and Android Auto become views of it.
   - Because the user starts navigation from the UI, the app only needs _while-in-use_ location permission, not background location.
+- **Convoys** live in an app-wide `ConvoyController`, which owns the session (the client in `shared/`).
+  - It feeds the session our position from the same location provider navigation uses, so a simulated drive shows up in the convoy too.
+  - It reads quick messages aloud through the navigation voice.
+  - `ConvoyService`, a second foreground service (type `location`, again started from the UI), keeps the convoy going with the screen off. Its notification has a Leave action.
+  - On the map, other cars glide between their once-a-second reports (`MotionTrack`) as tinted arrows. A timing tower and a convoy sheet sit on top.
+  - The tower floats between the screen's top and bottom panels, which report where they are, so it fits any screen and font size. It can be dragged to either side, folded to its header and steps aside while searching; its place is remembered.
+  - Invites are `foxnav://join#…` links and QR codes; the app opens these links.
+  - Navigation and the convoy each have their own service for now. One FoxNav service that owns navigation, the convoy and voice comes with Android Auto, which needs exactly that; the phone UI and the car screen then become views of it.
 - **The screens** are Ferrostar's navigation view with FoxNav components swapped in:
   - the maneuver card, drive panel (speed, limit, arrival) and road name;
   - the free-drive overlay with search and route preview.
 
   The colours and fonts come from the design tokens.
+- **Arriving ends the trip**, also when parking up to 30 m short of the destination (Ferrostar alone needs a few metres). The route line clears and the panel says where you arrived.
 - **Over the limit** (3 km/h of tolerance), the speedometer turns red and the kin-kon chime plays once. It re-arms only after you're back at the limit.
 - **Free drive is a first-class mode.** Without a destination, the app still follows you on the map and shows:
   - the road you're on and its speed limit;
@@ -64,7 +72,7 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
 
 ### The server
 
-The reference server runs on Kotlin and Ktor. Convoy rooms live in memory, anything persistent goes in SQLite, and it ships as one Docker image. Today it serves the discovery document and the map styles. Convoys, reports and data packs follow the roadmap below.
+The reference server runs on Kotlin and Ktor. Convoy rooms live in memory, anything persistent goes in SQLite, and it ships as one Docker image. Today it serves the discovery document, the map styles and the convoy relay. Reports and data packs follow the roadmap below.
 
 ### Map services
 
@@ -101,19 +109,19 @@ Some parts don't carry over to arbitrary servers cleanly. The design works aroun
 Details are in the [protocol spec](../protocol/SPEC.md#2-realtime-draft); this is the reasoning.
 
 - **A WebSocket relay, not WebRTC** ([ADR 0002](adr/0002-convoy-transport.md)). Location updates are tiny, a server has to exist anyway, and it naturally holds the state that late joiners need.
-- **About one update per second.** Phone GPS produces about one fix per second, so sending more often gains nothing. Receiving phones predict each car's position from its speed and heading and animate at 60 fps, blending in corrections over about a second.
-  - A car fades after about 10 s without updates and shows "lost signal" after about 60 s (tunnels, dead zones).
-  - Parked members send about every 10 s.
+- **About one update per second.** Phone GPS produces about one fix per second, so sending more often gains nothing. Receiving phones predict each car's position from its speed and heading and animate it, blending in corrections over about a second.
+  - A car fades after 10 s without updates and shows as lost after 60 s (tunnels, dead zones).
+  - A state that doesn't change still goes out every 5 s, so a parked car doesn't look lost.
   - A 10-car convoy uses single-digit megabytes per hour per phone.
 - **End-to-end encrypted** ([ADR 0003](adr/0003-convoy-encryption.md), [threat model](threat-model.md)). The key travels only inside the invite link's fragment, and the server only forwards encrypted blobs.
 - **No accounts in v1.** A member is a display name and a car (make, model, colour, body style). Friends are contacts saved from past convoys.
 - **What members see:**
-  - a timing-tower list in road order, with the gap to each car and their live speed;
-  - leader and tail ("sweeper") roles;
-  - a shared destination with via points, and a regroup pin;
-  - alerts when someone falls behind or leaves the route;
-  - big-button quick messages (fuel, break, pull over, police, hazard), read aloud;
-  - no typing while moving.
+  - a timing tower in road order, with the gap to each car and their live speed. While navigating, gaps run along the route; otherwise they're distances as the crow flies, ahead or behind by your heading;
+  - the destination someone is navigating to (the owner's first), to navigate there too, and a regroup pin;
+  - big-button quick messages (police, hazard, slow down, fuel, break, pull over, all good), read aloud;
+  - no typing while moving;
+  - later: leader and tail ("sweeper") roles, via points, and alerts when someone falls behind or leaves the route.
+- **Testing with bots.** [`tools/convoy-sim`](../tools/convoy-sim/) puts bot cars in a convoy, driving one behind the other along a real route, so one developer can test a full convoy.
 - **Convoy soundtrack (later).** Members can opt in to share what they're playing. Title and artist go out as an encrypted `STATE` payload, and others can listen along.
   - Every member plays the track from their own music service. Audio is never streamed between phones, which would need music licences.
   - Listen along opens the same track at the sharer's position. It's matched across services by ISRC where needed.
@@ -160,17 +168,17 @@ On the car screen only the map is ours, so the app's look has to live in the map
 
 ## Roadmap
 
-1. **Foundations:** repository, build, local backend stack, docs, design exploration. _(current)_
-2. **Navigation MVP:** _(in progress: everything below except a tested real-world drive)_
+1. **Foundations:** repository, build, local backend stack, docs, design exploration. _(done)_
+2. **Navigation MVP:** _(done, except a tested real-world drive)_
    - map, search, routes;
    - free drive: everything except turn-by-turn works without a destination;
    - Ferrostar turn-by-turn with voice;
    - speed limits and speedometer;
    - choosing a server.
-3. **Convoy MVP:**
+3. **Convoy MVP:** _(in progress: everything below works against the local stack, on the emulator with bots. Still missing: a drive with real phones, key rotation and the conformance test suite)_
    - the relay, end-to-end encryption, invites and QR codes;
    - live cars with motion prediction and the timing tower;
-   - quick messages;
+   - quick messages, a shared destination and a regroup point;
    - the convoy simulator and conformance tests.
 4. **Safety data:** camera packs and alerts, national speed-limit data including winter limits, crowd reports.
 5. **Car integration and reach:** Android Auto, offline map regions, a web convoy viewer, Play Store and F-Droid releases, then iOS and CarPlay.
