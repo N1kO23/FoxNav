@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import uniffi.ferrostar.GeographicCoordinate
@@ -121,6 +122,12 @@ class DriveViewModel(
                 location to location?.withSpeedFrom(previous)?.speed?.value?.let(::kilometersPerHour)
             }
             .map { (_, speed) -> speed }
+            // No new fix for a while (a tunnel, a GPS gone quiet): the last speed isn't true any more.
+            .transformLatest { speed ->
+                emit(speed)
+                delay(SPEED_STALE_MS)
+                emit(null)
+            }
 
     // The limit where we are: from the route's annotations while navigating, the road otherwise.
     private val limitKmh =
@@ -280,6 +287,7 @@ class DriveViewModel(
         const val MIN_TRACE_SPACING_M = 15.0
         const val MAX_TRACE_POINTS = 6
         const val ROAD_LOOKUP_INTERVAL_MS = 5_000L
+        const val SPEED_STALE_MS = 4_000L
         const val ARRIVAL_RADIUS_M = 30.0
         const val ARRIVED_SHOWN_MS = 10_000L
 

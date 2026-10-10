@@ -177,7 +177,7 @@ On the car screen only the map is ours, so the app's look has to live in the map
    - Ferrostar turn-by-turn with voice;
    - speed limits and speedometer;
    - choosing a server.
-3. **Convoy MVP:** _(in progress: everything below works against the local stack, on the emulator with bots, including an hour-long soak test. Still missing: a drive with real phones)_
+3. **Convoy MVP:** _(in progress: everything below works against the local stack, on the emulator and a phone with bots, including an hour-long soak test with ten bots. Still missing: a drive with real phones)_
    - the relay, end-to-end encryption, invites and QR codes;
    - live cars with motion prediction and the timing tower;
    - quick messages, a shared destination and a regroup point;
