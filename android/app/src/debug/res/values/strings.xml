@@ -1,0 +1,4 @@
+<resources>
+    <!-- Dev builds sit next to the store app, so they need a name of their own. -->
+    <string name="app_name">FoxNav Dev</string>
+</resources>

@@ -17,6 +17,15 @@ Thanks for helping. This guide covers setting up, the rules the project holds it
 
 **The Android app** only joins the build when an Android SDK is configured. That means `sdk.dir` in `local.properties`, which Android Studio writes when you open the project, or `ANDROID_HOME`. Without one, Gradle prints a note and builds the rest, so server-only work doesn't need the SDK. Debug builds talk to the local backend at `http://10.0.2.2:8080`, which is how the emulator reaches your machine. Start the backend as described in [infra/README.md](infra/README.md).
 
+## Dev builds
+
+- **Every CI run** keeps both APKs for 14 days, as the `foxnav-dev-apks` artifact of the run.
+- **Every push to `main`** also replaces the [`dev` pre-release](https://github.com/N1kO23/FoxNav/releases/tag/dev), with direct download links for phones:
+  - `foxnav-dev-play.apk` for phones with Google Play services;
+  - `foxnav-dev-foss.apk` for phones without.
+- **They're a separate app.** Debug builds are FoxNav Dev (`app.nullpointr.foxnav.dev`), so they install next to a store build.
+- **They update each other.** Builds from CI and from any machine sign with the same key (`android/app/debug.keystore`, checked in on purpose), so each installs over the previous one. CI builds carry their run number and commit in the version name.
+
 ## Testing on the emulator
 
 - Debug builds simulate the drive along the route by default: the switch is in the route preview.

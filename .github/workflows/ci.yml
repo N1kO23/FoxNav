@@ -32,7 +32,47 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
       # The runner image ships an Android SDK (ANDROID_HOME); missing platforms download on demand.
-      - run: ./gradlew :android:app:assembleFossDebug :android:app:assemblePlayDebug :android:app:lintFossDebug
+      - run: ./gradlew :android:app:assembleFossDebug :android:app:assemblePlayDebug :android:app:testFossDebugUnitTest :android:app:lintFossDebug
+      - name: Name the dev APKs
+        run: |
+          mkdir apks
+          cp android/app/build/outputs/apk/foss/debug/app-foss-debug.apk apks/foxnav-dev-foss.apk
+          cp android/app/build/outputs/apk/play/debug/app-play-debug.apk apks/foxnav-dev-play.apk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: foxnav-dev-apks
+          path: apks/
+          retention-days: 14
+          # APKs are compressed already.
+          compression-level: 0
+
+  dev-release:
+    name: Dev release
+    # The latest build from main, as a pre-release with direct download links for phones.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: dev-release
+      cancel-in-progress: true
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: foxnav-dev-apks
+          path: apks
+      - name: Replace the dev pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete dev --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create dev apks/*.apk --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+            --title "Dev build" \
+            --notes "Debug build of ${GITHUB_SHA::7} (CI run $GITHUB_RUN_NUMBER), replaced by every push to main.
+
+          - \`foxnav-dev-play.apk\` for phones with Google Play services, \`foxnav-dev-foss.apk\` for phones without.
+          - Dev builds are a separate app (FoxNav Dev, \`app.nullpointr.foxnav.dev\`), next to any store install, and each installs over the previous one."
 
   server-image:
     name: Server Docker image

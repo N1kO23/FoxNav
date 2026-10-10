@@ -53,7 +53,7 @@ infra/scripts/smoke-test.sh
 ./gradlew :tools:convoy-sim:installDist   # bot cars for testing convoys, see tools/convoy-sim/
 ```
 
-The Android app is part of the build when an Android SDK is configured. Open the project in Android Studio and run the `app` configuration; debug builds use the local backend.
+The Android app is part of the build when an Android SDK is configured. Open the project in Android Studio and run the `app` configuration; debug builds use the local backend. Ready-made dev APKs come from the [`dev` pre-release](https://github.com/N1kO23/FoxNav/releases/tag/dev), see [CONTRIBUTING.md](CONTRIBUTING.md#dev-builds).
 
 ## Licence
 

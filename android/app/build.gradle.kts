@@ -6,6 +6,11 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// On CI: "<run number>+<commit>", e.g. "57+3fa2c1d"; null on other machines.
+val ciBuild: String? = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.let { run ->
+    run + (providers.environmentVariable("GITHUB_SHA").orNull?.take(7)?.let { "+$it" } ?: "")
+}
+
 android {
     namespace = "app.nullpointr.foxnav"
     compileSdk = 37
@@ -25,8 +30,22 @@ android {
         create("play") { dimension = "distribution" }
     }
 
+    signingConfigs {
+        // One debug key for everyone, checked in (debug keys are no secret), so dev builds from CI and
+        // from any machine install over each other.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
+            // Dev builds install next to the store app. CI adds its run number and commit to the version.
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev" + (ciBuild?.let { ".$it" } ?: "")
             // The emulator reaches the host machine's localhost at 10.0.2.2 (see infra/README.md); used only
             // when running in the emulator. On a phone the app asks for a server.
             buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://10.0.2.2:8080\"")
