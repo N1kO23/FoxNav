@@ -1,5 +1,6 @@
 # Local FoxNav map stack. Everything sits behind one origin, http://localhost:8080:
 #   /.well-known/foxnav, /styles/*   FoxNav server (discovery document, map styles)
+#   /v1/ws, /v1/reports              FoxNav server (convoys, reports)
 #   /valhalla/*                      Valhalla (routing)
 #   /photon/*                        Photon (search)
 #   /tiles/*, /assets/*              static files (PMTiles map data, fonts, sprites)
@@ -35,8 +36,12 @@ services:
       FOXNAV_REGIONS: FI
       FOXNAV_STYLES_DIR: /srv/styles
       FOXNAV_DATAPACKS_URL: /datapacks
+      # Drivers' reports survive restarts; Fintraffic's traffic messages seed them (Finland).
+      FOXNAV_REPORTS_FILE: /var/lib/foxnav/reports.json
+      FOXNAV_FINTRAFFIC: "true"
     volumes:
       - ./styles:/srv/styles:ro
+      - reports:/var/lib/foxnav
     restart: unless-stopped
 
   valhalla:
@@ -74,3 +79,6 @@ services:
       - ./data/valhalla:/osm:ro
       - ./data/datapacks:/out
     command: ["--region", "${FOXNAV_REGION_CODE:-FI}", "/osm/${FOXNAV_REGION:-finland}-latest.osm.pbf", "/out"]
+
+volumes:
+  reports:

@@ -53,6 +53,7 @@ check "routing: Helsinki -> Tampere" route_helsinki_tampere
 check "search: Tampere" json "$BASE/photon/api?q=Tampere&limit=1" 'd["features"][0]["properties"]["name"]'
 check "convoy realtime endpoint" realtime_upgrade
 check "camera pack: FI" json "$BASE/datapacks/FI/cameras.json" 'str(len(d["cameras"])) + " cameras"'
+check "reports" json "$BASE/v1/reports" 'str(len(d["reports"])) + " reports (" + str(sum(1 for r in d["reports"] if r.get("source"))) + " official)"'
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed. Services still building their data answer with 502; see infra/README.md."

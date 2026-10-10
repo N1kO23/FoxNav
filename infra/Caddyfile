@@ -35,6 +35,12 @@
 		file_server
 	}
 
+	# The report feed is JSON polled by every driver: compress it.
+	handle /v1/reports* {
+		encode gzip
+		reverse_proxy server:8080
+	}
+
 	handle {
 		reverse_proxy server:8080
 	}

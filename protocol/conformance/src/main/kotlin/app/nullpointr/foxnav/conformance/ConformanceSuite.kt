@@ -13,18 +13,25 @@ import app.nullpointr.foxnav.protocol.convoy.v0.RemoveMember
 import app.nullpointr.foxnav.protocol.convoy.v0.Resume
 import app.nullpointr.foxnav.protocol.convoy.v0.Sealed
 import app.nullpointr.foxnav.shared.convoy.secureRandomBytes
+import app.nullpointr.foxnav.shared.FoxNavJson
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.discovery.Feature
 import app.nullpointr.foxnav.shared.geo.GeoPoint
+import app.nullpointr.foxnav.shared.reports.ReportCreated
+import app.nullpointr.foxnav.shared.reports.ReportFeed
 import app.nullpointr.foxnav.shared.safety.CameraPack
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLParameter
+import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -44,6 +51,7 @@ enum class Group(val title: String) {
     DISCOVERY("Discovery (§1)"),
     MAP_SERVICES("Map services (§1)"),
     REALTIME("Realtime (§2)"),
+    REPORTS("Reports (§4)"),
 }
 
 enum class Outcome { PASS, FAIL, SKIP }
@@ -54,11 +62,15 @@ data class CheckResult(val group: Group, val name: String, val outcome: Outcome,
  * Checks a server against protocol/SPEC.md: the discovery document, the map services it lists,
  * and the convoy relay, message by message. The realtime checks speak the raw protocol with
  * opaque payloads, so they test the server, not a client. Each convoy check uses a new convoy.
+ *
+ * Checks that leave something behind for other users, like a report, run only with [writes];
+ * they put it on Null Island (0, 0), far from any road, and vote it away afterwards.
  */
 class ConformanceSuite(
     private val http: HttpClient,
     serverUrl: String,
     private val groups: Set<Group> = Group.entries.toSet(),
+    private val writes: Boolean = false,
 ) {
     private val base = serverUrl.trim().trimEnd('/').let { if ("://" in it) it else "https://$it" }
     private val results = ArrayList<CheckResult>()
@@ -73,6 +85,7 @@ class ConformanceSuite(
         discoveryChecks(document)
         mapServiceChecks(document)
         realtimeChecks(document)
+        reportChecks(document)
         return results.toList()
     }
 
@@ -249,6 +262,54 @@ class ConformanceSuite(
             expect(!left.removed) { "MemberLeft says the owner was removed" }
             expect(left.new_owner == seat.member_id) { "ownership went to ${left.new_owner}, not the only member left, ${seat.member_id}" }
         }
+    }
+
+    private suspend fun reportChecks(document: DiscoveryDocument) {
+        val reports = document.reports?.takeIf { Feature.REPORTS in document.features }
+        if (reports == null) {
+            if (Group.REPORTS in groups) results += CheckResult(Group.REPORTS, "reports", Outcome.SKIP, "the server lists no reports")
+            return
+        }
+        check(Group.REPORTS, "serves the report feed") {
+            val response = http.get(reports)
+            expect(response.status == HttpStatusCode.OK) { "GET $reports answered HTTP ${response.status.value}" }
+            val feed = runCatching { ReportFeed.parse(response.bodyAsText()) }.getOrElse { fail("$reports isn't a valid report feed: ${it.message}") }
+            expect(feed.reports.all { it.lat in -90.0..90.0 && it.lon in -180.0..180.0 }) { "the feed has reports out of range" }
+            expect(feed.reports.map { it.id }.toSet().size == feed.reports.size) { "the feed has reports with the same ID" }
+        }
+        check(Group.REPORTS, "answers Not Modified while the feed is unchanged") {
+            val etag = http.get(reports).headers[HttpHeaders.ETag] ?: fail("the feed has no ETag")
+            val response = http.get(reports) { header(HttpHeaders.IfNoneMatch, etag) }
+            expect(response.status == HttpStatusCode.NotModified) { "If-None-Match with the current ETag answered HTTP ${response.status.value}, not 304" }
+        }
+        check(Group.REPORTS, "refuses reports of unknown types") {
+            if (!writes) throw Skipped("writes to the server; run with --write")
+            val response = postJson(reports, """{"type":"conformance_test","lat":0.0,"lon":0.0}""")
+            expect(response.status == HttpStatusCode.BadRequest) { "an unknown type answered HTTP ${response.status.value}, not 400" }
+        }
+        check(Group.REPORTS, "takes a report, lists it, and votes it away") {
+            if (!writes) throw Skipped("writes to the server; run with --write")
+            val created = postJson(reports, """{"type":"hazard","lat":0.0,"lon":0.0,"bearing":90}""")
+            expect(created.status == HttpStatusCode.Created) { "the report answered HTTP ${created.status.value}, not 201" }
+            val id = runCatching { FoxNavJson.decodeFromString(ReportCreated.serializer(), created.bodyAsText()).id }.getOrElse { fail("the answer to a report has no ID") }
+            val listed = ReportFeed.parse(http.get(reports).bodyAsText()).reports.find { it.id == id } ?: fail("the new report isn't in the feed")
+            expect(listed.type == "hazard" && listed.lat == 0.0 && listed.lon == 0.0 && listed.bearing == 90.0) { "the feed lists the report as $listed" }
+            expect(listed.source == null) { "a driver's report has a source" }
+            val votes = reports.trimEnd('/') + "/" + id.encodeURLPathPart() + "/votes"
+            val yes = postJson(votes, """{"still_there":true}""")
+            expect(yes.status == HttpStatusCode.NoContent) { "a vote answered HTTP ${yes.status.value}, not 204" }
+            val confirmed = ReportFeed.parse(http.get(reports).bodyAsText()).reports.find { it.id == id }
+            expect(confirmed?.confirmations == 1) { "after one yes, confirmations are ${confirmed?.confirmations}, not 1" }
+            repeat(2) { postJson(votes, """{"still_there":false}""") }
+            expect(ReportFeed.parse(http.get(reports).bodyAsText()).reports.none { it.id == id }) { "the report is still listed after more noes than yeses" }
+            val gone = postJson(votes, """{"still_there":true}""")
+            expect(gone.status == HttpStatusCode.NotFound) { "a vote on a removed report answered HTTP ${gone.status.value}, not 404" }
+        }
+    }
+
+    private suspend fun postJson(url: String, json: String) = http.post(url) {
+        contentType(ContentType.Application.Json)
+        setBody(json)
     }
 
     // --- Plumbing ---

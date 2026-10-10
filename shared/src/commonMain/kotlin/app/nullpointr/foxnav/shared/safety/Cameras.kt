@@ -56,38 +56,52 @@ data class Camera(
 /** A camera coming up, and how far it is along the road. */
 data class CameraAhead(val camera: Camera, val distanceM: Double)
 
-/**
- * Finds the next camera on the road ahead that checks our direction. Along [route] while
- * navigating; in free drive, or off the route, within a narrow cone around our heading. The
- * faster we go, the further ahead it looks, so warnings come about [LOOKAHEAD_S] before a camera.
- */
+/** The next camera on the road ahead that checks our direction; see [AheadWatch]. */
 class CameraWatch(cameras: List<Camera>) {
-    private val cells: Map<Long, List<Camera>> = cameras.groupBy { cellOf(it.lat, it.lon) }
+    private val watch = AheadWatch(cameras, pointOf = Camera::point, concerns = Camera::watches)
 
-    fun ahead(me: Fix, route: List<GeoPoint>? = null): CameraAhead? {
+    fun ahead(me: Fix, route: List<GeoPoint>? = null): CameraAhead? = watch.ahead(me, route)?.let { (camera, distance) -> CameraAhead(camera, distance) }
+}
+
+/**
+ * Finds the nearest thing on the road ahead that concerns our direction of travel: cameras,
+ * reports. Along [route] while navigating; in free drive, or off the route, within a narrow cone
+ * around our heading. The faster we go, the further ahead it looks, so warnings come about
+ * [LOOKAHEAD_S] before. Nothing while parked.
+ */
+class AheadWatch<T>(
+    items: List<T>,
+    private val pointOf: (T) -> GeoPoint,
+    /** Whether an item concerns traffic heading towards a bearing (degrees). */
+    private val concerns: (T, Double) -> Boolean,
+) {
+    private val cells: Map<Long, List<T>> = items.groupBy { pointOf(it).let { point -> cellOf(point.latitude, point.longitude) } }
+
+    fun ahead(me: Fix, route: List<GeoPoint>? = null): Pair<T, Double>? {
         if (me.speedMps < MIN_SPEED_MPS) return null // parked or crawling: nothing to warn about
         val lookahead = (me.speedMps * LOOKAHEAD_S).coerceIn(MIN_LOOKAHEAD_M, MAX_LOOKAHEAD_M)
-        val nearby = near(me.point).filter { me.point.distanceTo(it.point) <= lookahead }
+        val nearby = near(me.point).filter { me.point.distanceTo(pointOf(it)) <= lookahead }
         if (nearby.isEmpty()) return null
 
         val mine = route?.let { project(it, me.point) }?.takeIf { it.offM <= ON_ROUTE_M }
         val found = if (route != null && mine != null) {
-            nearby.mapNotNull { camera ->
-                val at = project(route, camera.point) ?: return@mapNotNull null
+            nearby.mapNotNull { item ->
+                val at = project(route, pointOf(item)) ?: return@mapNotNull null
                 val along = at.alongM - mine.alongM
-                if (at.offM <= ON_ROAD_M && along > 0 && along <= lookahead && camera.watches(at.bearingDeg)) CameraAhead(camera, along) else null
+                if (at.offM <= ON_ROAD_M && along > 0 && along <= lookahead && concerns(item, at.bearingDeg)) item to along else null
             }
         } else {
-            nearby.mapNotNull { camera ->
-                val inView = angleBetween(me.point.bearingTo(camera.point), me.headingDeg) <= CONE_DEG
-                if (inView && camera.watches(me.headingDeg)) CameraAhead(camera, me.point.distanceTo(camera.point)) else null
+            nearby.mapNotNull { item ->
+                val point = pointOf(item)
+                val inView = angleBetween(me.point.bearingTo(point), me.headingDeg) <= CONE_DEG
+                if (inView && concerns(item, me.headingDeg)) item to me.point.distanceTo(point) else null
             }
         }
-        return found.minByOrNull { it.distanceM }
+        return found.minByOrNull { it.second }
     }
 
-    /** Cameras in the grid cells around [point]: wide enough for the longest lookahead. */
-    private fun near(point: GeoPoint): List<Camera> {
+    /** Items in the grid cells around [point]: wide enough for the longest lookahead. */
+    private fun near(point: GeoPoint): List<T> {
         val row = floor(point.latitude / CELL_DEG).toLong()
         val column = floor(point.longitude / CELL_DEG).toLong()
         return (row - 1..row + 1).flatMap { r -> (column - 2..column + 2).flatMap { c -> cells[key(r, c)].orEmpty() } }
@@ -107,11 +121,12 @@ class CameraWatch(cameras: List<Camera>) {
 fun angleBetween(a: Double, b: Double): Double = abs(((a - b) % 360 + 540) % 360 - 180)
 
 const val LOOKAHEAD_S = 25.0
-private const val MIN_SPEED_MPS = 1.5
+internal const val MIN_SPEED_MPS = 1.5
 private const val MIN_LOOKAHEAD_M = 300.0
 private const val MAX_LOOKAHEAD_M = 1_500.0
 private const val CONE_DEG = 30.0
-private const val DIRECTION_TOLERANCE_DEG = 45.0
+/** A camera or report concerns directions within this of its own. */
+const val DIRECTION_TOLERANCE_DEG = 45.0
 
 /** Cameras further than this from the route are on another road. */
 private const val ON_ROAD_M = 30.0

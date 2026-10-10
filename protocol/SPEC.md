@@ -4,9 +4,11 @@ This document is for anyone building a FoxNav client or server. A FoxNav backend
 
 - the **discovery document**, which tells the app where everything is;
 - standard map services: MapLibre styles and tiles, Valhalla-compatible routing and Photon-compatible search;
-- the **realtime endpoint** for convoys (and later live reports).
+- the **realtime endpoint** for convoys;
+- **data packs** the app matches on the phone, like speed cameras;
+- **reports**: police, accidents, roadworks and the like, from drivers and official sources.
 
-**Status:** the reference server in `server/` implements discovery (§1) and the convoy relay (§2), and `shared/` has the matching convoy client. The realtime protocol is still a draft and will change before v1. Its message definitions are in [`proto/foxnav/convoy/v0/convoy.proto`](proto/foxnav/convoy/v0/convoy.proto).
+**Status:** the reference server in `server/` implements all of it: discovery (§1), the convoy relay (§2), data packs (§3) and reports (§4). `shared/` has the matching clients. The realtime protocol is still a draft and will change before v1. Its message definitions are in [`proto/foxnav/convoy/v0/convoy.proto`](proto/foxnav/convoy/v0/convoy.proto).
 
 ## 1. Discovery
 
@@ -28,6 +30,7 @@ If the user typed a bare domain (`maps.example.org`), clients use `https://`.
 | `privacy` | URL | no | Privacy policy of whoever runs the server. |
 | `realtime` | URL | no | WebSocket endpoint (§2). Absent if the server has no realtime features. |
 | `datapacks` | URL | no | Where the data packs are (§3). Absent if the server has none. |
+| `reports` | URL | no | The reports API (§4). Absent if the server has none. |
 | `styles` | object | no | MapLibre style URLs keyed by theme. Known themes: `night`, `day`. |
 | `routing` | endpoint | no | Routing service, see below. |
 | `search` | endpoint | no | Search service, see below. |
@@ -63,7 +66,8 @@ What the local stack in `infra/` returns:
   "routing": { "type": "valhalla", "url": "/valhalla" },
   "search": { "type": "photon", "url": "/photon" },
   "datapacks": "/datapacks",
-  "features": ["convoy", "datapacks"],
+  "reports": "/v1/reports",
+  "features": ["convoy", "reports", "datapacks"],
   "regions": ["FI"]
 }
 ```
@@ -159,8 +163,8 @@ Receivers ignore a `STATE` whose position is older than the one they already hav
 
 These arrive in a later version of this document:
 
-- live reports (police, hazards, roadworks…);
-- data packs (speed cameras, speed-limit fixes);
+- new reports pushed over this connection, instead of clients polling the feed (§4);
+- more data packs (speed-limit fixes, average-speed sections);
 - a `NowPlaying` payload for the convoy soundtrack: track metadata, service IDs and ISRC, playback position and state.
 
 ## 3. Data packs (draft)
@@ -197,13 +201,95 @@ GET {datapacks}/{region}/cameras.json
 
 The reference stack builds the pack from OpenStreetMap: `highway=speed_camera` nodes, and `type=enforcement` relations, whose `from` and `to` members give the direction. See `infra/datapacks/`. The app warns only where camera warnings are legal; see [`docs/architecture.md`](../docs/architecture.md#speed-limits-cameras-and-reports).
 
-## 4. Conformance
+## 4. Reports (draft)
 
-[`conformance/`](conformance/) checks any server against this document: the discovery document, the map services and data packs it lists, and the realtime protocol message by message, with opaque payloads. Each convoy check uses a new convoy.
+What drivers report on the road, and official traffic messages: police, speed checks, accidents, hazards, stopped vehicles, roadworks, slippery roads, animals and closed roads. A server that has them lists the `reports` feature and a `reports` URL in its discovery document.
+
+Reports are public: everyone using the server sees them. They say nothing about who made them, and servers keep no record of who sent a report or a vote beyond what rate limits need.
+
+### 4.1 The feed
+
+```
+GET {reports}
+```
+
+Every current report. Clients poll it about once a minute while driving, with `If-None-Match`. Servers send an `ETag` and answer `304 Not Modified` while nothing changed, and should compress the feed.
+
+```json
+{
+  "format": 1,
+  "reports": [
+    { "id": "mTHYi9CkVdeQ", "type": "police", "lat": 60.17, "lon": 24.94, "bearing": 180,
+      "reported": "2026-10-10T18:00:00Z", "expires": "2026-10-10T19:00:00Z", "confirmations": 2 },
+    { "id": "fintraffic:GUID50472141", "type": "accident", "lat": 60.21, "lon": 24.80,
+      "reported": "2026-10-10T19:30:31Z", "expires": "2026-10-10T20:00:31Z",
+      "source": { "name": "Fintraffic", "licence": "CC BY 4.0", "url": "https://www.digitraffic.fi" },
+      "text": "Tie 51, Espoo. Liikennetiedote." }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `format` | `1`. A client that doesn't know a feed's format ignores the feed. |
+| `id` | Unique, stable for the report's life. |
+| `type` | `police`, `speed_check`, `accident`, `hazard`, `stopped_vehicle`, `roadworks`, `slippery_road`, `animal` or `road_closed`. Clients skip types they don't know. |
+| `lat`, `lon` | Where it is. For a stretch of road, where the stretch begins. |
+| `bearing` | The direction of travel it concerns, in degrees clockwise from north. Absent means both directions. It only matters for `police`, `speed_check`, `accident`, `hazard` and `stopped_vehicle`; the other types concern the whole road. |
+| `reported`, `expires` | ISO 8601 times, UTC. |
+| `confirmations` | How many drivers said it's still there. |
+| `source` | Only for official reports: `name`, `licence` and `url` of where it comes from. Clients show this attribution with the report. |
+| `text` | Only for official reports: the source's description, in the source's language. |
+
+One feed for the whole server works for the Nordics: hundreds of reports, tens of kilobytes compressed. A later version may add area queries or push (§2.5).
+
+### 4.2 Reporting
+
+```
+POST {reports}
+Content-Type: application/json
+
+{ "type": "police", "lat": 60.17, "lon": 24.94, "bearing": 180 }
+```
+
+`bearing` is the reporter's heading, and may be left out. The server answers `201 Created` with `{ "id": "…" }`, `400 Bad Request` for an unknown type or a position or bearing out of range, or `429 Too Many Requests`.
+
+### 4.3 Still there?
+
+```
+POST {reports}/{id}/votes
+Content-Type: application/json
+
+{ "still_there": true }
+```
+
+Clients ask drivers passing a report whether it's still there, at most once per report. The server answers `204 No Content`, `404 Not Found` for a report that's gone, `400` or `429`.
+
+### 4.4 Lifetimes
+
+Each type lasts a set time unless someone confirms it. In the reference server:
+
+| Type | Lifetime |
+|---|---|
+| `police`, `speed_check`, `hazard` | 60 min |
+| `accident` | 90 min |
+| `stopped_vehicle` | 45 min |
+| `animal` | 30 min |
+| `slippery_road` | 4 h |
+| `road_closed` | 6 h |
+| `roadworks` | 24 h |
+
+A "yes" keeps a report for at least half its lifetime from the vote, but no report lasts more than three lifetimes in all. Once "no" votes outnumber "yes" votes, and there are at least two, a driver's report goes. Official reports last as long as their source says. Other servers may tune all of this.
+
+The reference server limits each client address to 5 reports and 30 votes per 10 minutes, and keeps the addresses in memory only. With `FOXNAV_FINTRAFFIC=true` it adds Fintraffic's traffic messages for Finland ([Digitraffic](https://www.digitraffic.fi/en/road-traffic/), CC BY 4.0): accidents, closed roads, animals, slippery roads, and roadworks during phases that restrict traffic.
+
+## 5. Conformance
+
+[`conformance/`](conformance/) checks any server against this document: the discovery document, the map services and data packs it lists, the realtime protocol message by message (with opaque payloads), and the reports API. Each convoy check uses a new convoy.
 
 ```sh
 ./gradlew :protocol:conformance:installDist
 protocol/conformance/build/install/foxnav-conformance/bin/foxnav-conformance maps.example.org
 ```
 
-It prints each check as passed, failed (with what the server should have done) or skipped, and exits non-zero on failures. The reference server runs it in its own tests (`ConformanceTest`), next to `ConvoyRelayTest` for §2 in detail and `ConvoySessionTest` for the client in `shared/` against the server.
+It prints each check as passed, failed (with what the server should have done) or skipped, and exits non-zero on failures. Checks that leave something on the server for others to see run only with `--write`: a test report on Null Island (0, 0), voted away straight after. The reference server runs it in its own tests (`ConformanceTest`), next to `ConvoyRelayTest` for §2 in detail and `ConvoySessionTest` for the client in `shared/` against the server.

@@ -74,7 +74,7 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
 
 ### The server
 
-The reference server runs on Kotlin and Ktor. Convoy rooms live in memory, anything persistent goes in SQLite, and it ships as one Docker image. Today it serves the discovery document, the map styles and the convoy relay. Reports and data packs follow the roadmap below.
+The reference server runs on Kotlin and Ktor. Convoy rooms live in memory, anything persistent goes in SQLite, and it ships as one Docker image. It serves the discovery document, the map styles, the convoy relay and reports. Reports live in memory too, with drivers' ones saved to a JSON file so a restart keeps them. Data packs are static files it points to.
 
 ### Map services
 
@@ -149,11 +149,15 @@ Details are in the [protocol spec](../protocol/SPEC.md#2-realtime-draft); this i
 - **Legality differs by country.** Camera warnings are legal in the Nordics, but Germany forbids drivers from using them, Switzerland bans them, and France allows only vague "danger zones". So:
   - the app stays quiet in those countries whatever the setting (`CameraRules`), knowing the country from the road lookup;
   - everywhere else there's a switch in the settings.
-- **Reports** (police, accidents, hazards, roadworks, slippery roads, moose…) are crowd-sourced Waze-style:
-  - each type expires after its own time;
-  - drivers passing by get a "still there?" prompt.
+- **Reports** (police, speed checks, accidents, hazards, stopped vehicles, roadworks, slippery roads, animals, closed roads) are crowd-sourced Waze-style ([spec §4](../protocol/SPEC.md#4-reports-draft)):
+  - one tap on a big button reports it where you are, for the direction you're heading; reports are public and anonymous;
+  - each type expires after its own time, from 30 min for an animal to 24 h for roadworks;
+  - drivers who pass a report get a "still there?" prompt. A yes keeps it longer (up to three lifetimes); once noes outnumber yeses, it goes;
+  - reports ahead on our road show as a pill and are spoken ("Accident in 600 metres"), using the same matching as cameras. Roadworks are only shown, not spoken;
+  - police and speed checks follow the camera rules: hidden in Germany, Switzerland and France;
+  - the app polls the feed once a minute with its ETag. For the Nordics the whole feed is a few hundred reports, about 15 kB compressed. Pushing new reports over the realtime connection comes later.
 
-  National traffic feeds seed them so the map is useful before there are many users.
+  Fintraffic's traffic messages seed them in Finland (accidents, closed roads, animals, slippery roads, and roadworks while they restrict traffic), so the map is useful before there are many users. Trafikverket's and Statens vegvesen's feeds can follow.
 
 Data sources per country are in [data-sources.md](data-sources.md).
 
@@ -191,10 +195,10 @@ On the car screen only the map is ours, so the app's look has to live in the map
    - live cars with motion prediction and the timing tower;
    - quick messages, a shared destination and a regroup point;
    - the convoy simulator and conformance tests.
-4. **Safety data:** _(in progress: camera packs from OpenStreetMap and camera warnings work)_
+4. **Safety data:** _(in progress: camera packs from OpenStreetMap, camera warnings and reports work, with Fintraffic's messages in Finland)_
    - camera packs and warnings, from OpenStreetMap and national data;
    - national speed-limit data including winter limits;
-   - crowd reports.
+   - crowd reports, seeded from national traffic feeds.
 5. **Car integration and reach:** Android Auto, offline map regions, a web convoy viewer, Play Store and F-Droid releases, then iOS and CarPlay.
 6. **Enthusiast features:**
    - custom voices, push-to-talk convoy radio and the convoy soundtrack;

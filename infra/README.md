@@ -7,6 +7,7 @@ Everything the app needs from a backend, running on your machine behind one orig
 | `/.well-known/foxnav`              | FoxNav server                                    | Discovery document: tells the app where everything else is  |
 | `/styles/{night,day}.json`         | FoxNav server                                    | MapLibre styles, filled in with the address the client used |
 | `/v1/ws`                           | FoxNav server                                    | Convoy relay (WebSocket), forwarding encrypted positions    |
+| `/v1/reports`                      | FoxNav server                                    | Reports: police, accidents, roadworks… and "still there?"   |
 | `/datapacks/FI/cameras.json`       | Caddy (static)                                   | Speed cameras for the app to match on the phone             |
 | `/tiles/region.pmtiles`            | Caddy (static)                                   | Vector map data for the region                              |
 | `/assets/fonts`, `/assets/sprites` | Caddy (static)                                   | Label fonts and map icons                                   |
@@ -65,9 +66,9 @@ These are starting points. The FoxNav look gets applied once the design is settl
 The same stack works on a server:
 
 1. Replace `:8080` in the `Caddyfile` with your domain. Caddy then gets TLS certificates automatically; also publish ports 80 and 443 instead of 8080.
-2. Set `FOXNAV_NAME` and `FOXNAV_PRIVACY_URL` for the `server` service in `compose.yaml`.
+2. Set `FOXNAV_NAME` and `FOXNAV_PRIVACY_URL` for the `server` service in `compose.yaml`. Drivers' reports are kept in the `reports` volume (`FOXNAV_REPORTS_FILE`); `FOXNAV_FINTRAFFIC=true` adds Fintraffic's traffic messages for Finland, fetched every 5 minutes. Turn it off for a server outside Finland.
 3. Users type your domain into the app, and the app reads `https://your.domain/.well-known/foxnav`.
 
 ## Attribution
 
-Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL), map tiles from [Protomaps](https://protomaps.com) builds, search dumps from [GraphHopper](https://download1.graphhopper.com/public/), and the Noto Sans fonts (SIL Open Font License). Anything shown to users must credit OpenStreetMap; the styles include the attribution text.
+Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL), map tiles from [Protomaps](https://protomaps.com) builds, search dumps from [GraphHopper](https://download1.graphhopper.com/public/), traffic messages from [Fintraffic / digitraffic.fi](https://www.digitraffic.fi) (CC BY 4.0), and the Noto Sans fonts (SIL Open Font License). Anything shown to users must credit OpenStreetMap; the styles include the attribution text.

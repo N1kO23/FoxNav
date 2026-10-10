@@ -1,6 +1,6 @@
 # Threat model: convoys
 
-What convoy encryption ([ADR 0003](adr/0003-convoy-encryption.md), [spec §2.3](../protocol/SPEC.md#23-end-to-end-encryption)) protects, and what it deliberately doesn't. This covers protocol v0. Reports and data packs get their own section when they exist.
+What convoy encryption ([ADR 0003](adr/0003-convoy-encryption.md), [spec §2.3](../protocol/SPEC.md#23-end-to-end-encryption)) protects, and what it deliberately doesn't. This covers protocol v0. Reports and data packs are at the end.
 
 ## What's at stake
 
@@ -59,3 +59,13 @@ Possible later mitigations: sending at a constant rate, padding payloads, and co
 - **Per-member keys or MLS ([RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)).** This makes key rotation safe against a malicious server and gives forward secrecy.
 - **Join approval and expiring invite tokens.**
 - **Per-member signatures.** These make forgery impossible even with the server's help.
+
+## Reports and data packs
+
+Neither is encrypted, because neither is private: they're meant for everyone.
+
+- **Data packs** are downloaded whole, per region, and matched on the phone. The server learns that someone wanted Finland's cameras, not where they drive.
+- **Reports** are public. A report says what, where, which way and when, and nothing about who: no device ID, no account. The server keeps the reporter's address only in memory, for rate limits (5 reports and 30 votes per 10 minutes), and rounds positions to about a metre.
+- **Still, a report is a position at a time.** Someone who knows you reported from a road at a moment learns little new. But a server operator who logs connections (or a network observer) could tie a report to an address. The reference server doesn't log addresses with reports; a proxy in front of it might.
+- **The feed is the same for everyone**, so polling it reveals nothing about where you are.
+- **Abuse:** fake reports are possible. Rate limits, expiry and "not there" votes limit the damage. Trust scores per device would need device identity, which FoxNav avoids for now.

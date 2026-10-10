@@ -38,6 +38,28 @@ object FoxIcons {
     /** The regroup point on the map (filled). */
     val FlagMarker = filledIcon("FlagMarker", "M5 22V3h2v1h12l-3 5 3 5H7v8Z")
 
+    /** Report something: a warning triangle. */
+    val Report = strokeIcon("Report", "M12 4L21 19.5H3Z M12 10v4 M12 16.8v.2")
+
+    // Report markers: a disc with the type's glyph cut out, so they work as SDF map icons and as
+    // tinted icons. Shapes inside a cut-out are solid again (even-odd).
+    val ReportPolice = reportMarker("ReportPolice", "M8 15v-4a4 4 0 0 1 8 0v4Z M6.5 16h11v2.5h-11Z")
+    val ReportSpeedCheck = reportMarker("ReportSpeedCheck", "M5.5 8.5h10v7h-10Z M10.5 10a2 2 0 1 1 0 4a2 2 0 1 1 0-4Z M15.5 10.5l3-1.5v6l-3-1.5Z")
+    val ReportAccident = reportMarker("ReportAccident", "M12 4.5l1.9 4.4 4.6-1.4-2.6 4 3.6 3.1-4.7.4-.3 4.7-2.5-4-2.5 4-.3-4.7-4.7-.4 3.6-3.1-2.6-4 4.6 1.4Z")
+    val ReportHazard = reportMarker("ReportHazard", "M10.75 5.5h2.5v8.5h-2.5Z M10.75 16h2.5v2.5h-2.5Z")
+    val ReportStoppedVehicle = reportMarker("ReportStoppedVehicle", "M6.5 11.5l1.6-4.5h7.8l1.6 4.5h.5v5.5h-1.8v1.8h-2.3v-1.8h-3.8v1.8H7.8v-1.8H6v-5.5Z M8.6 11.2l.9-2.6h5l.9 2.6Z")
+    val ReportRoadworks = reportMarker("ReportRoadworks", "M10.6 5h2.8l3.4 12.5H7.2Z M9.6 11h4.8l.5 2h-5.8Z M5.5 17.5h13v2h-13Z")
+    val ReportSlipperyRoad = reportMarker("ReportSlipperyRoad", "M12 4.5c2.6 3.6 5 6.6 5 9.5a5 5 0 0 1-10 0c0-2.9 2.4-5.9 5-9.5Z")
+    val ReportAnimal = reportMarker(
+        "ReportAnimal",
+        "M12 12.5c2.6 0 4.8 2.4 4.8 4.3 0 1.6-1.6 2.2-4.8 2.2s-4.8-.6-4.8-2.2c0-1.9 2.2-4.3 4.8-4.3Z " +
+            "M7.6 9.1a1.5 1.5 0 1 1 0 3a1.5 1.5 0 1 1 0-3Z M10.3 6.1a1.5 1.5 0 1 1 0 3a1.5 1.5 0 1 1 0-3Z " +
+            "M13.7 6.1a1.5 1.5 0 1 1 0 3a1.5 1.5 0 1 1 0-3Z M16.4 9.1a1.5 1.5 0 1 1 0 3a1.5 1.5 0 1 1 0-3Z",
+    )
+    val ReportRoadClosed = reportMarker("ReportRoadClosed", "M6 10.5h12v3H6Z")
+
+    private fun reportMarker(name: String, glyph: String) = filledIcon(name, "M12 1a11 11 0 1 1 0 22a11 11 0 1 1 0-22Z $glyph", evenOdd = true)
+
     private fun strokeIcon(name: String, pathData: String): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
             .addPath(

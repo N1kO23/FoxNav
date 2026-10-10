@@ -69,6 +69,7 @@ fun BoxScope.FreeDriveOverlay(
     navigationMapState: NavigationMapState,
     panels: PanelBounds,
     onOpenConvoy: () -> Unit,
+    onOpenReport: () -> Unit,
 ) {
     val uiState by viewModel.navigationUiState.collectAsState()
     if (uiState.isNavigating()) return
@@ -96,12 +97,16 @@ fun BoxScope.FreeDriveOverlay(
         // While searching, the results and the keyboard need the room.
         if (preview != null || query.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (preview == null && viewModel.canReport) {
+                    ReportButton(onClick = onOpenReport, modifier = Modifier.align(Alignment.BottomStart))
+                }
                 PanelButton(onClick = { navigationMapState.recenter(isNavigating = false) }, modifier = Modifier.align(Alignment.BottomEnd)) {
                     Icon(FoxIcons.Locate, contentDescription = "Center on my location")
                 }
             }
             if (preview == null) {
                 val cameraAhead by viewModel.cameraAhead.collectAsState()
+                ReportStack(viewModel)
                 CameraWarning(cameraAhead)
             }
             Box(Modifier.bottomPanelOf(panels)) {
@@ -115,7 +120,12 @@ fun BoxScope.FreeDriveOverlay(
         val serverUrl by settings.serverUrl.collectAsState()
         val overrides by settings.overrides.collectAsState()
         ServerSettingsSheet(
-            header = { CameraWarningsSetting() },
+            header = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    CameraWarningsSetting()
+                    ReportWarningsSetting()
+                }
+            },
             current = document,
             serverUrl = serverUrl,
             overrides = overrides,
@@ -286,5 +296,22 @@ private fun CameraWarningsSetting() {
             )
         }
         Switch(checked = on, onCheckedChange = settings::setCameraWarnings)
+    }
+}
+
+/** The report warnings switch, under the camera one. */
+@Composable
+private fun ReportWarningsSetting() {
+    val settings = LocalContext.current.appGraph.alertSettings
+    val on by settings.reportWarnings.collectAsState()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("Spoken report warnings", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Police, accidents and the like ahead, and asking whether they're still there. Reports stay on the map either way.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = on, onCheckedChange = settings::setReportWarnings)
     }
 }

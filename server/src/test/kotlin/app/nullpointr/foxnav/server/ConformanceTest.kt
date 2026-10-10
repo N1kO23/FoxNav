@@ -20,10 +20,11 @@ class ConformanceTest {
     fun theReferenceServerConforms() = testApplication {
         application { foxNavModule(ServerConfig(name = "Conformance", stylesDir = stylesDir, regions = listOf("FI"))) }
         val http = createClient { install(ClientWebSockets) }
-        val results = ConformanceSuite(http, "http://localhost", groups = setOf(Group.DISCOVERY, Group.REALTIME)).run()
+        val results = ConformanceSuite(http, "http://localhost", groups = setOf(Group.DISCOVERY, Group.REALTIME, Group.REPORTS), writes = true).run()
 
         val failures = results.filter { it.outcome == Outcome.FAIL }
         assertTrue(failures.isEmpty(), failures.joinToString("\n") { "${it.name}: ${it.detail}" })
-        assertTrue(results.count { it.outcome == Outcome.PASS } >= 14, results.joinToString("\n"))
+        assertTrue(results.count { it.outcome == Outcome.PASS } >= 18, results.joinToString("\n"))
+        assertTrue(results.none { it.outcome == Outcome.SKIP && it.group == Group.REPORTS }, results.joinToString("\n"))
     }
 }

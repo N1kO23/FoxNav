@@ -27,6 +27,10 @@ data class ServerConfig(
     val datapacksUrl: String? = null,
     /** Members per convoy. */
     val maxConvoySize: Int = 20,
+    /** Where drivers' reports are kept across restarts; in memory only if null. */
+    val reportsFile: Path? = null,
+    /** Whether to add Fintraffic's traffic messages (Finland) to the reports. */
+    val fintraffic: Boolean = false,
 ) {
     /** Theme names of the available style templates, e.g. `day` and `night`. */
     fun styleNames(): List<String> = stylesDir
@@ -52,6 +56,8 @@ data class ServerConfig(
                     ?: defaults.regions,
                 maxConvoySize = env["FOXNAV_MAX_CONVOY_SIZE"]?.toInt() ?: defaults.maxConvoySize,
                 datapacksUrl = env["FOXNAV_DATAPACKS_URL"]?.takeIf { it.isNotBlank() },
+                reportsFile = env["FOXNAV_REPORTS_FILE"]?.takeIf { it.isNotBlank() }?.let { Path(it) },
+                fintraffic = env["FOXNAV_FINTRAFFIC"]?.lowercase() in setOf("1", "true", "yes"),
             )
         }
     }

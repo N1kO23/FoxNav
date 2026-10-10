@@ -9,7 +9,7 @@ COPY server server
 RUN ./gradlew --no-daemon :server:installDist
 
 FROM eclipse-temurin:21-jre
-RUN useradd --system --no-create-home foxnav
+RUN useradd --system --no-create-home foxnav && mkdir -p /var/lib/foxnav && chown foxnav /var/lib/foxnav
 COPY --from=build /src/server/build/install/foxnav-server /opt/foxnav-server
 USER foxnav
 ENV FOXNAV_STYLES_DIR=/srv/styles

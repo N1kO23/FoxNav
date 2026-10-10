@@ -3,6 +3,10 @@ package app.nullpointr.foxnav.server
 import app.nullpointr.foxnav.server.convoy.ConvoyRelay
 import app.nullpointr.foxnav.server.convoy.REALTIME_PATH
 import app.nullpointr.foxnav.server.convoy.convoyRoutes
+import app.nullpointr.foxnav.server.reports.FintrafficFeed
+import app.nullpointr.foxnav.server.reports.REPORTS_PATH
+import app.nullpointr.foxnav.server.reports.ReportStore
+import app.nullpointr.foxnav.server.reports.reportRoutes
 import app.nullpointr.foxnav.shared.FoxNavJson
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.discovery.Feature
@@ -25,6 +29,7 @@ import io.ktor.server.websocket.timeout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 fun main() {
@@ -33,7 +38,11 @@ fun main() {
         .start(wait = true)
 }
 
-fun Application.foxNavModule(config: ServerConfig, relay: ConvoyRelay = ConvoyRelay(ConvoyRelay.Limits(maxConvoySize = config.maxConvoySize))) {
+fun Application.foxNavModule(
+    config: ServerConfig,
+    relay: ConvoyRelay = ConvoyRelay(ConvoyRelay.Limits(maxConvoySize = config.maxConvoySize)),
+    reports: ReportStore = ReportStore(config.reportsFile),
+) {
     install(ContentNegotiation) { json(FoxNavJson) }
     // The server runs behind a reverse proxy (Caddy in infra/), which sets X-Forwarded-*.
     install(XForwardedHeaders)
@@ -52,6 +61,16 @@ fun Application.foxNavModule(config: ServerConfig, relay: ConvoyRelay = ConvoyRe
         }
     }
 
+    if (config.fintraffic) {
+        val feed = FintrafficFeed(reports)
+        launch {
+            while (isActive) {
+                runCatching { feed.refresh() }.onFailure { environment.log.warn("Fintraffic traffic messages: ${it.message}") }
+                delay(5.minutes)
+            }
+        }
+    }
+
     routing {
         get("/healthz") { call.respondText("ok") }
 
@@ -63,10 +82,11 @@ fun Application.foxNavModule(config: ServerConfig, relay: ConvoyRelay = ConvoyRe
                     privacy = config.privacyUrl,
                     realtime = REALTIME_PATH,
                     datapacks = config.datapacksUrl,
+                    reports = REPORTS_PATH,
                     styles = config.styleNames().associateWith { "/styles/$it.json" },
                     routing = ServiceEndpoint(type = "valhalla", url = config.routingUrl),
                     search = ServiceEndpoint(type = "photon", url = config.searchUrl),
-                    features = setOfNotNull(Feature.CONVOY, Feature.DATA_PACKS.takeIf { config.datapacksUrl != null }),
+                    features = setOfNotNull(Feature.CONVOY, Feature.REPORTS, Feature.DATA_PACKS.takeIf { config.datapacksUrl != null }),
                     regions = config.regions,
                 ),
             )
@@ -74,5 +94,6 @@ fun Application.foxNavModule(config: ServerConfig, relay: ConvoyRelay = ConvoyRe
 
         styleRoutes(config)
         convoyRoutes(relay)
+        reportRoutes(reports)
     }
 }

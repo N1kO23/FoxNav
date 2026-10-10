@@ -5,11 +5,18 @@ import androidx.lifecycle.viewModelScope
 import app.nullpointr.foxnav.BuildConfig
 import app.nullpointr.foxnav.convoy.ConvoyController
 import app.nullpointr.foxnav.data.PlaceSearch
+import app.nullpointr.foxnav.data.ReportsClient
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.shared.format.kilometersPerHour
 import app.nullpointr.foxnav.shared.convoy.Fix
 import app.nullpointr.foxnav.shared.convoy.fixOf
 import app.nullpointr.foxnav.shared.geo.GeoPoint
+import app.nullpointr.foxnav.shared.reports.NewReport
+import app.nullpointr.foxnav.shared.reports.PassedReports
+import app.nullpointr.foxnav.shared.reports.Report
+import app.nullpointr.foxnav.shared.reports.ReportAhead
+import app.nullpointr.foxnav.shared.reports.ReportType
+import app.nullpointr.foxnav.shared.reports.ReportWatch
 import app.nullpointr.foxnav.shared.road.RoadInfo
 import app.nullpointr.foxnav.shared.safety.Camera
 import app.nullpointr.foxnav.shared.safety.CameraAhead
@@ -28,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -48,6 +56,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.ferrostar.GeographicCoordinate
 import uniffi.ferrostar.Route
 import uniffi.ferrostar.Speed
@@ -83,6 +92,9 @@ class DriveViewModel(
     /** The server's speed cameras (an empty list without data packs). */
     private val loadCameras: suspend () -> List<Camera>,
     cameraWarnings: StateFlow<Boolean>,
+    /** The server's reports; null if it has none. */
+    private val reportsClient: ReportsClient?,
+    private val reportWarnings: StateFlow<Boolean>,
     /** Says something out loud with the guidance voice (and its mute). */
     private val announce: (String) -> Unit,
 ) : DefaultNavigationViewModel(core, valhallaExtendedOSRMAnnotationPublisher()) {
@@ -175,6 +187,7 @@ class DriveViewModel(
                     )
                 }
             }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val routePoints =
         navigationUiState
@@ -187,6 +200,37 @@ class DriveViewModel(
         combine(ourFix, cameraWatch, routePoints, cameraWarnings, _road) { fix, watch, route, enabled, road ->
             if (fix == null || !enabled || !CameraRules.warningsAllowed(road?.countryCode)) null else watch.ahead(fix, route)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Whether this server takes reports. */
+    val canReport: Boolean get() = reportsClient != null
+
+    private val _reports = MutableStateFlow<List<Report>>(emptyList())
+
+    /** Reports to show: police and speed checks only where warning about them is legal. */
+    val reports: StateFlow<List<Report>> =
+        combine(_reports, _road) { reports, road -> reports.filter { it.allowedIn(road?.countryCode) } }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val reportWatch = reports.map(::ReportWatch)
+
+    /** The next report on our road. Shown even with spoken report warnings off. */
+    val reportAhead: StateFlow<ReportAhead?> =
+        combine(ourFix, reportWatch, routePoints) { fix, watch, route -> fix?.let { watch.ahead(it, route) } }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val refreshReports = Channel<Unit>(Channel.CONFLATED)
+    private val passedReports = PassedReports()
+    private val _stillThere = MutableStateFlow<Report?>(null)
+    private var stillThereJob: Job? = null
+
+    /** A driver's report we just passed: is it still there? */
+    val stillThere: StateFlow<Report?> = _stillThere.asStateFlow()
+
+    private val _reportNotice = MutableStateFlow<String?>(null)
+    private var reportNoticeJob: Job? = null
+
+    /** How the last report we made went, for a few seconds. */
+    val reportNotice: StateFlow<String?> = _reportNotice.asStateFlow()
 
     /** Speed, the limit where we are, and whether to warn. */
     val speed: StateFlow<SpeedReading> =
@@ -207,6 +251,29 @@ class DriveViewModel(
         viewModelScope.launch {
             // Once per camera, as it comes into range.
             cameraAhead.distinctUntilChangedBy { it?.camera?.id }.filterNotNull().collect { announce(it.spoken()) }
+        }
+        if (reportsClient != null) {
+            viewModelScope.launch {
+                while (true) {
+                    runCatching { reportsClient.feed() }.onSuccess { _reports.value = it }
+                    withTimeoutOrNull(REPORTS_REFRESH_MS) { refreshReports.receive() }
+                }
+            }
+            viewModelScope.launch {
+                // Once per report, as it comes into range. Roadworks are on the map, not worth a voice.
+                reportAhead.distinctUntilChangedBy { it?.report?.id }.filterNotNull()
+                    .filter { it.report.type != ReportType.ROADWORKS && reportWarnings.value }
+                    .collect { announce(it.spoken()) }
+            }
+            viewModelScope.launch {
+                combine(ourFix.filterNotNull(), reportAhead) { fix, ahead -> fix to ahead }
+                    .distinctUntilChangedBy { it.first }
+                    .collect { (fix, ahead) ->
+                        val passed = passedReports.next(fix, ahead) ?: return@collect
+                        // Official reports end when their source says so; only drivers' reports are voted on.
+                        if (passed.source == null && reportWarnings.value) askStillThere(passed)
+                    }
+            }
         }
         viewModelScope.launch {
             // Arrived: end the trip, so the route line clears and a convoy stops seeing our
@@ -333,6 +400,57 @@ class DriveViewModel(
         }
     }
 
+    /** Reports [type] where we are, for the direction we're heading. */
+    fun report(type: String) {
+        val client = reportsClient ?: return
+        val fix = ourFix.value
+        if (fix == null) {
+            showReportNotice("Waiting for your location")
+            return
+        }
+        val moving = fix.speedMps >= REPORT_HEADING_MIN_MPS
+        viewModelScope.launch {
+            runCatching { client.report(NewReport(type, fix.point.latitude, fix.point.longitude, bearing = fix.headingDeg.takeIf { moving })) }
+                .onSuccess { id ->
+                    passedReports.skip(id)
+                    refreshReports.trySend(Unit)
+                    showReportNotice("Reported: ${ReportLabels.label(type).lowercase()}. Thanks!")
+                }
+                .onFailure { showReportNotice("Couldn't send the report") }
+        }
+    }
+
+    /** The answer to [stillThere]: yes, no, or null for no answer. */
+    fun answerStillThere(stillThere: Boolean?) {
+        val report = _stillThere.value ?: return
+        _stillThere.value = null
+        stillThereJob?.cancel()
+        if (stillThere == null) return
+        val client = reportsClient ?: return
+        viewModelScope.launch {
+            runCatching { client.vote(report.id, stillThere) }
+            refreshReports.trySend(Unit)
+        }
+    }
+
+    private fun askStillThere(report: Report) {
+        _stillThere.value = report
+        stillThereJob?.cancel()
+        stillThereJob = viewModelScope.launch {
+            delay(STILL_THERE_SHOWN_MS)
+            _stillThere.value = null
+        }
+    }
+
+    private fun showReportNotice(text: String) {
+        _reportNotice.value = text
+        reportNoticeJob?.cancel()
+        reportNoticeJob = viewModelScope.launch {
+            delay(REPORT_NOTICE_SHOWN_MS)
+            _reportNotice.value = null
+        }
+    }
+
     override fun toggleMute() {
         core.spokenInstructionObserver?.let { it.setMuted(!it.isMuted) }
     }
@@ -344,6 +462,12 @@ class DriveViewModel(
         const val SPEED_STALE_MS = 4_000L
         const val ARRIVAL_RADIUS_M = 30.0
         const val ARRIVED_SHOWN_MS = 10_000L
+        const val REPORTS_REFRESH_MS = 60_000L
+        const val STILL_THERE_SHOWN_MS = 12_000L
+        const val REPORT_NOTICE_SHOWN_MS = 3_000L
+
+        /** Slower than this, the heading is GPS noise: the report is for both directions. */
+        const val REPORT_HEADING_MIN_MPS = 3.0
 
         fun TripState.hasArrived() =
             this is TripState.Complete || (this is TripState.Navigating && progress.distanceRemaining <= ARRIVAL_RADIUS_M)
@@ -363,6 +487,9 @@ private fun UserLocation.withSpeedFrom(previous: UserLocation?): UserLocation {
 }
 
 private const val MAX_PLAUSIBLE_SPEED_MPS = 100.0
+
+/** "Accident in 600 metres". */
+private fun ReportAhead.spoken(): String = "${ReportLabels.label(report.type)} in ${(distanceM / 100).roundToInt().coerceAtLeast(1) * 100} metres"
 
 /** "Speed camera in 400 metres, limit 80". */
 private fun CameraAhead.spoken(): String {

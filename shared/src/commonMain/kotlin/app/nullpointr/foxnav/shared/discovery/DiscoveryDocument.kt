@@ -24,6 +24,8 @@ data class DiscoveryDocument(
     val realtime: String? = null,
     /** Where data packs live: `{datapacks}/{region}/cameras.json` (spec §3). */
     val datapacks: String? = null,
+    /** The reports API (spec §4). */
+    val reports: String? = null,
     /** MapLibre style URLs keyed by theme, e.g. `night` and `day`. */
     val styles: Map<String, String> = emptyMap(),
     val routing: ServiceEndpoint? = null,
@@ -42,6 +44,7 @@ data class DiscoveryDocument(
         privacy = privacy?.let { resolveUrl(documentUrl, it) },
         realtime = realtime?.let { toWebSocketUrl(resolveUrl(documentUrl, it)) },
         datapacks = datapacks?.let { resolveUrl(documentUrl, it) },
+        reports = reports?.let { resolveUrl(documentUrl, it) },
         styles = styles.mapValues { (_, url) -> resolveUrl(documentUrl, url) },
         routing = routing?.let { it.copy(url = resolveUrl(documentUrl, it.url)) },
         search = search?.let { it.copy(url = resolveUrl(documentUrl, it.url)) },

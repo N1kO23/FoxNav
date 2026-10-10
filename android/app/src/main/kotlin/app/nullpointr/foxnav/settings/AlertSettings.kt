@@ -20,7 +20,18 @@ class AlertSettings(context: Context) {
         _cameraWarnings.value = on
     }
 
+    private val _reportWarnings = MutableStateFlow(preferences.getBoolean(KEY_REPORTS, true))
+
+    /** Spoken warnings about reports ahead (police, accidents…), and "still there?" questions. */
+    val reportWarnings: StateFlow<Boolean> = _reportWarnings.asStateFlow()
+
+    fun setReportWarnings(on: Boolean) {
+        preferences.edit { putBoolean(KEY_REPORTS, on) }
+        _reportWarnings.value = on
+    }
+
     private companion object {
         const val KEY_CAMERAS = "camera_warnings"
+        const val KEY_REPORTS = "report_warnings"
     }
 }

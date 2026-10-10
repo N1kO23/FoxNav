@@ -11,13 +11,13 @@ Where FoxNav's map and safety data comes from, starting with the Nordics. Every 
 | Search index | [Photon](https://github.com/komoot/photon) dumps by [GraphHopper](https://download1.graphhopper.com/public/) | ODbL |
 | Legal default speed limits per country and road type | [osm-legal-default-speeds](https://github.com/westnordost/osm-legal-default-speeds) | see project |
 
-If OSM-derived cameras and users' reports are merged into one database, ODbL share-alike may apply to that database. The plan is to publish the reports database under ODbL anyway.
+If OSM-derived cameras and users' reports are merged into one database, ODbL share-alike may apply to that database. The reports feed is public anyway (`GET /v1/reports`); the plan is to publish it under ODbL. Official reports in it keep their source and licence, and the app shows the source with each one.
 
 ## Nordics
 
 | | Speed limits | Fixed speed cameras | Live events and conditions |
 |---|---|---|---|
-| 🇫🇮 Finland | [Digiroad](https://vayla.fi/vaylista/aineistot/digiroad/aineisto) (Väylävirasto, CC BY 4.0), including winter speed limits | About 1,000 camera poles, only a few active at a time. Police have published the active ones on the national traffic-situation service; check whether [Digitraffic](https://www.digitraffic.fi) still carries them. Also OSM. | [Digitraffic](https://www.digitraffic.fi) by Fintraffic (CC BY 4.0): traffic messages, road weather stations, weather cameras |
+| 🇫🇮 Finland | [Digiroad](https://vayla.fi/vaylista/aineistot/digiroad/aineisto) (Väylävirasto, CC BY 4.0), including winter speed limits | About 1,000 camera poles, only a few active at a time. Police have published the active ones on the national traffic-situation service; check whether [Digitraffic](https://www.digitraffic.fi) still carries them. Also OSM. | [Digitraffic](https://www.digitraffic.fi) by Fintraffic (CC BY 4.0): traffic messages (**used**: they seed reports, credited as "Fintraffic" on each), road weather stations, weather cameras |
 | 🇸🇪 Sweden | NVDB, via [Trafikverket's open API](https://data.trafikverket.se) | Trafikverket's open API: about 2,800 automatic speed cameras (ATK), CC0, free API key | Trafikverket's open API: incidents, road conditions |
 | 🇳🇴 Norway | [NVDB API](https://api.vegdata.no), object type 105 *fartsgrense* (NLOD licence) | NVDB object type 162 *ATK-punkt*. Norway also has average-speed sections. | Statens vegvesen DATEX II feed |
 | 🇩🇰 Denmark | OSM plus legal defaults | OSM plus user reports | National traffic data portal (DATEX II); needs checking |

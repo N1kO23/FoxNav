@@ -7,7 +7,8 @@ Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras
 > - search and route alternatives;
 > - turn-by-turn with voice;
 > - convoys: live cars and speeds, invite links and QR codes, quick messages and a shared destination;
-> - speed camera warnings, from OpenStreetMap.
+> - speed camera warnings, from OpenStreetMap;
+> - reports (police, accidents, roadworks, moose…) with spoken warnings and "still there?" votes, seeded from Fintraffic in Finland.
 >
 > Convoys have been tested on the emulator with bots, not yet on a real drive. See the [roadmap](docs/architecture.md#roadmap).
 

@@ -13,7 +13,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.nullpointr.foxnav.appGraph
+import app.nullpointr.foxnav.data.ReportsClient
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
+import app.nullpointr.foxnav.shared.discovery.Feature
 import app.nullpointr.foxnav.voice.guidanceLanguage
 
 /** Sets up driving for the server described by [document]. */
@@ -39,6 +41,8 @@ fun DriveRoute(document: DiscoveryDocument) {
             playOverLimitChime = graph.chime::playKinKon,
             loadCameras = { graph.cameraPacks.load(document) },
             cameraWarnings = graph.alertSettings.cameraWarnings,
+            reportsClient = document.reports?.takeIf { Feature.REPORTS in document.features }?.let { ReportsClient(graph.httpClient, it) },
+            reportWarnings = graph.alertSettings.reportWarnings,
             announce = graph::speak,
         )
     }

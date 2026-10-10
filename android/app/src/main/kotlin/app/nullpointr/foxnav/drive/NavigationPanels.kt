@@ -6,9 +6,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -103,13 +105,14 @@ private fun DistanceReadout(meters: Double) {
     }
 }
 
-/** Bottom panel while navigating: speed and limit, arrival, mute, convoy and end. */
+/** Bottom panel while navigating: speed and limit, arrival, reporting, mute, convoy and end. */
 @Composable
 fun DrivePanel(
     uiState: NavigationUiState,
     speed: SpeedReading,
     onToggleMute: () -> Unit,
     onConvoy: () -> Unit,
+    onReport: (() -> Unit)?,
     onEnd: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -140,17 +143,23 @@ fun DrivePanel(
                     )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onToggleMute, modifier = Modifier.weight(1f)) {
-                    Text(if (uiState.isMuted == true) "Unmute" else "Mute")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (onReport != null) ReportButton(onClick = onReport, modifier = Modifier.size(PANEL_BUTTON_HEIGHT))
+                OutlinedButton(onClick = onToggleMute, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) {
+                    Text(if (uiState.isMuted == true) "Unmute" else "Mute", maxLines = 1)
                 }
-                OutlinedButton(onClick = onConvoy, modifier = Modifier.weight(1f)) { Text("Convoy") }
+                OutlinedButton(onClick = onConvoy, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) {
+                    Text("Convoy", maxLines = 1)
+                }
                 if (onEnd != null) {
-                    Button(onClick = onEnd, modifier = Modifier.weight(1f)) { Text("End") }
+                    Button(onClick = onEnd, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) { Text("End", maxLines = 1) }
                 }
             }
         }
     }
 }
+
+private val PANEL_BUTTON_HEIGHT = 52.dp
+private val PANEL_BUTTON_PADDING = PaddingValues(horizontal = 8.dp)
 
 private fun decimalSeparator(): Char = DecimalFormatSymbols.getInstance().decimalSeparator

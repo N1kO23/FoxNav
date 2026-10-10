@@ -68,7 +68,9 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
     val convoyMembers by remember(activeConvoy) { activeConvoy?.session?.members ?: MutableStateFlow(emptyMap()) }.collectAsState()
     val regroupPoint by convoy.regroupPoint.collectAsState()
     val cameras by viewModel.cameras.collectAsState()
+    val reports by viewModel.reports.collectAsState()
     var showConvoy by rememberSaveable { mutableStateOf(false) }
+    var showReport by rememberSaveable { mutableStateOf(false) }
     val panels = remember { ScreenPanels() }
     val query by viewModel.query.collectAsState()
 
@@ -105,6 +107,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
                     speed,
                     onToggleMute = viewModel::toggleMute,
                     onConvoy = { showConvoy = true },
+                    onReport = if (viewModel.canReport) ({ showReport = true }) else null,
                     onEnd = onTapExit,
                     modifier = modifier.bottomPanelOf(panels.navigation),
                 )
@@ -112,12 +115,21 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
             .withRoadNameView { modifier, roadName, _ ->
                 val cameraAhead by viewModel.cameraAhead.collectAsState()
                 Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ReportStack(viewModel)
                     CameraWarning(cameraAhead)
                     RoadNamePill(roadName)
                 }
             }
             .withCustomOverlayView { modifier ->
-                FreeDriveOverlay(modifier, viewModel, document, navigationMapState, panels.freeDrive, onOpenConvoy = { showConvoy = true })
+                FreeDriveOverlay(
+                    modifier,
+                    viewModel,
+                    document,
+                    navigationMapState,
+                    panels.freeDrive,
+                    onOpenConvoy = { showConvoy = true },
+                    onOpenReport = { showReport = true },
+                )
                 val uiState by viewModel.navigationUiState.collectAsState()
                 val route = remember(uiState.routeGeometry) { uiState.routeGeometry?.map { GeoPoint(it.lat, it.lng) } }
                 ConvoyOverlay(
@@ -145,8 +157,19 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         mapOptions = MapOptions(ornamentOptions = OrnamentOptions(isCompassEnabled = false, isScaleBarEnabled = false)),
     ) { uiState ->
         if (!uiState.isNavigating()) RoutePreviewLayers(preview)
+        ReportLayers(reports)
         CameraLayers(cameras)
         ConvoyLayers(convoyMembers, regroupPoint)
+    }
+
+    if (showReport) {
+        ReportSheet(
+            onReport = { type ->
+                showReport = false
+                viewModel.report(type)
+            },
+            onDismiss = { showReport = false },
+        )
     }
 
     if (showConvoy) {
