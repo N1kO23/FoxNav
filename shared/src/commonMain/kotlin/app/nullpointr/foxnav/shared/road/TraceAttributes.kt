@@ -11,8 +11,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
-/** The road the car is on, as far as the map knows. */
-data class RoadInfo(val name: String?, val speedLimitKmh: Int?)
+/** The road the car is on, as far as the map knows, and the country it's in (ISO 3166-1 alpha-2). */
+data class RoadInfo(val name: String?, val speedLimitKmh: Int?, val countryCode: String? = null)
 
 /**
  * Finds the current road without a route (free drive) with Valhalla's `trace_attributes`: the last
@@ -32,6 +32,8 @@ object TraceAttributes {
                 add("edge.speed_limit")
                 add("edge.names")
                 add("matched.edge_index")
+                add("node.admin_index")
+                add("admin.country_code")
             }
         }
     }.toString()
@@ -41,17 +43,29 @@ object TraceAttributes {
         val response = FoxNavJson.decodeFromString(Response.serializer(), json)
         val edgeIndex = response.matchedPoints.lastOrNull()?.edgeIndex ?: return null
         val edge = response.edges.getOrNull(edgeIndex) ?: return null
-        return RoadInfo(name = edge.names.firstOrNull(), speedLimitKmh = edge.speedLimit?.takeIf { it in 1..200 })
+        val country = edge.endNode?.adminIndex?.let { response.admins.getOrNull(it) }?.countryCode?.takeIf { it.length == 2 }
+        return RoadInfo(name = edge.names.firstOrNull(), speedLimitKmh = edge.speedLimit?.takeIf { it in 1..200 }, countryCode = country)
     }
 
     @Serializable
     private class Response(
         val edges: List<Edge> = emptyList(),
+        val admins: List<Admin> = emptyList(),
         @SerialName("matched_points") val matchedPoints: List<MatchedPoint> = emptyList(),
     )
 
     @Serializable
-    private class Edge(@SerialName("speed_limit") val speedLimit: Int? = null, val names: List<String> = emptyList())
+    private class Edge(
+        @SerialName("speed_limit") val speedLimit: Int? = null,
+        val names: List<String> = emptyList(),
+        @SerialName("end_node") val endNode: Node? = null,
+    )
+
+    @Serializable
+    private class Node(@SerialName("admin_index") val adminIndex: Int? = null)
+
+    @Serializable
+    private class Admin(@SerialName("country_code") val countryCode: String? = null)
 
     @Serializable
     private class MatchedPoint(@SerialName("edge_index") val edgeIndex: Int? = null)

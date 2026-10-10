@@ -67,8 +67,11 @@ fun fixOf(point: GeoPoint, timeMs: Long, speedMps: Double?, headingDeg: Double?,
     return Fix(point, speed, heading, timeMs)
 }
 
-/** Where along [line] the point nearest to a point lies, and how far off the line the point is (metres). */
-internal data class LineProjection(val alongM: Double, val offM: Double)
+/**
+ * Where along [line] the point nearest to a point lies, how far off the line the point is (metres),
+ * and which way the line runs there.
+ */
+internal data class LineProjection(val alongM: Double, val offM: Double, val bearingDeg: Double)
 
 internal fun project(line: List<GeoPoint>, point: GeoPoint): LineProjection? {
     if (line.size < 2) return null
@@ -84,7 +87,7 @@ internal fun project(line: List<GeoPoint>, point: GeoPoint): LineProjection? {
         val offNorth = pointNorth - t * segmentNorth
         val off = sqrt(offEast * offEast + offNorth * offNorth)
         val length = sqrt(lengthSquared)
-        if (best == null || off < best.offM) best = LineProjection(travelled + t * length, off)
+        if (best == null || off < best.offM) best = LineProjection(travelled + t * length, off, start.bearingTo(line[index + 1]))
         travelled += length
     }
     return best

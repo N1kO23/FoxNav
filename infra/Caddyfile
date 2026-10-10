@@ -21,6 +21,14 @@
 		file_server
 	}
 
+	# Data packs: small JSON files the app downloads and revalidates (ETag).
+	handle_path /datapacks/* {
+		root * /srv/datapacks
+		header Access-Control-Allow-Origin *
+		encode gzip
+		file_server
+	}
+
 	handle_path /assets/* {
 		root * /srv/assets
 		header Access-Control-Allow-Origin *

@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -36,6 +37,8 @@ fun ServerSettingsSheet(
     overrides: EndpointOverrides,
     onSave: (String, EndpointOverrides) -> Unit,
     onDismiss: () -> Unit,
+    /** Other settings above the server's, e.g. from the drive screen. */
+    header: (@Composable () -> Unit)? = null,
 ) {
     var server by remember { mutableStateOf(serverUrl) }
     var routing by remember { mutableStateOf(overrides.routing) }
@@ -53,6 +56,10 @@ fun ServerSettingsSheet(
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            if (header != null) {
+                header()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            }
             Text("Server", style = MaterialTheme.typography.titleLarge)
             if (current != null) {
                 Text(

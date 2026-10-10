@@ -24,6 +24,16 @@ class TraceAttributesTest {
     }
 
     @Test
+    fun theCountryComesFromTheAdminAreaAtTheEdgesEnd() {
+        val json = """
+            {"admins":[{"country_code":"FI"},{"country_code":"SE"}],
+             "edges":[{"names":["E 8"],"end_node":{"admin_index":1}}],
+             "matched_points":[{"edge_index":0}]}
+        """.trimIndent()
+        assertEquals("SE", TraceAttributes.parseCurrentRoad(json)?.countryCode)
+    }
+
+    @Test
     fun unknownLimitsAndNamesStayNull() {
         val json = """{"edges":[{"road_class":"service_other"}],"matched_points":[{"edge_index":0}]}"""
         assertEquals(RoadInfo(null, null), TraceAttributes.parseCurrentRoad(json))

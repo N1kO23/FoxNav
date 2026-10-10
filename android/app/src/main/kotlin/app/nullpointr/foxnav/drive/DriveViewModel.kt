@@ -7,8 +7,14 @@ import app.nullpointr.foxnav.convoy.ConvoyController
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.shared.format.kilometersPerHour
+import app.nullpointr.foxnav.shared.convoy.Fix
+import app.nullpointr.foxnav.shared.convoy.fixOf
 import app.nullpointr.foxnav.shared.geo.GeoPoint
 import app.nullpointr.foxnav.shared.road.RoadInfo
+import app.nullpointr.foxnav.shared.safety.Camera
+import app.nullpointr.foxnav.shared.safety.CameraAhead
+import app.nullpointr.foxnav.shared.safety.CameraRules
+import app.nullpointr.foxnav.shared.safety.CameraWatch
 import app.nullpointr.foxnav.shared.search.Place
 import app.nullpointr.foxnav.shared.speed.SpeedReading
 import com.stadiamaps.ferrostar.core.DefaultNavigationViewModel
@@ -31,8 +37,10 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.runningFold
@@ -72,6 +80,11 @@ class DriveViewModel(
     private val roadLookup: RoadLookup,
     private val convoy: ConvoyController,
     private val playOverLimitChime: () -> Unit,
+    /** The server's speed cameras (an empty list without data packs). */
+    private val loadCameras: suspend () -> List<Camera>,
+    cameraWarnings: StateFlow<Boolean>,
+    /** Says something out loud with the guidance voice (and its mute). */
+    private val announce: (String) -> Unit,
 ) : DefaultNavigationViewModel(core, valhallaExtendedOSRMAnnotationPublisher()) {
 
     private val hasLocationPermission = MutableStateFlow(false)
@@ -139,6 +152,42 @@ class DriveViewModel(
             }
         }
 
+    private val _cameras = MutableStateFlow<List<Camera>>(emptyList())
+
+    /** Speed cameras to draw on the map. */
+    val cameras: StateFlow<List<Camera>> = _cameras.asStateFlow()
+
+    private val cameraWatch = _cameras.map(::CameraWatch)
+
+    // Where we are, with speed and heading filled in where the location source leaves them out.
+    private val ourFix =
+        navigationUiState
+            .map { it.location }
+            .distinctUntilChanged()
+            .runningFold(null as Fix?) { previous, location ->
+                location?.let {
+                    fixOf(
+                        point = GeoPoint(it.coordinates.lat, it.coordinates.lng),
+                        timeMs = it.timestamp.toEpochMilli(),
+                        speedMps = it.speed?.value,
+                        headingDeg = it.courseOverGround?.degrees?.toDouble(),
+                        previous = previous,
+                    )
+                }
+            }
+
+    private val routePoints =
+        navigationUiState
+            .map { if (it.isNavigating()) it.routeGeometry else null }
+            .distinctUntilChanged()
+            .map { geometry -> geometry?.map { GeoPoint(it.lat, it.lng) } }
+
+    /** The next speed camera on our road, while warnings are on and legal where we are. */
+    val cameraAhead: StateFlow<CameraAhead?> =
+        combine(ourFix, cameraWatch, routePoints, cameraWarnings, _road) { fix, watch, route, enabled, road ->
+            if (fix == null || !enabled || !CameraRules.warningsAllowed(road?.countryCode)) null else watch.ahead(fix, route)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     /** Speed, the limit where we are, and whether to warn. */
     val speed: StateFlow<SpeedReading> =
         combine(speedKmh, limitKmh) { speed, limit -> speed to limit }
@@ -154,6 +203,11 @@ class DriveViewModel(
                 .collect { location -> freeDriveLocation.value = location }
         }
         viewModelScope.launch { trackFreeDriveRoad() }
+        viewModelScope.launch { _cameras.value = runCatching { loadCameras() }.getOrDefault(emptyList()) }
+        viewModelScope.launch {
+            // Once per camera, as it comes into range.
+            cameraAhead.distinctUntilChangedBy { it?.camera?.id }.filterNotNull().collect { announce(it.spoken()) }
+        }
         viewModelScope.launch {
             // Arrived: end the trip, so the route line clears and a convoy stops seeing our
             // destination. Ferrostar completes a trip only a few metres from the destination;
@@ -309,3 +363,10 @@ private fun UserLocation.withSpeedFrom(previous: UserLocation?): UserLocation {
 }
 
 private const val MAX_PLAUSIBLE_SPEED_MPS = 100.0
+
+/** "Speed camera in 400 metres, limit 80". */
+private fun CameraAhead.spoken(): String {
+    val what = if (camera.kind == Camera.RED_LIGHT) "Red light camera" else "Speed camera"
+    val metres = (distanceM / 100).roundToInt().coerceAtLeast(1) * 100
+    return "$what in $metres metres" + (camera.maxspeed?.let { ", limit $it" } ?: "")
+}

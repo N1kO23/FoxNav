@@ -13,6 +13,7 @@ set -euo pipefail
 REGION=${1:-finland}
 case "$REGION" in
     finland)
+        COUNTRY=FI
         PBF_URL=https://download.geofabrik.de/europe/finland-latest.osm.pbf
         PHOTON_URL=https://download1.graphhopper.com/public/europe/finland/photon-dump-finland-1.0-latest.jsonl.zst
         BBOX=19.0,59.3,31.6,70.1
@@ -83,6 +84,17 @@ else
     for stack in "${FONTSTACKS[@]}"; do cp -r "$TMP/assets/fonts/$stack" "$DATA/assets/fonts/"; done
     mkdir -p "$DATA/assets/sprites"
     cp -r "$TMP/assets/sprites/v4" "$DATA/assets/sprites/"
+fi
+
+# Speed cameras from the OpenStreetMap extract (protocol/SPEC.md §3). Delete the file to rebuild
+# after fetching newer data.
+if [ -f "$DATA/datapacks/$COUNTRY/cameras.json" ]; then
+    echo "✓ data packs already built"
+else
+    echo "⚙ data packs"
+    mkdir -p "$DATA/datapacks"
+    FOXNAV_REGION=$REGION FOXNAV_REGION_CODE=$COUNTRY \
+        docker compose -f "$(dirname "$0")/../compose.yaml" run --rm --build datapacks
 fi
 
 echo "Done. Data is in $DATA ($(du -sh "$DATA" | cut -f1))."

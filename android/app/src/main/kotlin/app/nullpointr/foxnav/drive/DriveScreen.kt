@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +67,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
     val activeConvoy by convoy.active.collectAsState()
     val convoyMembers by remember(activeConvoy) { activeConvoy?.session?.members ?: MutableStateFlow(emptyMap()) }.collectAsState()
     val regroupPoint by convoy.regroupPoint.collectAsState()
+    val cameras by viewModel.cameras.collectAsState()
     var showConvoy by rememberSaveable { mutableStateOf(false) }
     val panels = remember { ScreenPanels() }
     val query by viewModel.query.collectAsState()
@@ -106,7 +109,13 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
                     modifier = modifier.bottomPanelOf(panels.navigation),
                 )
             }
-            .withRoadNameView { modifier, roadName, _ -> RoadNamePill(roadName, modifier) }
+            .withRoadNameView { modifier, roadName, _ ->
+                val cameraAhead by viewModel.cameraAhead.collectAsState()
+                Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CameraWarning(cameraAhead)
+                    RoadNamePill(roadName)
+                }
+            }
             .withCustomOverlayView { modifier ->
                 FreeDriveOverlay(modifier, viewModel, document, navigationMapState, panels.freeDrive, onOpenConvoy = { showConvoy = true })
                 val uiState by viewModel.navigationUiState.collectAsState()
@@ -136,6 +145,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         mapOptions = MapOptions(ornamentOptions = OrnamentOptions(isCompassEnabled = false, isScaleBarEnabled = false)),
     ) { uiState ->
         if (!uiState.isNavigating()) RoutePreviewLayers(preview)
+        CameraLayers(cameras)
         ConvoyLayers(convoyMembers, regroupPoint)
     }
 

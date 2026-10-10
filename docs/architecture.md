@@ -123,6 +123,10 @@ Details are in the [protocol spec](../protocol/SPEC.md#2-realtime-draft); this i
   - big-button quick messages (police, hazard, slow down, fuel, break, pull over, all good), read aloud;
   - no typing while moving;
   - later: leader and tail ("sweeper") roles, via points, and alerts when someone falls behind or leaves the route.
+- **Off-grid convoys (later).** Cars out of mobile coverage could keep the convoy going over other links, such as LoRa through [Meshtastic](https://meshtastic.org) radios. A car that still has internet would act as a gateway to the relay. The payloads stay end-to-end encrypted; the link only carries them. What fits:
+  - LoRa carries about 1 kbit/s in packets of about 230 bytes, and EU rules limit how often a radio may send. Off-grid convoys need a compact position format sent every 10–30 s, with motion prediction filling the gaps. Quick messages and regroup pins are tiny and fit as they are.
+  - Map tiles, search and routes are far too big for LoRa. Driving without internet needs offline map regions and on-device routing instead.
+  - Short-range links between nearby cars (Wi-Fi Direct or Wi-Fi Aware, Bluetooth) carry much more, and could pass full updates from car to car.
 - **Testing with bots.** [`tools/convoy-sim`](../tools/convoy-sim/) puts bot cars in a convoy, driving one behind the other along a real route, so one developer can test a full convoy.
 - **Convoy soundtrack (later).** Members can opt in to share what they're playing. Title and artist go out as an encrypted `STATE` payload, and others can listen along.
   - Every member plays the track from their own music service. Audio is never streamed between phones, which would need music licences.
@@ -136,10 +140,15 @@ Details are in the [protocol spec](../protocol/SPEC.md#2-realtime-draft); this i
   - Where a road has no limit, the app falls back to the country's legal default and shows it as "inferred".
   - Seasonal winter limits (Finland, Sweden, Norway) need special handling. National road databases improve coverage later.
   - Never show a confident wrong number.
-- **Speed cameras** arrive as regional **data packs**: the app downloads them and matches cameras on the phone.
-  - This works offline, and no server learns your route.
-  - Alerts fire only on the camera's road, in the direction it watches.
-- **Legality differs by country.** Camera alerts are legal in the Nordics, but Germany forbids drivers from using them, Switzerland bans them, and France allows only vague "danger zones". Camera alerts therefore have a per-country switch.
+- **Speed cameras** arrive as regional **data packs** ([spec §3](../protocol/SPEC.md#3-data-packs-draft)): the app downloads them and matches cameras on the phone.
+  - This works offline, and no server learns your route. The app keeps each pack and revalidates it with its ETag.
+  - The local stack builds the packs from OpenStreetMap (`infra/datapacks/`). An enforcement relation's `from` and `to` give the direction a camera checks; otherwise its `direction` tag does. For Finland that's about 1,000 cameras, two thirds with a known direction.
+  - Warnings come about 25 s before a camera (at least 300 m, at most 1.5 km), once per camera, as a pill above the bottom panel and by voice: "Speed camera in 400 metres, limit 80".
+  - Only cameras on our road count, and only those checking our direction. While navigating that means along the route; in free drive, within a narrow cone around our heading. Cameras without a known direction count in both. No warnings when parked.
+  - National camera data (Trafikverket, NVDB) comes next, see [data-sources.md](data-sources.md).
+- **Legality differs by country.** Camera warnings are legal in the Nordics, but Germany forbids drivers from using them, Switzerland bans them, and France allows only vague "danger zones". So:
+  - the app stays quiet in those countries whatever the setting (`CameraRules`), knowing the country from the road lookup;
+  - everywhere else there's a switch in the settings.
 - **Reports** (police, accidents, hazards, roadworks, slippery roads, moose…) are crowd-sourced Waze-style:
   - each type expires after its own time;
   - drivers passing by get a "still there?" prompt.
@@ -182,10 +191,14 @@ On the car screen only the map is ours, so the app's look has to live in the map
    - live cars with motion prediction and the timing tower;
    - quick messages, a shared destination and a regroup point;
    - the convoy simulator and conformance tests.
-4. **Safety data:** camera packs and alerts, national speed-limit data including winter limits, crowd reports.
+4. **Safety data:** _(in progress: camera packs from OpenStreetMap and camera warnings work)_
+   - camera packs and warnings, from OpenStreetMap and national data;
+   - national speed-limit data including winter limits;
+   - crowd reports.
 5. **Car integration and reach:** Android Auto, offline map regions, a web convoy viewer, Play Store and F-Droid releases, then iOS and CarPlay.
 6. **Enthusiast features:**
    - custom voices, push-to-talk convoy radio and the convoy soundtrack;
+   - off-grid convoys over LoRa (Meshtastic) and car-to-car links, with gateway cars;
    - twisty-roads routing;
    - a road library, meets and events, drive logs;
    - custom colour palettes.

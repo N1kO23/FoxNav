@@ -62,10 +62,11 @@ fun Application.foxNavModule(config: ServerConfig, relay: ConvoyRelay = ConvoyRe
                     name = config.name,
                     privacy = config.privacyUrl,
                     realtime = REALTIME_PATH,
+                    datapacks = config.datapacksUrl,
                     styles = config.styleNames().associateWith { "/styles/$it.json" },
                     routing = ServiceEndpoint(type = "valhalla", url = config.routingUrl),
                     search = ServiceEndpoint(type = "photon", url = config.searchUrl),
-                    features = setOf(Feature.CONVOY),
+                    features = setOfNotNull(Feature.CONVOY, Feature.DATA_PACKS.takeIf { config.datapacksUrl != null }),
                     regions = config.regions,
                 ),
             )

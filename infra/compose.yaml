@@ -3,6 +3,7 @@
 #   /valhalla/*                      Valhalla (routing)
 #   /photon/*                        Photon (search)
 #   /tiles/*, /assets/*              static files (PMTiles map data, fonts, sprites)
+#   /datapacks/*                     static files (speed cameras, built by the datapacks service)
 #
 # Fetch the data first with infra/scripts/fetch-data.sh, then: docker compose up -d
 # The first start builds the routing graph and search index; see infra/README.md.
@@ -21,6 +22,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/tiles:/srv/tiles:ro
       - ./data/assets:/srv/assets:ro
+      - ./data/datapacks:/srv/datapacks:ro
     depends_on: [server, valhalla, photon]
     restart: unless-stopped
 
@@ -32,6 +34,7 @@ services:
       FOXNAV_NAME: FoxNav (local)
       FOXNAV_REGIONS: FI
       FOXNAV_STYLES_DIR: /srv/styles
+      FOXNAV_DATAPACKS_URL: /datapacks
     volumes:
       - ./styles:/srv/styles:ro
     restart: unless-stopped
@@ -59,3 +62,15 @@ services:
       # Imports data/photon/import.jsonl.zst into data/photon/photon_data on first start.
       - ./data/photon:/photon
     restart: unless-stopped
+
+  # Builds the data packs from the OpenStreetMap extract. Not a long-running service: run it after
+  # fetching new data (fetch-data.sh does), e.g. nightly on a public server:
+  #   docker compose -f infra/compose.yaml run --rm datapacks
+  datapacks:
+    build: ./datapacks
+    <<: *host-user
+    profiles: [tools]
+    volumes:
+      - ./data/valhalla:/osm:ro
+      - ./data/datapacks:/out
+    command: ["--region", "${FOXNAV_REGION_CODE:-FI}", "/osm/${FOXNAV_REGION:-finland}-latest.osm.pbf", "/out"]

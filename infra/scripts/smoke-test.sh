@@ -52,6 +52,7 @@ check "sprites" json "$BASE/assets/sprites/v4/dark.json" 'f"{len(d)} icons"'
 check "routing: Helsinki -> Tampere" route_helsinki_tampere
 check "search: Tampere" json "$BASE/photon/api?q=Tampere&limit=1" 'd["features"][0]["properties"]["name"]'
 check "convoy realtime endpoint" realtime_upgrade
+check "camera pack: FI" json "$BASE/datapacks/FI/cameras.json" 'str(len(d["cameras"])) + " cameras"'
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed. Services still building their data answer with 502; see infra/README.md."

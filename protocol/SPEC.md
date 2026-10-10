@@ -27,6 +27,7 @@ If the user typed a bare domain (`maps.example.org`), clients use `https://`.
 | `name` | string | yes | Server name shown in the app. |
 | `privacy` | URL | no | Privacy policy of whoever runs the server. |
 | `realtime` | URL | no | WebSocket endpoint (§2). Absent if the server has no realtime features. |
+| `datapacks` | URL | no | Where the data packs are (§3). Absent if the server has none. |
 | `styles` | object | no | MapLibre style URLs keyed by theme. Known themes: `night`, `day`. |
 | `routing` | endpoint | no | Routing service, see below. |
 | `search` | endpoint | no | Search service, see below. |
@@ -61,7 +62,8 @@ What the local stack in `infra/` returns:
   "styles": { "day": "/styles/day.json", "night": "/styles/night.json" },
   "routing": { "type": "valhalla", "url": "/valhalla" },
   "search": { "type": "photon", "url": "/photon" },
-  "features": ["convoy"],
+  "datapacks": "/datapacks",
+  "features": ["convoy", "datapacks"],
   "regions": ["FI"]
 }
 ```
@@ -161,9 +163,43 @@ These arrive in a later version of this document:
 - data packs (speed cameras, speed-limit fixes);
 - a `NowPlaying` payload for the convoy soundtrack: track metadata, service IDs and ISRC, playback position and state.
 
-## 3. Conformance
+## 3. Data packs (draft)
 
-[`conformance/`](conformance/) checks any server against this document: the discovery document, the map services it lists, and the realtime protocol message by message, with opaque payloads. Each convoy check uses a new convoy.
+Data the app downloads per region and matches on the phone, so the server never learns where anyone drives. A server that has them lists the `datapacks` feature and a `datapacks` URL in its discovery document. Packs are plain files: clients revalidate them with `If-None-Match`, and servers should send them compressed.
+
+### 3.1 Speed cameras
+
+```
+GET {datapacks}/{region}/cameras.json
+```
+
+`region` is one of the document's `regions`. The pack:
+
+```json
+{
+  "format": 1,
+  "region": "FI",
+  "generated": "2026-10-10T18:00:00Z",
+  "attribution": "© OpenStreetMap contributors, ODbL",
+  "cameras": [
+    { "id": "osm/node/123", "lat": 60.17, "lon": 24.94, "kind": "speed", "bearings": [90], "maxspeed": 50 }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `format` | `1`. A client that doesn't know a pack's format ignores the pack. |
+| `id` | Stable across rebuilds, so clients don't warn twice about the same camera. |
+| `kind` | `speed` or `red_light`. Clients skip kinds they don't know. |
+| `bearings` | The travel directions the camera checks, in degrees clockwise from north. Absent means unknown, so any direction. |
+| `maxspeed` | The limit it enforces in km/h, when known. |
+
+The reference stack builds the pack from OpenStreetMap: `highway=speed_camera` nodes, and `type=enforcement` relations, whose `from` and `to` members give the direction. See `infra/datapacks/`. The app warns only where camera warnings are legal; see [`docs/architecture.md`](../docs/architecture.md#speed-limits-cameras-and-reports).
+
+## 4. Conformance
+
+[`conformance/`](conformance/) checks any server against this document: the discovery document, the map services and data packs it lists, and the realtime protocol message by message, with opaque payloads. Each convoy check uses a new convoy.
 
 ```sh
 ./gradlew :protocol:conformance:installDist

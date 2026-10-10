@@ -23,6 +23,8 @@ data class ServerConfig(
     val stylesDir: Path? = null,
     /** ISO 3166-1 alpha-2 codes of the countries this server has map data for. */
     val regions: List<String> = emptyList(),
+    /** Where the data packs are published (spec §3), e.g. `/datapacks`; none if null. */
+    val datapacksUrl: String? = null,
     /** Members per convoy. */
     val maxConvoySize: Int = 20,
 ) {
@@ -49,6 +51,7 @@ data class ServerConfig(
                 regions = env["FOXNAV_REGIONS"]?.split(',')?.map { it.trim().uppercase() }?.filter { it.isNotEmpty() }
                     ?: defaults.regions,
                 maxConvoySize = env["FOXNAV_MAX_CONVOY_SIZE"]?.toInt() ?: defaults.maxConvoySize,
+                datapacksUrl = env["FOXNAV_DATAPACKS_URL"]?.takeIf { it.isNotBlank() },
             )
         }
     }

@@ -100,6 +100,10 @@ fun BoxScope.FreeDriveOverlay(
                     Icon(FoxIcons.Locate, contentDescription = "Center on my location")
                 }
             }
+            if (preview == null) {
+                val cameraAhead by viewModel.cameraAhead.collectAsState()
+                CameraWarning(cameraAhead)
+            }
             Box(Modifier.bottomPanelOf(panels)) {
                 preview?.let { RoutePreviewPanel(it, viewModel) } ?: FreeDrivePanel(viewModel)
             }
@@ -111,6 +115,7 @@ fun BoxScope.FreeDriveOverlay(
         val serverUrl by settings.serverUrl.collectAsState()
         val overrides by settings.overrides.collectAsState()
         ServerSettingsSheet(
+            header = { CameraWarningsSetting() },
             current = document,
             serverUrl = serverUrl,
             overrides = overrides,
@@ -264,5 +269,22 @@ private fun PanelButton(onClick: () -> Unit, modifier: Modifier = Modifier, cont
         modifier = modifier.size(56.dp),
     ) {
         Box(contentAlignment = Alignment.Center) { content() }
+    }
+}
+
+/** The speed camera warnings switch, at the top of the settings. */
+@Composable
+private fun CameraWarningsSetting() {
+    val settings = LocalContext.current.appGraph.alertSettings
+    val on by settings.cameraWarnings.collectAsState()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("Speed camera warnings", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Always off in Germany, Switzerland and France, which forbid them.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = on, onCheckedChange = settings::setCameraWarnings)
     }
 }

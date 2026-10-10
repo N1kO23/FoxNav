@@ -1,6 +1,7 @@
 package app.nullpointr.foxnav.server
 
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
+import app.nullpointr.foxnav.shared.discovery.Feature
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -47,6 +48,15 @@ class ServerTest {
         assertEquals("/valhalla", document.routing?.url)
         assertEquals("/photon", document.search?.url)
         assertEquals(listOf("FI"), document.regions)
+        assertEquals(null, document.datapacks)
+    }
+
+    @Test
+    fun dataPacksAreListedWhenConfigured() = testApplication {
+        application { foxNavModule(config.copy(datapacksUrl = "/datapacks")) }
+        val document = DiscoveryDocument.parse(client.get("/.well-known/foxnav").bodyAsText())
+        assertEquals("/datapacks", document.datapacks)
+        assertTrue(Feature.DATA_PACKS in document.features)
     }
 
     @Test

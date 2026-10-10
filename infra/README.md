@@ -7,6 +7,7 @@ Everything the app needs from a backend, running on your machine behind one orig
 | `/.well-known/foxnav`              | FoxNav server                                    | Discovery document: tells the app where everything else is  |
 | `/styles/{night,day}.json`         | FoxNav server                                    | MapLibre styles, filled in with the address the client used |
 | `/v1/ws`                           | FoxNav server                                    | Convoy relay (WebSocket), forwarding encrypted positions    |
+| `/datapacks/FI/cameras.json`       | Caddy (static)                                   | Speed cameras for the app to match on the phone             |
 | `/tiles/region.pmtiles`            | Caddy (static)                                   | Vector map data for the region                              |
 | `/assets/fonts`, `/assets/sprites` | Caddy (static)                                   | Label fonts and map icons                                   |
 | `/valhalla/*`                      | [Valhalla](https://github.com/valhalla/valhalla) | Routing and turn-by-turn instructions                       |
@@ -47,6 +48,7 @@ OpenStreetMap changes daily; refresh whenever you like:
 - **Routing:** delete `data/valhalla/` and re-run `fetch-data.sh`. The next start rebuilds the graph.
 - **Search:** delete `data/photon/` and re-run `fetch-data.sh`. The next start re-imports.
 - **Map tiles:** delete `data/tiles/region.pmtiles` and re-run `fetch-data.sh`.
+- **Speed cameras:** after new routing data, rebuild the data packs with `docker compose -f infra/compose.yaml run --rm datapacks`. That takes seconds, so a public server can do it nightly.
 
 ## Map styles
 

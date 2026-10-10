@@ -4,9 +4,11 @@ import android.content.Context
 import app.nullpointr.foxnav.convoy.ConvoyController
 import app.nullpointr.foxnav.convoy.ProfileStore
 import app.nullpointr.foxnav.convoy.TowerPlacementStore
+import app.nullpointr.foxnav.data.CameraPacks
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.location.liveLocationProvider
+import app.nullpointr.foxnav.settings.AlertSettings
 import app.nullpointr.foxnav.settings.ServerSettings
 import app.nullpointr.foxnav.voice.Chime
 import app.nullpointr.foxnav.shared.discovery.ServiceEndpoint
@@ -22,11 +24,13 @@ import okhttp3.OkHttpClient
 import uniffi.ferrostar.CourseFiltering
 import uniffi.ferrostar.NavigationControllerConfig
 import uniffi.ferrostar.RouteDeviationTracking
+import uniffi.ferrostar.SpokenInstruction
 import uniffi.ferrostar.WaypointAdvanceMode
 import uniffi.ferrostar.WellKnownRouteProvider
 import uniffi.ferrostar.stepAdvanceDistanceEntryAndExit
 import uniffi.ferrostar.stepAdvanceDistanceToEndOfStep
 import java.time.Duration
+import java.util.UUID
 
 /** App-wide objects, created once in [FoxNavApplication]. Small enough not to need a DI framework. */
 class AppGraph(private val context: Context) {
@@ -53,6 +57,15 @@ class AppGraph(private val context: Context) {
 
     /** Where the user put the convoy tower on the map. */
     val towerPlacement = TowerPlacementStore(context)
+
+    val alertSettings = AlertSettings(context)
+
+    val cameraPacks = CameraPacks(context, httpClient)
+
+    /** Says [text] with the guidance voice, which ducks music and respects mute. */
+    fun speak(text: String) {
+        voice.onSpokenInstructionTrigger(SpokenInstruction(text, null, 0.0, UUID.randomUUID()))
+    }
 
     // Keeps navigation (and location updates) running with the screen off.
     private val foregroundServiceManager by lazy {

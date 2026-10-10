@@ -16,6 +16,7 @@ import app.nullpointr.foxnav.shared.convoy.secureRandomBytes
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.discovery.Feature
 import app.nullpointr.foxnav.shared.geo.GeoPoint
+import app.nullpointr.foxnav.shared.safety.CameraPack
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -111,6 +112,18 @@ class ConformanceSuite(
                 Json.parseToJsonElement(response.bodyAsText()).jsonObject["trip"]!!.jsonObject["summary"]!!.jsonObject["length"]!!.jsonPrimitive.doubleOrNull
             }.getOrNull()
             expect(length != null && length > 0) { "the answer has no route length" }
+        }
+        check(Group.MAP_SERVICES, "serves a camera pack for each region") {
+            val datapacks = document.datapacks?.takeIf { Feature.DATA_PACKS in document.features } ?: throw Skipped("no data packs listed")
+            if (document.regions.isEmpty()) throw Skipped("the server lists no regions")
+            for (code in document.regions) {
+                val url = datapacks.trimEnd('/') + "/$code/cameras.json"
+                val response = http.get(url)
+                expect(response.status.isSuccess()) { "$url answered HTTP ${response.status.value}" }
+                val pack = runCatching { CameraPack.parse(response.bodyAsText()) }.getOrElse { fail("$url isn't a valid camera pack: ${it.message}") }
+                expect(pack.region == code) { "$url says it's for ${pack.region}" }
+                expect(pack.cameras.all { it.lat in -90.0..90.0 && it.lon in -180.0..180.0 && it.bearings.all { b -> b in 0.0..360.0 } }) { "$url has cameras out of range" }
+            }
         }
         check(Group.MAP_SERVICES, "searches with Photon") {
             val search = document.search?.takeIf { it.type == "photon" } ?: throw Skipped("no Photon search listed")

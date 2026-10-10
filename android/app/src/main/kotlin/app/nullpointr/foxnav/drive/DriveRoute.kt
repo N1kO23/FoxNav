@@ -37,6 +37,9 @@ fun DriveRoute(document: DiscoveryDocument) {
             roadLookup = graph.roadLookup(routing),
             convoy = graph.convoy,
             playOverLimitChime = graph.chime::playKinKon,
+            loadCameras = { graph.cameraPacks.load(document) },
+            cameraWarnings = graph.alertSettings.cameraWarnings,
+            announce = graph::speak,
         )
     }
     // Follows the system theme for now; later at sunrise/sunset and in tunnels.

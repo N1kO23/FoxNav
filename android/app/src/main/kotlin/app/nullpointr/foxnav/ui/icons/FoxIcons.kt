@@ -1,6 +1,7 @@
 package app.nullpointr.foxnav.ui.icons
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -26,6 +27,11 @@ object FoxIcons {
     val ChevronUp = strokeIcon("ChevronUp", "M6 15l6-6 6 6")
     val ChevronDown = strokeIcon("ChevronDown", "M6 9l6 6 6-6")
 
+    val Camera = strokeIcon("Camera", "M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z M12 10a3.5 3.5 0 1 1 0 7a3.5 3.5 0 1 1 0-7")
+
+    /** A speed camera on the map (filled, the lens cut out). */
+    val CameraMarker = filledIcon("CameraMarker", "M9 4h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3Z M12 9.5a4 4 0 1 0 0 8a4 4 0 1 0 0-8Z", evenOdd = true)
+
     /** A convoy car on the map, pointing the way it drives (filled, for tinting as a map icon). */
     val CarMarker = filledIcon("CarMarker", "M12 2.5L19.5 20.5L12 16.5L4.5 20.5Z")
 
@@ -44,8 +50,12 @@ object FoxIcons {
             )
             .build()
 
-    private fun filledIcon(name: String, pathData: String): ImageVector =
+    private fun filledIcon(name: String, pathData: String, evenOdd: Boolean = false): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
-            .addPath(pathData = addPathNodes(pathData), fill = SolidColor(Color.Black))
+            .addPath(
+                pathData = addPathNodes(pathData),
+                fill = SolidColor(Color.Black),
+                pathFillType = if (evenOdd) PathFillType.EvenOdd else PathFillType.NonZero,
+            )
             .build()
 }
