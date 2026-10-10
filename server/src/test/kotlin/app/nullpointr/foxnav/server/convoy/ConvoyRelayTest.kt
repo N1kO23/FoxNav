@@ -16,6 +16,7 @@ import okio.ByteString
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import app.nullpointr.foxnav.protocol.convoy.v0.Error as ProtocolError
@@ -146,6 +147,47 @@ class ConvoyRelayTest {
 
         owner.send(ClientMessage(leave_convoy = LeaveConvoy()))
         assertEquals(secondSeat.member_id, second.last { it.member_left }.new_owner)
+    }
+
+    @Test
+    fun removingSomeoneChangesTheJoinToken() = runTest {
+        val owner = Client()
+        val convoy = create(owner)
+        val rider = Client()
+        val riderSeat = rider.join(convoy)!!
+        val other = Client()
+        other.join(convoy)
+
+        owner.send(ClientMessage(remove_member = RemoveMember(member_id = riderSeat.member_id)))
+        val newToken = other.last { it.invite_changed }.join_token
+        assertEquals(newToken, owner.last { it.invite_changed }.join_token)
+        assertTrue(rider.all { it.invite_changed }.isEmpty())
+        assertNotEquals(convoy.second, newToken)
+
+        // The removed member still has the old invite; it no longer works. The new one does.
+        val comeback = Client()
+        assertNull(comeback.join(convoy))
+        assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN), comeback.errors())
+        assertEquals(newToken, Client().join(convoy.first to newToken)!!.join_token)
+    }
+
+    @Test
+    fun onlyTheOwnerRotatesKeysAndLaterArrivalsGetTheLatestRotations() = runTest {
+        val owner = Client()
+        val convoy = create(owner)
+        val member = Client()
+        member.join(convoy)
+
+        member.send(publish(Channel.CHANNEL_KEY, "not yours to rotate"))
+        assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN), member.errors())
+
+        repeat(10) { index ->
+            now += 6_000
+            owner.send(publish(Channel.CHANNEL_KEY, "key $index"))
+        }
+        assertEquals(10, member.all { it.relay }.count { it.channel == Channel.CHANNEL_KEY })
+        val late = Client().join(convoy)!!
+        assertEquals((2..9).map { "key $it" }, late.key_history.map { it.payload!!.ciphertext.utf8() })
     }
 
     @Test

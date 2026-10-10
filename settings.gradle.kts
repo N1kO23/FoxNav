@@ -34,7 +34,9 @@ rootProject.name = "foxnav"
 
 include(":shared", ":server")
 
-// Developer tools. Builds without them, like the server's Docker image, leave them out.
+// The protocol conformance suite, and developer tools. Builds without them, like the server's
+// Docker image, leave them out.
+if (file("protocol/conformance").isDirectory) include(":protocol:conformance")
 if (file("tools/convoy-sim").isDirectory) include(":tools:convoy-sim")
 
 // The Android app needs an Android SDK. It is only included when one is configured

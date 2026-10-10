@@ -1,0 +1,327 @@
+package app.nullpointr.foxnav.conformance
+
+import app.nullpointr.foxnav.protocol.convoy.v0.Channel
+import app.nullpointr.foxnav.protocol.convoy.v0.ClientMessage
+import app.nullpointr.foxnav.protocol.convoy.v0.CreateConvoy
+import app.nullpointr.foxnav.protocol.convoy.v0.Hello
+import app.nullpointr.foxnav.protocol.convoy.v0.JoinConvoy
+import app.nullpointr.foxnav.protocol.convoy.v0.Joined
+import app.nullpointr.foxnav.protocol.convoy.v0.LeaveConvoy
+import app.nullpointr.foxnav.protocol.convoy.v0.Ping
+import app.nullpointr.foxnav.protocol.convoy.v0.Publish
+import app.nullpointr.foxnav.protocol.convoy.v0.RemoveMember
+import app.nullpointr.foxnav.protocol.convoy.v0.Resume
+import app.nullpointr.foxnav.protocol.convoy.v0.Sealed
+import app.nullpointr.foxnav.shared.convoy.secureRandomBytes
+import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
+import app.nullpointr.foxnav.shared.discovery.Feature
+import app.nullpointr.foxnav.shared.geo.GeoPoint
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import io.ktor.http.encodeURLParameter
+import io.ktor.http.isSuccess
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okio.ByteString
+import okio.ByteString.Companion.encodeUtf8
+import okio.ByteString.Companion.toByteString
+import kotlin.time.Duration.Companion.seconds
+import app.nullpointr.foxnav.protocol.convoy.v0.Error as ProtocolError
+
+/** Groups of checks, so a run can leave out what a test setup doesn't have. */
+enum class Group(val title: String) {
+    DISCOVERY("Discovery (§1)"),
+    MAP_SERVICES("Map services (§1)"),
+    REALTIME("Realtime (§2)"),
+}
+
+enum class Outcome { PASS, FAIL, SKIP }
+
+data class CheckResult(val group: Group, val name: String, val outcome: Outcome, val detail: String = "")
+
+/**
+ * Checks a server against protocol/SPEC.md: the discovery document, the map services it lists,
+ * and the convoy relay, message by message. The realtime checks speak the raw protocol with
+ * opaque payloads, so they test the server, not a client. Each convoy check uses a new convoy.
+ */
+class ConformanceSuite(
+    private val http: HttpClient,
+    serverUrl: String,
+    private val groups: Set<Group> = Group.entries.toSet(),
+) {
+    private val base = serverUrl.trim().trimEnd('/').let { if ("://" in it) it else "https://$it" }
+    private val results = ArrayList<CheckResult>()
+
+    suspend fun run(): List<CheckResult> {
+        results.clear()
+        val document = check(Group.DISCOVERY, "serves the discovery document") { discover() }
+        if (document == null) {
+            skipRest("needs the discovery document")
+            return results.toList()
+        }
+        discoveryChecks(document)
+        mapServiceChecks(document)
+        realtimeChecks(document)
+        return results.toList()
+    }
+
+    private suspend fun discover(): DiscoveryDocument {
+        val url = base + DiscoveryDocument.PATH
+        val response = http.get(url)
+        expect(response.status.isSuccess()) { "GET $url answered HTTP ${response.status.value}" }
+        val document = runCatching { DiscoveryDocument.parse(response.bodyAsText()) }.getOrElse { fail("$url isn't a valid discovery document: ${it.message}") }
+        expect(document.version == DiscoveryDocument.CURRENT_VERSION) { "\"foxnav\" is ${document.version}, not ${DiscoveryDocument.CURRENT_VERSION}" }
+        expect(document.name.isNotBlank()) { "\"name\" is blank" }
+        return document.resolved(url)
+    }
+
+    private suspend fun discoveryChecks(document: DiscoveryDocument) {
+        check(Group.DISCOVERY, "its map styles load") {
+            if (document.styles.isEmpty()) throw Skipped("the server lists no styles")
+            for ((theme, url) in document.styles) {
+                val response = http.get(url)
+                expect(response.status.isSuccess()) { "the $theme style ($url) answered HTTP ${response.status.value}" }
+                val style = runCatching { Json.parseToJsonElement(response.bodyAsText()).jsonObject }.getOrElse { fail("the $theme style isn't JSON") }
+                expect(style["layers"] is JsonArray) { "the $theme style has no layers" }
+            }
+        }
+    }
+
+    private suspend fun mapServiceChecks(document: DiscoveryDocument) {
+        val region = document.regions.firstOrNull { it in TEST_TRIPS }
+        check(Group.MAP_SERVICES, "routes with Valhalla") {
+            val routing = document.routing?.takeIf { it.type == "valhalla" } ?: throw Skipped("no Valhalla routing listed")
+            val (from, to) = TEST_TRIPS[region]?.route ?: throw Skipped("no test route for regions ${document.regions}")
+            val response = http.post(routing.url.trimEnd('/') + "/route") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"locations":[{"lat":${from.latitude},"lon":${from.longitude}},{"lat":${to.latitude},"lon":${to.longitude}}],"costing":"auto"}""")
+            }
+            expect(response.status.isSuccess()) { "the route request answered HTTP ${response.status.value}" }
+            val length = runCatching {
+                Json.parseToJsonElement(response.bodyAsText()).jsonObject["trip"]!!.jsonObject["summary"]!!.jsonObject["length"]!!.jsonPrimitive.doubleOrNull
+            }.getOrNull()
+            expect(length != null && length > 0) { "the answer has no route length" }
+        }
+        check(Group.MAP_SERVICES, "searches with Photon") {
+            val search = document.search?.takeIf { it.type == "photon" } ?: throw Skipped("no Photon search listed")
+            val place = TEST_TRIPS[region]?.place ?: throw Skipped("no test place for regions ${document.regions}")
+            val response = http.get(search.url.trimEnd('/') + "/api?q=${place.encodeURLParameter()}&limit=1")
+            expect(response.status.isSuccess()) { "the search answered HTTP ${response.status.value}" }
+            val features = runCatching { Json.parseToJsonElement(response.bodyAsText()).jsonObject["features"]!!.jsonArray }.getOrNull()
+            expect(!features.isNullOrEmpty()) { "searching for $place found nothing" }
+        }
+    }
+
+    private suspend fun realtimeChecks(document: DiscoveryDocument) {
+        val realtime = document.realtime
+        if (realtime == null || Feature.CONVOY !in document.features) {
+            if (Group.REALTIME in groups) results += CheckResult(Group.REALTIME, "convoys", Outcome.SKIP, "the server lists no realtime endpoint or no convoy feature")
+            return
+        }
+
+        realtime(realtime, "answers Hello with Welcome") {
+            val client = connect()
+            client.send(ClientMessage(hello = Hello(client = "foxnav-conformance")))
+            val welcome = client.expect("Welcome") { it.welcome }
+            expect(welcome.max_convoy_size > 0) { "Welcome says convoys hold ${welcome.max_convoy_size} members" }
+        }
+        realtime(realtime, "answers Ping with Pong") {
+            val client = connect()
+            client.send(ClientMessage(ping = Ping()))
+            client.expect("Pong") { it.pong }
+        }
+        realtime(realtime, "answers an undecodable frame with BAD_REQUEST") {
+            val client = connect()
+            client.sendBytes(byteArrayOf(0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte()))
+            client.expectError(ProtocolError.Code.CODE_BAD_REQUEST)
+        }
+        realtime(realtime, "creates a convoy with its creator as owner") { create() }
+        realtime(realtime, "lets members join with the token and tells the others") {
+            val convoy = create()
+            val (_, seat) = join(convoy)
+            expect(seat.member_id != convoy.ownerId) { "the new member got the owner's ID" }
+            expect(seat.owner == convoy.ownerId) { "Joined names ${seat.owner} as owner, not the creator ${convoy.ownerId}" }
+            expect(seat.join_token == convoy.token) { "Joined doesn't carry the current join token" }
+            convoy.owner.expect("MemberJoined for the new member") { message -> message.member_joined?.takeIf { it.member_id == seat.member_id } }
+        }
+        realtime(realtime, "refuses wrong tokens and unknown convoys") {
+            val convoy = create()
+            val stranger = connect()
+            stranger.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = "guess".encodeUtf8())))
+            stranger.expectError(ProtocolError.Code.CODE_FORBIDDEN)
+            stranger.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = secureRandomBytes(16).toByteString(), join_token = convoy.token)))
+            stranger.expectError(ProtocolError.Code.CODE_NOT_FOUND)
+        }
+        realtime(realtime, "relays STATE unchanged, from the right sender, not back to it") {
+            val convoy = create()
+            val (member, seat) = join(convoy)
+            val payload = opaque("state")
+            member.publish(Channel.CHANNEL_STATE, payload)
+            val relay = convoy.owner.expect("the relayed STATE") { message -> message.relay?.takeIf { it.channel == Channel.CHANNEL_STATE } }
+            expect(relay.sender == seat.member_id) { "the relay names ${relay.sender} as sender, not ${seat.member_id}" }
+            expect(relay.payload == payload) { "the payload changed on the way" }
+            member.expectNone("its own STATE back") { it.relay }
+        }
+        realtime(realtime, "relays EVENTs") {
+            val convoy = create()
+            val (member, _) = join(convoy)
+            val payload = opaque("event")
+            member.publish(Channel.CHANNEL_EVENT, payload)
+            val relay = convoy.owner.expect("the relayed EVENT") { message -> message.relay?.takeIf { it.channel == Channel.CHANNEL_EVENT } }
+            expect(relay.payload == payload) { "the payload changed on the way" }
+        }
+        realtime(realtime, "gives later arrivals everyone's latest STATE") {
+            val convoy = create()
+            convoy.owner.publish(Channel.CHANNEL_STATE, opaque("latest"))
+            convoy.owner.expectNone("an error") { it.error }
+            val (_, seat) = join(convoy)
+            val owner = seat.members.firstOrNull { it.member_id == convoy.ownerId } ?: fail("Joined doesn't list the owner")
+            expect(owner.last_state == opaque("latest")) { "Joined doesn't carry the owner's latest STATE" }
+        }
+        realtime(realtime, "lets a dropped member resume their seat, without telling the others") {
+            val convoy = create()
+            val (member, seat) = join(convoy)
+            member.close()
+            val back = connect()
+            back.send(ClientMessage(resume = Resume(resume_token = seat.resume_token)))
+            val resumed = back.expect("Joined after Resume") { it.joined }
+            expect(resumed.member_id == seat.member_id) { "Resume gave member ${resumed.member_id}, not ${seat.member_id}" }
+            convoy.owner.expectNone("MemberLeft for a member who only dropped") { it.member_left }
+        }
+        realtime(realtime, "lets only the owner remove members, and changes the join token") {
+            val convoy = create()
+            val (member, _) = join(convoy)
+            val (target, targetSeat) = join(convoy)
+            member.send(ClientMessage(remove_member = RemoveMember(member_id = targetSeat.member_id)))
+            member.expectError(ProtocolError.Code.CODE_FORBIDDEN)
+
+            convoy.owner.send(ClientMessage(remove_member = RemoveMember(member_id = targetSeat.member_id)))
+            target.expect("MemberLeft with removed set, for the removed member") { message -> message.member_left?.takeIf { it.member_id == targetSeat.member_id && it.removed } }
+            member.expect("MemberLeft with removed set, for the others") { message -> message.member_left?.takeIf { it.member_id == targetSeat.member_id && it.removed } }
+            val newToken = member.expect("InviteChanged") { it.invite_changed }.join_token
+            expect(newToken != convoy.token) { "the join token didn't change" }
+
+            val comeback = connect()
+            comeback.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = convoy.token)))
+            comeback.expectError(ProtocolError.Code.CODE_FORBIDDEN)
+            join(convoy.copy(token = newToken))
+        }
+        realtime(realtime, "takes KEY payloads only from the owner, and keeps them for later arrivals") {
+            val convoy = create()
+            val (member, _) = join(convoy)
+            member.publish(Channel.CHANNEL_KEY, opaque("not the owner's"))
+            member.expectError(ProtocolError.Code.CODE_FORBIDDEN)
+
+            val rotation = opaque("rotation")
+            convoy.owner.publish(Channel.CHANNEL_KEY, rotation)
+            member.expect("the relayed KEY payload") { message -> message.relay?.takeIf { it.channel == Channel.CHANNEL_KEY } }
+            val (_, late) = join(convoy)
+            expect(late.key_history.any { it.payload == rotation && it.sender == convoy.ownerId }) { "Joined.key_history doesn't carry the rotation" }
+        }
+        realtime(realtime, "tells the others when someone leaves, and hands ownership on") {
+            val convoy = create()
+            val (member, seat) = join(convoy)
+            convoy.owner.send(ClientMessage(leave_convoy = LeaveConvoy()))
+            val left = member.expect("MemberLeft for the owner") { message -> message.member_left?.takeIf { it.member_id == convoy.ownerId } }
+            expect(!left.removed) { "MemberLeft says the owner was removed" }
+            expect(left.new_owner == seat.member_id) { "ownership went to ${left.new_owner}, not the only member left, ${seat.member_id}" }
+        }
+    }
+
+    // --- Plumbing ---
+
+    private class Skipped(message: String) : Exception(message)
+
+    private suspend fun <T> check(group: Group, name: String, block: suspend () -> T): T? {
+        if (group !in groups) return null
+        return try {
+            withTimeout(CHECK_TIMEOUT) { block() }.also { results += CheckResult(group, name, Outcome.PASS) }
+        } catch (skipped: Skipped) {
+            results += CheckResult(group, name, Outcome.SKIP, skipped.message.orEmpty())
+            null
+        } catch (failure: Throwable) {
+            results += CheckResult(group, name, Outcome.FAIL, failure.message ?: failure::class.simpleName.orEmpty())
+            null
+        }
+    }
+
+    private fun skipRest(reason: String) {
+        for (group in groups - Group.DISCOVERY) results += CheckResult(group, "all checks", Outcome.SKIP, reason)
+    }
+
+    /** A realtime check with its own connections, all closed afterwards. */
+    private suspend fun realtime(url: String, name: String, block: suspend Connections.() -> Any?) {
+        val connections = Connections(url)
+        try {
+            check(Group.REALTIME, name) { connections.block() }
+        } finally {
+            connections.closeAll()
+        }
+    }
+
+    private data class Convoy(val id: ByteString, val token: ByteString, val owner: RawClient, val ownerId: Long)
+
+    private inner class Connections(private val url: String) {
+        private val open = ArrayList<RawClient>()
+
+        suspend fun connect(): RawClient = RawClient.connect(http, url).also { open += it }
+
+        suspend fun create(): Convoy {
+            val owner = connect()
+            owner.send(ClientMessage(create_convoy = CreateConvoy()))
+            val created = owner.expect("ConvoyCreated") { it.convoy_created }
+            expect(created.convoy_id.size == 16) { "the convoy ID has ${created.convoy_id.size} bytes, not 16" }
+            expect(created.join_token.size > 0) { "the join token is empty" }
+            val seat = owner.expect("Joined after ConvoyCreated") { it.joined }
+            expect(seat.member_id != 0L) { "the creator got member ID 0" }
+            expect(seat.owner == seat.member_id) { "the creator isn't the convoy's owner" }
+            return Convoy(created.convoy_id, created.join_token, owner, seat.member_id)
+        }
+
+        suspend fun join(convoy: Convoy): Pair<RawClient, Joined> {
+            val client = connect()
+            client.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = convoy.token)))
+            return client to client.expect("Joined") { it.joined }
+        }
+
+        suspend fun closeAll() {
+            for (client in open) runCatching { client.close() }
+        }
+    }
+
+    private suspend fun RawClient.publish(channel: Channel, payload: Sealed) =
+        send(ClientMessage(publish = Publish(channel = channel, payload = payload)))
+
+    private suspend fun RawClient.expectError(code: ProtocolError.Code) {
+        val error = expect("Error ${code.name.removePrefix("CODE_")}") { it.error }
+        expect(error.code == code) { "got Error ${error.code.name.removePrefix("CODE_")}, not ${code.name.removePrefix("CODE_")}" }
+    }
+
+    /** A payload as the server sees them: bytes it can't read. */
+    private fun opaque(text: String) = Sealed(key_epoch = 0, nonce = OPAQUE_NONCE, ciphertext = text.encodeUtf8())
+
+    private class TestTrip(val route: Pair<GeoPoint, GeoPoint>, val place: String)
+
+    private companion object {
+        val CHECK_TIMEOUT = 20.seconds
+        val OPAQUE_NONCE: ByteString = ByteString.of(*ByteArray(12) { it.toByte() })
+
+        /** A short drive and a place to search for, in each region a server may list. */
+        val TEST_TRIPS = mapOf(
+            "FI" to TestTrip(GeoPoint(60.1699, 24.9384) to GeoPoint(61.4978, 23.7610), "Tampere"),
+            "SE" to TestTrip(GeoPoint(59.3293, 18.0686) to GeoPoint(59.8586, 17.6389), "Uppsala"),
+            "NO" to TestTrip(GeoPoint(59.9139, 10.7522) to GeoPoint(59.7440, 10.2045), "Drammen"),
+            "DK" to TestTrip(GeoPoint(55.6761, 12.5683) to GeoPoint(55.6415, 12.0803), "Roskilde"),
+        )
+    }
+}

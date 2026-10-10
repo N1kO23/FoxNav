@@ -34,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration.Companion.seconds
@@ -189,6 +190,66 @@ class ConvoySessionTest {
         owner.session.remove(riderId)
         rider.session.status.await("the removal") { it == ConvoyStatus.Ended(EndReason.REMOVED) }
         owner.events.await("the removal") { ConvoyEvent.MemberLeft(riderId, removed = true) in it }
+    }
+
+    @Test
+    fun removingSomeoneRotatesTheKeyAndTheInvite() = convoyTest {
+        val owner = create()
+        val ownerId = owner.id()
+        val oldInvite = owner.invite()
+        val removed = join(oldInvite)
+        val removedId = removed.id()
+        val stays = join(oldInvite)
+        stays.id()
+        owner.events.await("both joining") { events -> events.count { it is ConvoyEvent.MemberJoined } == 2 }
+
+        owner.session.remove(removedId)
+        removed.session.status.await("the removal") { it == ConvoyStatus.Ended(EndReason.REMOVED) }
+        // Everyone left gets the new invite: a new join token and the next key.
+        val newInvite = stays.session.invite.await("the new invite") { it != null && it.keyEpoch == 1 && !it.joinToken.contentEquals(oldInvite.joinToken) }!!
+        owner.session.invite.await("the owner's new invite") { it == newInvite }
+        assertFalse(newInvite.key.contentEquals(oldInvite.key))
+
+        // From now on the owner shares under the new key, and the member who stayed reads it.
+        owner.session.updateState(memberState(Profile(display_name = "After"), Fix(HELSINKI, 0.0, 0.0, timeMs = 1)))
+        stays.session.members.await("the owner's new state") { it[ownerId]?.profile?.display_name == "After" }
+
+        // The old invite gets nobody in any more; the new one does, and its holder reads along.
+        join(oldInvite).session.status.await("the refusal") { it == ConvoyStatus.Ended(EndReason.INVITE_INVALID) }
+        join(newInvite).session.members.await("the owner's state") { it[ownerId]?.profile?.display_name == "After" }
+    }
+
+    @Test
+    fun aMemberAwayDuringARotationCatchesUpWhenTheyResume() = convoyTest {
+        val owner = create()
+        val ownerId = owner.id()
+        val invite = owner.invite()
+        val removedId = join(invite).id()
+        // Comes back slowly, so the rotation happens while they're away.
+        val away = join(invite, ConvoySession.Timing(minBackoffMs = 3_000))
+        val awayId = away.id()
+        sockets.last().close()
+        away.session.status.await("the drop") { it is ConvoyStatus.Reconnecting }
+
+        owner.session.remove(removedId)
+        owner.session.invite.await("the rotation") { it?.keyEpoch == 1 }
+        owner.session.updateState(memberState(Profile(display_name = "Rotated"), Fix(HELSINKI, 0.0, 0.0, timeMs = 1)))
+
+        // Back in the same seat, with the key they missed.
+        away.session.status.await("the resume") { it == ConvoyStatus.Live(awayId) }
+        away.session.members.await("the owner's new state") { it[ownerId]?.profile?.display_name == "Rotated" }
+        assertEquals(1, away.session.invite.value?.keyEpoch)
+    }
+
+    @Test
+    fun reconnectNowDoesntWaitForTheBackoff() = convoyTest {
+        // A backoff longer than the test waits.
+        val owner = create(ConvoySession.Timing(minBackoffMs = 30_000))
+        val ownerId = owner.id()
+        val before = sockets.size
+        owner.session.reconnectNow()
+        eventually("a new connection") { sockets.size > before }
+        assertEquals(ownerId, owner.id())
     }
 
     @Test

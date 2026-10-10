@@ -149,7 +149,7 @@ class Simulation(private val options: Options) {
         val document = discover(serverUrl)
         val realtime = document.realtime?.takeIf { Feature.CONVOY in document.features } ?: fail("${document.name} doesn't host convoys")
         val track = options.gpx?.let(Track::fromGpx) ?: Track(route(document, options.from, options.to))
-        println("${document.name}: driving a ${"%.1f".format(track.length / 1000)} km track there and back at about ${options.kmh.roundToInt()} km/h")
+        log("${document.name}: driving a ${"%.1f".format(track.length / 1000)} km track there and back at about ${options.kmh.roundToInt()} km/h")
 
         val bots = ArrayList<Bot>()
         fun newBot(start: ConvoySession.Start): Bot {
@@ -167,9 +167,9 @@ class Simulation(private val options: Options) {
             val out = options.inviteOut
             if (out != null) {
                 out.writeText(link + "\n")
-                println("Created a convoy. Its invite link is in $out (it carries the convoy's key: share it only with testers).")
+                log("Created a convoy. Its invite link is in $out (it carries the convoy's key: share it only with testers).")
             } else {
-                println("Created a convoy. Invite link (it carries the convoy's key: share it only with testers):\n$link")
+                log("Created a convoy. Invite link (it carries the convoy's key: share it only with testers):\n$link")
             }
             created
         }
@@ -185,7 +185,7 @@ class Simulation(private val options: Options) {
         val minutes = options.minutes
         if (minutes != null) {
             delay((minutes * 60_000).toLong())
-            println("Time's up: the bots leave the convoy")
+            log("Time's up: the bots leave the convoy")
             Runtime.getRuntime().removeShutdownHook(shutdown)
             extras.forEach { it.cancel() }
             leaveAll(bots)
@@ -204,13 +204,14 @@ class Simulation(private val options: Options) {
     private suspend fun reportOthers(bots: List<Bot>) {
         while (true) {
             delay(15_000)
-            val observer = bots.firstOrNull { it.memberId != null } ?: continue
+            val live = bots.filter { it.session.status.value is ConvoyStatus.Live }
+            val observer = live.firstOrNull() ?: continue
             val botIds = bots.mapNotNull { it.memberId }.toSet()
             val others = observer.session.members.value.values.filter { it.id !in botIds }
             val leader = bots.first().pose?.point?.let { " · ${bots.first().name} leads at %.5f, %.5f".format(it.latitude, it.longitude) }.orEmpty()
-            println("${bots.count { it.memberId != null }}/${bots.size} bots in the convoy$leader")
+            log("${live.size}/${bots.size} bots in the convoy$leader")
             if (others.isEmpty()) {
-                println("  nobody else yet")
+                log("  nobody else yet")
                 continue
             }
             val now = System.currentTimeMillis()
@@ -220,10 +221,10 @@ class Simulation(private val options: Options) {
                 val heard = member.lastHeardMs?.let { "${(now - it) / 1000} s ago" } ?: "never"
                 val heading = member.route?.waypoints?.lastOrNull()?.let { ", heading to ${it.name.ifBlank { "a shared destination" }}" }.orEmpty()
                 if (fix == null) {
-                    println("  $name: no position yet (heard $heard)$heading")
+                    log("  $name: no position yet (heard $heard)$heading")
                 } else {
                     val gap = observer.pose?.point?.distanceTo(fix.point)?.let { "%.1f km".format(it / 1000) } ?: "?"
-                    println("  $name: ${(fix.speedMps * 3.6).roundToInt()} km/h, $gap from ${observer.name}, heard $heard$heading")
+                    log("  $name: ${(fix.speedMps * 3.6).roundToInt()} km/h, $gap from ${observer.name}, heard $heard$heading")
                 }
             }
         }
@@ -243,7 +244,7 @@ class Simulation(private val options: Options) {
             val bot = bots.filter { it.memberId != null }.randomOrNull() ?: continue
             val kind = kinds.random()
             bot.session.sendQuickMessage(kind)
-            println("${bot.name} sent ${kind.name.removePrefix("KIND_").lowercase().replace('_', ' ')}")
+            log("${bot.name} sent ${kind.name.removePrefix("KIND_").lowercase().replace('_', ' ')}")
         }
     }
 
@@ -286,7 +287,7 @@ class Bot(index: Int, val session: ConvoySession, private val track: Track, star
     fun start(scope: CoroutineScope, report: Boolean) {
         job = scope.launch {
             launch(start = CoroutineStart.UNDISPATCHED) {
-                session.events.collect { event -> if (report) println(describe(event)) }
+                session.events.collect { event -> if (report) log(describe(event)) }
             }
             launch {
                 session.members.collect { members ->
@@ -297,11 +298,11 @@ class Bot(index: Int, val session: ConvoySession, private val track: Track, star
                 session.status.collect { status ->
                     when (status) {
                         is ConvoyStatus.Live -> {
-                            if (memberId != status.memberId) println("$name is in the convoy")
+                            if (memberId != status.memberId) log("$name is in the convoy")
                             memberId = status.memberId
                         }
-                        is ConvoyStatus.Reconnecting -> if (status.attempt == 1) println("$name lost the connection, reconnecting")
-                        is ConvoyStatus.Ended -> println("$name: convoy over (${status.reason.name.lowercase().replace('_', ' ')})")
+                        is ConvoyStatus.Reconnecting -> if (status.attempt == 1) log("$name lost the connection, reconnecting")
+                        is ConvoyStatus.Ended -> log("$name: convoy over (${status.reason.name.lowercase().replace('_', ' ')})")
                         ConvoyStatus.Connecting -> Unit
                     }
                 }
@@ -355,6 +356,14 @@ class Bot(index: Int, val session: ConvoySession, private val track: Track, star
         // The app's convoy palette (design/tokens.json).
         val PALETTE = listOf(0x4C8DFF, 0x3DDC97, 0xFF5FA2, 0xB79BFF, 0xA8E05F)
     }
+}
+
+private val clockFormat = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+
+/** A line of output, with the time, so long runs can be read back. */
+private fun log(line: String) {
+    val time = java.time.LocalTime.now().format(clockFormat)
+    println(line.lines().joinToString("\n") { "$time  $it" })
 }
 
 /** What the user typed into a base URL: a bare domain means HTTPS. */

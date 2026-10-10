@@ -23,6 +23,15 @@ class InviteTest {
     }
 
     @Test
+    fun carriesTheKeyEpochAfterARotation() {
+        val rotated = Invite(invite.server, invite.convoyId, invite.joinToken, ConvoyCrypto.newKey(), keyEpoch = 3)
+        assertTrue(rotated.toLink().endsWith("&e=3"))
+        assertEquals(rotated, Invite.parse(rotated.toLink()))
+        assertEquals(0, Invite.parse(invite.toLink())!!.keyEpoch)
+        assertNull(Invite.parse(rotated.toLink().replace("&e=3", "&e=-1")))
+    }
+
+    @Test
     fun rejectsBrokenLinks() {
         assertNull(Invite.parse("foxnav://join"))
         assertNull(Invite.parse("https://example.org/#nothing=here"))

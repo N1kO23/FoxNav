@@ -7,6 +7,7 @@ import app.nullpointr.foxnav.protocol.convoy.v0.CreateConvoy
 import app.nullpointr.foxnav.protocol.convoy.v0.Hello
 import app.nullpointr.foxnav.protocol.convoy.v0.JoinConvoy
 import app.nullpointr.foxnav.protocol.convoy.v0.Joined
+import app.nullpointr.foxnav.protocol.convoy.v0.KeyRotation
 import app.nullpointr.foxnav.protocol.convoy.v0.LeaveConvoy
 import app.nullpointr.foxnav.protocol.convoy.v0.MemberState
 import app.nullpointr.foxnav.protocol.convoy.v0.Ping
@@ -34,6 +35,7 @@ import io.ktor.websocket.readBytes
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -161,8 +163,9 @@ class ConvoySession(
     )
 
     private val joining = (start as? Start.Join)?.invite
-    private val key = joining?.key ?: ConvoyCrypto.newKey()
-    private val keys = mapOf(KEY_EPOCH to key)
+
+    @Volatile
+    private var keyring = Keyring(joining?.keyEpoch ?: 0, mapOf((joining?.keyEpoch ?: 0) to (joining?.key ?: ConvoyCrypto.newKey())))
 
     // Only the connection loop touches these, one connection at a time.
     private var convoyId = joining?.convoyId
@@ -197,6 +200,9 @@ class ConvoySession(
     private val wake = AsyncChannel<Unit>(AsyncChannel.CONFLATED)
 
     @Volatile
+    private var skipBackoff = false
+
+    @Volatile
     private var socket: DefaultClientWebSocketSession? = null
 
     @Volatile
@@ -222,14 +228,23 @@ class ConvoySession(
 
     fun dropRegroupPin(point: GeoPoint, name: String) = queueEvent(ConvoyPayload(regroup_pin = RegroupPin(location = point.toWaypoint(name))))
 
-    /** Asks the server to remove [memberId]. Only the owner may. */
+    /**
+     * Asks the server to remove [memberId]. Only the owner may. Once the server confirms, the
+     * session rotates the convoy's key, and the server changes the join token, so the removed
+     * member can neither read along nor come back with their old invite.
+     */
     fun remove(memberId: Long) {
         commands.trySend(ClientMessage(remove_member = RemoveMember(member_id = memberId)))
     }
 
-    /** Skips the wait before the next reconnection attempt, e.g. when the phone has a network again. */
+    /**
+     * Reconnects right away, e.g. when the phone switched networks: the current connection
+     * probably went with the old network, and waiting for it to time out takes a while.
+     */
     fun reconnectNow() {
+        skipBackoff = true
         wake.trySend(Unit)
+        socket?.cancel()
     }
 
     /** Leaves the convoy for good: the others see us go and the seat can't be resumed. */
@@ -291,9 +306,33 @@ class ConvoySession(
             if (ended) break
             attempt++
             setStatus(ConvoyStatus.Reconnecting(attempt))
-            wake.tryReceive() // a wake-up from before this wait doesn't count
-            withTimeoutOrNull(backoffMs(attempt)) { wake.receive() }
+            if (!skipBackoff) {
+                wake.tryReceive() // a wake-up from before this wait doesn't count
+                withTimeoutOrNull(backoffMs(attempt)) { wake.receive() }
+            }
+            skipBackoff = false
         }
+    }
+
+    /** The invite as it stands: the join token and key change when someone is removed. */
+    private fun refreshInvite() {
+        val id = convoyId ?: return
+        val token = joinToken ?: return
+        val server = when (start) {
+            is Start.Create -> start.serverUrl
+            is Start.Join -> start.invite.server
+        }
+        val ring = keyring
+        _invite.value = Invite(server, id, token, ring.current, ring.epoch)
+    }
+
+    /** A key rotation from the KEY channel; only ever forward. */
+    private fun applyKeyRotation(convoyId: ByteArray, relay: Relay) {
+        val sealed = relay.payload ?: return
+        val rotation = ConvoyCrypto.open(keyring.keys, convoyId, relay.sender, Channel.CHANNEL_KEY, sealed)?.key_rotation ?: return
+        if (rotation.epoch <= keyring.epoch || rotation.key.size != ConvoyCrypto.KEY_SIZE) return
+        keyring = keyring.rotated(rotation.epoch, rotation.key.toByteArray())
+        refreshInvite()
     }
 
     private fun backoffMs(attempt: Int): Long {
@@ -360,18 +399,31 @@ class ConvoySession(
         }
 
         private suspend fun publish(seat: Seat, channel: Channel, payload: ConvoyPayload) {
-            val sealed = ConvoyCrypto.seal(key, KEY_EPOCH, seat.convoyId, seat.memberId, channel, payload)
+            val ring = keyring
+            val sealed = ConvoyCrypto.seal(ring.current, ring.epoch, seat.convoyId, seat.memberId, channel, payload)
             socket.send(ClientMessage(publish = Publish(channel = channel, payload = sealed)))
+        }
+
+        /** As the owner, after a removal: a new key, sent under the current one, which the removed member no longer gets. */
+        private suspend fun rotateKey(seat: Seat) {
+            val ring = keyring
+            val next = ring.epoch + 1
+            val newKey = ConvoyCrypto.newKey()
+            publish(seat, Channel.CHANNEL_KEY, ConvoyPayload(key_rotation = KeyRotation(epoch = next, key = newKey.toByteString())))
+            keyring = ring.rotated(next, newKey)
+            refreshInvite()
         }
 
         /** Applies one server message. Returns false when this connection is done for. */
         private suspend fun handle(message: ServerMessage): Boolean {
             message.convoy_created?.let { created ->
-                val id = created.convoy_id.toByteArray()
-                val token = created.join_token.toByteArray()
-                convoyId = id
-                joinToken = token
-                (start as? Start.Create)?.let { _invite.value = Invite(it.serverUrl, id, token, key) }
+                convoyId = created.convoy_id.toByteArray()
+                joinToken = created.join_token.toByteArray()
+                refreshInvite()
+            }
+            message.invite_changed?.let { changed ->
+                joinToken = changed.join_token.toByteArray()
+                refreshInvite()
             }
             message.joined?.let { onJoined(it) }
             message.relay?.let { onRelay(it) }
@@ -387,6 +439,8 @@ class ConvoySession(
                 _members.update { it - left.member_id }
                 if (left.new_owner != 0L) _ownerId.value = left.new_owner
                 _events.tryEmit(ConvoyEvent.MemberLeft(left.member_id, left.removed))
+                val mine = seat
+                if (left.removed && mine != null && _ownerId.value == mine.memberId) rotateKey(mine)
             }
             message.error?.let { return onError(it) }
             return true
@@ -396,12 +450,16 @@ class ConvoySession(
             val id = joined.convoy_id.toByteArray()
             convoyId = id
             resumeToken = joined.resume_token.toByteArray()
+            if (joined.join_token.size > 0) joinToken = joined.join_token.toByteArray()
             _ownerId.value = joined.owner
+            // Rotations we missed while away, before opening anything sealed with their keys.
+            for (rotation in joined.key_history) applyKeyRotation(id, rotation)
+            refreshInvite()
 
             val now = clock()
             val before = _members.value
             val after = joined.members.associate { member ->
-                val state = member.last_state?.let { ConvoyCrypto.open(keys, id, member.member_id, Channel.CHANNEL_STATE, it)?.state }
+                val state = member.last_state?.let { ConvoyCrypto.open(keyring.keys, id, member.member_id, Channel.CHANNEL_STATE, it)?.state }
                 val known = before[member.member_id] ?: ConvoyMember(member.member_id)
                 member.member_id to known.withState(state, heardMs = now - member.last_state_age_ms)
             }
@@ -421,8 +479,13 @@ class ConvoySession(
 
         private fun onRelay(relay: Relay) {
             val id = seat?.convoyId ?: return
+            if (relay.channel == Channel.CHANNEL_KEY) {
+                // Only the owner rotates keys; the server checks too.
+                if (relay.sender == _ownerId.value) applyKeyRotation(id, relay)
+                return
+            }
             val sealed = relay.payload ?: return
-            val payload = ConvoyCrypto.open(keys, id, relay.sender, relay.channel, sealed) ?: return
+            val payload = ConvoyCrypto.open(keyring.keys, id, relay.sender, relay.channel, sealed) ?: return
             when (relay.channel) {
                 Channel.CHANNEL_STATE -> payload.state?.let { state ->
                     val now = clock()
@@ -469,12 +532,18 @@ class ConvoySession(
     companion object {
         /** The WebSocket subprotocol of protocol version 0. */
         const val SUBPROTOCOL = "foxnav.v0"
-        private const val KEY_EPOCH = 0
         private const val LEAVE_TIMEOUT_MS = 2_000L
     }
 }
 
 private class Seat(val convoyId: ByteArray, val memberId: Long)
+
+/** The convoy's keys by epoch. We seal with the newest; older ones still open late messages. */
+private class Keyring(val epoch: Int, val keys: Map<Int, ByteArray>) {
+    val current: ByteArray get() = keys.getValue(epoch)
+
+    fun rotated(epoch: Int, key: ByteArray) = Keyring(epoch, keys + (epoch to key))
+}
 
 private class QueuedEvent(val payload: ConvoyPayload, val queuedAt: TimeMark)
 

@@ -18,7 +18,7 @@ What convoy encryption ([ADR 0003](adr/0003-convoy-encryption.md), [spec §2.3](
 | Operator of the invite-link domain | No for the app. Links open in the app, and the fragment holding the key is never sent to any server. | A web page served from that domain *can* read the fragment, so web joiners trust the link domain, like any end-to-end encrypted web app. |
 | Anyone the invite link is forwarded to | Yes. The link is the key. | Everything a member can see, until the owner removes them. |
 | Current members | Yes, by design. | |
-| Removed members | Today, yes: the app doesn't rotate the key yet, so a removed member can still decrypt anything they get hold of. An honest server no longer relays anything to them. | Once rotation exists, with a malicious server's help: the rotated key, because it's sent under the old key. |
+| Removed members | Not after the removal, as long as the server is honest: it stops relaying to them, changes the join token so their invite stops working, and the owner rotates the key. | With a malicious server's help: the rotated key, because it's sent under the old key, and a way back in despite the new token. |
 
 ## Integrity
 

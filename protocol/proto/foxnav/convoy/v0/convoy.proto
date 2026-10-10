@@ -34,6 +34,7 @@ message ServerMessage {
     MemberLeft member_left = 6;
     Pong pong = 7;
     Error error = 8;
+    InviteChanged invite_changed = 9;
   }
 }
 
@@ -72,6 +73,8 @@ message Joined {
   bytes resume_token = 3;
   repeated Member members = 4; // everyone else, with their latest STATE payload
   uint64 owner = 5;            // the member who may remove others
+  bytes join_token = 6;        // the current one: it changes when someone is removed
+  repeated Relay key_history = 7; // the latest KEY payloads, oldest first, for members who were away
 }
 
 message Member {
@@ -90,10 +93,16 @@ message MemberLeft {
   uint64 new_owner = 3; // set when the owner left and ownership moved on
 }
 
+// The join token changed because someone was removed: invites with the old one stop working.
+message InviteChanged {
+  bytes join_token = 1;
+}
+
 enum Channel {
   CHANNEL_UNSPECIFIED = 0;
   CHANNEL_STATE = 1; // latest value matters; the server keeps the latest per member
   CHANNEL_EVENT = 2; // one-off; relayed, never kept
+  CHANNEL_KEY = 3;   // key rotations; only the owner may publish, the server keeps the latest few
 }
 
 message Publish {
@@ -149,7 +158,7 @@ message ConvoyPayload {
     MemberState state = 1;          // STATE
     QuickMessage quick_message = 2; // EVENT
     RegroupPin regroup_pin = 3;     // EVENT
-    KeyRotation key_rotation = 4;   // EVENT
+    KeyRotation key_rotation = 4;   // KEY
   }
 }
 
@@ -223,7 +232,7 @@ message RegroupPin {
   Waypoint location = 1;
 }
 
-// Sent by the creator after removing someone, encrypted under the current key.
+// Sent by the owner on the KEY channel after removing someone, encrypted under the current key.
 message KeyRotation {
   uint32 epoch = 1;
   bytes key = 2; // 32 bytes

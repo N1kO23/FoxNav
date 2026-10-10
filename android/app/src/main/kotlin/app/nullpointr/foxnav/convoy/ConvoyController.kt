@@ -3,6 +3,8 @@ package app.nullpointr.foxnav.convoy
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
 import android.util.Log
 import androidx.core.content.ContextCompat
 import app.nullpointr.foxnav.BuildConfig
@@ -153,17 +155,24 @@ class ConvoyController(
 
     private suspend fun run(active: ActiveConvoy) {
         val session = active.session
-        coroutineScope {
-            val workers = listOf(
-                // Subscribed before the session starts, so no event is missed.
-                launch(start = CoroutineStart.UNDISPATCHED) { session.events.collect(::onEvent) },
-                launch { session.members.collect(::rememberMembers) },
-                launch { publishOurState(session) },
-            )
-            session.start()
-            val ended = session.status.filterIsInstance<ConvoyStatus.Ended>().first()
-            workers.forEach { it.cancel() }
-            endMessage(ended.reason)?.let { notify(ConvoyNotice(it, warning = true), speak = true) }
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val network = NetworkWatch(session)
+        connectivity.registerDefaultNetworkCallback(network)
+        try {
+            coroutineScope {
+                val workers = listOf(
+                    // Subscribed before the session starts, so no event is missed.
+                    launch(start = CoroutineStart.UNDISPATCHED) { session.events.collect(::onEvent) },
+                    launch { session.members.collect(::rememberMembers) },
+                    launch { publishOurState(session) },
+                )
+                session.start()
+                val ended = session.status.filterIsInstance<ConvoyStatus.Ended>().first()
+                workers.forEach { it.cancel() }
+                endMessage(ended.reason)?.let { notify(ConvoyNotice(it, warning = true), speak = true) }
+            }
+        } finally {
+            connectivity.unregisterNetworkCallback(network)
         }
         if (_active.compareAndSet(active, null)) {
             _myFix.value = null
@@ -220,7 +229,8 @@ class ConvoyController(
             is ConvoyEvent.MemberJoined -> awaitingName += event.memberId
             is ConvoyEvent.MemberLeft -> {
                 awaitingName -= event.memberId
-                notify(ConvoyNotice("${nameOf(event.memberId)} ${if (event.removed) "was removed" else "left"}", colors[event.memberId]))
+                val text = if (event.removed) "${nameOf(event.memberId)} was removed. Old invite links stopped working." else "${nameOf(event.memberId)} left"
+                notify(ConvoyNotice(text, colors[event.memberId]))
             }
             is ConvoyEvent.Refused -> notify(ConvoyNotice("The server turned that down: ${event.message}"))
         }
@@ -237,6 +247,30 @@ class ConvoyController(
         EndReason.CONVOY_GONE -> "This convoy has ended"
         EndReason.INVITE_INVALID -> "This invite isn't valid"
         EndReason.CONVOY_FULL -> "This convoy is full"
+    }
+
+    /**
+     * Out of a tunnel, or from Wi-Fi to mobile data: the connection is gone with the old network,
+     * so reconnect at once instead of waiting for the backoff or a timeout.
+     */
+    private class NetworkWatch(private val session: ConvoySession) : ConnectivityManager.NetworkCallback() {
+        @Volatile
+        private var current: Network? = null
+
+        @Volatile
+        private var lost = false
+
+        override fun onAvailable(network: Network) {
+            // The first call reports the network we're on; later ones are changes.
+            val previous = current
+            if (previous != null && (network != previous || lost)) session.reconnectNow()
+            current = network
+            lost = false
+        }
+
+        override fun onLost(network: Network) {
+            lost = true
+        }
     }
 
     private companion object {

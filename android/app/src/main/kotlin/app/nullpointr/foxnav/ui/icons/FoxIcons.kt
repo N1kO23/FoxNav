@@ -22,6 +22,7 @@ object FoxIcons {
     val Share = strokeIcon("Share", "M12 3v12 M7 8l5-5 5 5 M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6")
     val Copy = strokeIcon("Copy", "M9 9h10v10H9z M5 15V5h10")
     val Flag = strokeIcon("Flag", "M6 21V4 M6 4h11l-2.5 4 2.5 4H6")
+    val Scan = strokeIcon("Scan", "M4 9V5a1 1 0 0 1 1-1h4 M15 4h4a1 1 0 0 1 1 1v4 M20 15v4a1 1 0 0 1-1 1h-4 M9 20H5a1 1 0 0 1-1-1v-4 M8 12h8")
     val ChevronUp = strokeIcon("ChevronUp", "M6 15l6-6 6 6")
     val ChevronDown = strokeIcon("ChevronDown", "M6 9l6 6 6-6")
 

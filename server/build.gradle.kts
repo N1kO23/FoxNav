@@ -28,6 +28,7 @@ dependencies {
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.websockets)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(project(":protocol:conformance"))
 }
 
 // `./gradlew :server:run` serves the map styles from infra/ (map data comes from the Docker stack).

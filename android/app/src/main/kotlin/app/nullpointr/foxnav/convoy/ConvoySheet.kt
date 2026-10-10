@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -120,6 +121,7 @@ private fun StartOrJoin(convoy: ConvoyController, serverUrl: String) {
     val colors = MaterialTheme.colorScheme
     val profile by convoy.profiles.profile.collectAsState()
     var link by rememberSaveable { mutableStateOf("") }
+    var scanning by rememberSaveable { mutableStateOf(false) }
     val starter = rememberConvoyStarter()
     val invite = remember(link) { Invite.parse(link) }
 
@@ -138,7 +140,22 @@ private fun StartOrJoin(convoy: ConvoyController, serverUrl: String) {
     }
 
     HorizontalDivider(color = colors.outline)
-    Text("Got an invite? Open its link, scan its QR code with your camera, or paste it here.", color = colors.onSurfaceVariant)
+    Text("Got an invite? Scan its QR code, open its link, or paste the link here.", color = colors.onSurfaceVariant)
+    OutlinedButton(onClick = { scanning = true }, enabled = !starter.busy, modifier = Modifier.fillMaxWidth()) {
+        Icon(FoxIcons.Scan, contentDescription = null, Modifier.size(18.dp))
+        Spacer(Modifier.size(8.dp))
+        Text("Scan a QR code")
+    }
+    if (scanning) {
+        InviteScannerDialog(
+            onInvite = { scanned ->
+                scanning = false
+                link = scanned.toLink()
+                if (profile.name.isNotBlank()) starter.join(scanned)
+            },
+            onDismiss = { scanning = false },
+        )
+    }
     OutlinedTextField(
         value = link,
         onValueChange = { link = it },
@@ -181,6 +198,7 @@ private fun InConvoy(
     val profile by convoy.profiles.profile.collectAsState()
     val myId = (status as? ConvoyStatus.Live)?.memberId
     var editingProfile by rememberSaveable { mutableStateOf(false) }
+    var removing by remember { mutableStateOf<ConvoyMember?>(null) }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         SheetTitle("Convoy", Modifier.weight(1f))
@@ -252,7 +270,24 @@ private fun InConvoy(
             detail = carText(member.profile?.car?.make.orEmpty(), member.profile?.car?.model.orEmpty()),
             colorRgb = member.profile?.car?.color_rgb ?: ConvoyPalette.first(),
             isOwner = member.id == ownerId,
-            onRemove = if (myId != null && myId == ownerId) ({ session.remove(member.id) }) else null,
+            onRemove = if (myId != null && myId == ownerId) ({ removing = member }) else null,
+        )
+    }
+    removing?.let { member ->
+        val name = member.profile?.display_name?.ifBlank { null } ?: "this driver"
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text("Remove $name?") },
+            text = { Text("They leave the convoy at once. Everyone else gets a new invite link and key, so the old link stops working for $name and anyone else who has it.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        session.remove(member.id)
+                        removing = null
+                    },
+                ) { Text("Remove", color = colors.error) }
+            },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } },
         )
     }
 

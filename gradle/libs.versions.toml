@@ -8,6 +8,7 @@ logback = "1.6.5"
 slf4j = "2.0.19"
 wire = "7.1.0"
 zxing = "3.5.4"
+camerax = "1.6.2"
 
 # Android app
 compose-bom = "2026.09.00"
@@ -62,6 +63,9 @@ ferrostar-ui-shared = { module = "com.stadiamaps.ferrostar:ui-shared", version.r
 ferrostar-google-play-services = { module = "com.stadiamaps.ferrostar:google-play-services", version.ref = "ferrostar" }
 androidx-car-app = { module = "androidx.car.app:app", version.ref = "car-app" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
+androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

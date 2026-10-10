@@ -32,7 +32,7 @@ Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras
 | [`android/`](android/) | Android app (Kotlin, Jetpack Compose, [Ferrostar](https://github.com/stadiamaps/ferrostar), [MapLibre](https://maplibre.org)) |
 | [`shared/`](shared/) | Kotlin Multiplatform code shared by the app and the server |
 | [`server/`](server/) | Reference FoxNav server (Kotlin, Ktor) |
-| [`protocol/`](protocol/) | The [protocol spec](protocol/SPEC.md) for compatible clients and servers |
+| [`protocol/`](protocol/) | The [protocol spec](protocol/SPEC.md) for compatible clients and servers, and a conformance suite that checks any server against it |
 | [`infra/`](infra/) | Local backend: routing, search, map tiles and the server in Docker Compose |
 | [`tools/`](tools/) | [Convoy simulator](tools/convoy-sim/): bot cars for testing convoys |
 | [`design/`](design/) | [Design direction](design/README.md) and the design tokens that drive the app theme and map styles |

@@ -51,7 +51,9 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
   - `ConvoyService`, a second foreground service (type `location`, again started from the UI), keeps the convoy going with the screen off. Its notification has a Leave action.
   - On the map, other cars glide between their once-a-second reports (`MotionTrack`) as tinted arrows. A timing tower and a convoy sheet sit on top.
   - The tower floats between the screen's top and bottom panels, which report where they are, so it fits any screen and font size. It can be dragged to either side, folded to its header and steps aside while searching; its place is remembered.
-  - Invites are `foxnav://join#…` links and QR codes; the app opens these links.
+  - Invites are `foxnav://join#…` links and QR codes. The app opens these links and scans the codes itself (CameraX and ZXing), since camera apps may not open `foxnav://` links.
+  - It reconnects at once when the phone switches networks or gets one back, out of a tunnel for instance, instead of waiting for a timeout.
+  - Removing someone changes the join token and rotates the key, so they can neither read along nor come back with their old link.
   - Navigation and the convoy each have their own service for now. One FoxNav service that owns navigation, the convoy and voice comes with Android Auto, which needs exactly that; the phone UI and the car screen then become views of it.
 - **The screens** are Ferrostar's navigation view with FoxNav components swapped in:
   - the maneuver card, drive panel (speed, limit, arrival) and road name;
@@ -175,7 +177,7 @@ On the car screen only the map is ours, so the app's look has to live in the map
    - Ferrostar turn-by-turn with voice;
    - speed limits and speedometer;
    - choosing a server.
-3. **Convoy MVP:** _(in progress: everything below works against the local stack, on the emulator with bots. Still missing: a drive with real phones, key rotation and the conformance test suite)_
+3. **Convoy MVP:** _(in progress: everything below works against the local stack, on the emulator with bots, including an hour-long soak test. Still missing: a drive with real phones)_
    - the relay, end-to-end encryption, invites and QR codes;
    - live cars with motion prediction and the timing tower;
    - quick messages, a shared destination and a regroup point;

@@ -78,9 +78,12 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
-    // The convoy connection (the session lives in :shared) and invite QR codes.
+    // The convoy connection (the session lives in :shared), and invite QR codes: drawing and scanning them.
     implementation(libs.ktor.client.okhttp)
     implementation(libs.zxing.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
 
     implementation(libs.ferrostar.core)
     implementation(libs.ferrostar.ui.compose)
@@ -91,4 +94,6 @@ dependencies {
     "playImplementation"(libs.ferrostar.google.play.services)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation(kotlin("test-junit", libs.versions.kotlin.get()))
 }
