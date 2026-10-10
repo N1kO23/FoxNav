@@ -1,0 +1,12 @@
+{
+  "name": "foxnav-style-generator",
+  "private": true,
+  "type": "module",
+  "description": "Generates infra/styles/*.json from the Protomaps basemap.",
+  "scripts": {
+    "generate": "node generate.mjs"
+  },
+  "dependencies": {
+    "@protomaps/basemaps": "5.7.2"
+  }
+}

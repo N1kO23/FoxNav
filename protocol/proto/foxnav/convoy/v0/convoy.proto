@@ -1,0 +1,217 @@
+// FoxNav realtime protocol, v0 draft. See protocol/SPEC.md §2.
+// Draft: field numbers and messages will change before v1.
+syntax = "proto3";
+
+package foxnav.convoy.v0;
+
+// ---------------------------------------------------------------------------
+// Envelope: what the server sees. Payloads inside `Sealed` are end-to-end
+// encrypted and opaque to the server.
+// ---------------------------------------------------------------------------
+
+message ClientMessage {
+  oneof message {
+    Hello hello = 1;
+    CreateConvoy create_convoy = 2;
+    JoinConvoy join_convoy = 3;
+    Resume resume = 4;
+    Publish publish = 5;
+    LeaveConvoy leave_convoy = 6;
+    RemoveMember remove_member = 7;
+    Ping ping = 8;
+  }
+}
+
+message ServerMessage {
+  oneof message {
+    Welcome welcome = 1;
+    ConvoyCreated convoy_created = 2;
+    Joined joined = 3;
+    Relay relay = 4;
+    MemberJoined member_joined = 5;
+    MemberLeft member_left = 6;
+    Pong pong = 7;
+    Error error = 8;
+  }
+}
+
+// First message on a new connection.
+message Hello {
+  string client = 1; // e.g. "FoxNav Android 0.1.0"
+}
+
+message Welcome {
+  string server = 1;           // e.g. "foxnav-server 0.1.0"
+  uint32 max_convoy_size = 2;  // members per convoy
+}
+
+message CreateConvoy {}
+
+message ConvoyCreated {
+  bytes convoy_id = 1;  // 16 random bytes
+  bytes join_token = 2; // shared through the invite link
+}
+
+message JoinConvoy {
+  bytes convoy_id = 1;
+  bytes join_token = 2;
+}
+
+// Rejoins after a dropped connection without a new join.
+message Resume {
+  bytes resume_token = 1;
+}
+
+message Joined {
+  bytes convoy_id = 1;
+  uint64 member_id = 2;      // assigned by the server, unique within the convoy
+  bytes resume_token = 3;
+  repeated Member members = 4;
+}
+
+message Member {
+  uint64 member_id = 1;
+  Sealed last_state = 2; // latest STATE payload, if the member has sent one
+}
+
+message MemberJoined {
+  uint64 member_id = 1;
+}
+
+message MemberLeft {
+  uint64 member_id = 1;
+  bool removed = 2; // removed by the creator rather than leaving
+}
+
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+  CHANNEL_STATE = 1; // latest value matters; the server keeps the latest per member
+  CHANNEL_EVENT = 2; // one-off; relayed, never kept
+}
+
+message Publish {
+  Channel channel = 1;
+  Sealed sealed = 2;
+}
+
+message Relay {
+  uint64 sender = 1;
+  Channel channel = 2;
+  Sealed sealed = 3;
+  int64 server_time_ms = 4; // Unix epoch milliseconds when the server relayed it
+}
+
+message LeaveConvoy {}
+
+// Only the convoy's creator may remove members.
+message RemoveMember {
+  uint64 member_id = 1;
+}
+
+message Ping {}
+
+message Pong {}
+
+message Error {
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    CODE_BAD_REQUEST = 1;
+    CODE_NOT_FOUND = 2;      // unknown convoy or expired resume token
+    CODE_FORBIDDEN = 3;      // wrong join token, or not allowed to remove members
+    CODE_CONVOY_FULL = 4;
+    CODE_RATE_LIMITED = 5;
+  }
+  Code code = 1;
+  string message = 2;
+}
+
+// AES-256-GCM output. Associated data: convoy_id ‖ sender member_id (8 bytes,
+// big-endian) ‖ channel (1 byte). The plaintext is a ConvoyPayload.
+message Sealed {
+  uint32 key_epoch = 1;
+  bytes nonce = 2;      // 12 random bytes
+  bytes ciphertext = 3; // includes the 16-byte tag
+}
+
+// ---------------------------------------------------------------------------
+// Payloads: what members see after decrypting.
+// ---------------------------------------------------------------------------
+
+message ConvoyPayload {
+  oneof payload {
+    Position position = 1;        // STATE
+    Profile profile = 2;          // STATE
+    RouteShare route_share = 3;   // STATE
+    QuickMessage quick_message = 4; // EVENT
+    RegroupPin regroup_pin = 5;   // EVENT
+    KeyRotation key_rotation = 6; // EVENT
+  }
+}
+
+message Position {
+  sint32 lat_e7 = 1;       // degrees × 10^7
+  sint32 lon_e7 = 2;       // degrees × 10^7
+  float speed_mps = 3;     // shown to other members; needed for motion prediction
+  float heading_deg = 4;   // 0-360, clockwise from north
+  float accuracy_m = 5;    // horizontal, 68% confidence
+  int64 fix_time_ms = 6;   // Unix epoch milliseconds of the GPS fix
+}
+
+message Profile {
+  string display_name = 1;
+  Car car = 2;
+}
+
+message Car {
+  enum BodyStyle {
+    BODY_STYLE_UNSPECIFIED = 0;
+    BODY_STYLE_COUPE = 1;
+    BODY_STYLE_HATCHBACK = 2;
+    BODY_STYLE_SEDAN = 3;
+    BODY_STYLE_WAGON = 4;
+    BODY_STYLE_CONVERTIBLE = 5;
+    BODY_STYLE_KEI = 6;
+    BODY_STYLE_SUV = 7;
+    BODY_STYLE_VAN = 8;
+    BODY_STYLE_PICKUP = 9;
+  }
+  string make = 1;
+  string model = 2;
+  uint32 color_rgb = 3; // 0xRRGGBB, the member's colour on the map
+  BodyStyle body_style = 4;
+}
+
+message Waypoint {
+  sint32 lat_e7 = 1;
+  sint32 lon_e7 = 2;
+  string name = 3;
+}
+
+// The shared destination is the last waypoint. Each member routes through them itself.
+message RouteShare {
+  repeated Waypoint waypoints = 1;
+}
+
+message QuickMessage {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_FUEL = 1;
+    KIND_BREAK = 2;
+    KIND_PULL_OVER = 3;
+    KIND_POLICE_AHEAD = 4;
+    KIND_HAZARD_AHEAD = 5;
+    KIND_SLOW_DOWN = 6;
+    KIND_ALL_GOOD = 7;
+  }
+  Kind kind = 1;
+}
+
+message RegroupPin {
+  Waypoint location = 1;
+}
+
+// Sent by the creator after removing someone, encrypted under the current key.
+message KeyRotation {
+  uint32 epoch = 1;
+  bytes key = 2; // 32 bytes
+}

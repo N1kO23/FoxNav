@@ -1,0 +1,9 @@
+.git
+.gradle
+.kotlin
+**/build
+android
+ios
+infra/data
+node_modules
+**/node_modules

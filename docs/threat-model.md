@@ -1,0 +1,54 @@
+# Threat model: convoys
+
+What convoy encryption ([ADR 0003](adr/0003-convoy-encryption.md), [spec §2.3](../protocol/SPEC.md#23-end-to-end-encryption)) protects, and what it deliberately doesn't. This covers protocol v0. Reports and data packs get their own section when they exist.
+
+## What's at stake
+
+- Live position and speed of each member.
+- Who they are: display name and car.
+- Where the convoy is going: the shared route and regroup pins.
+- Who is driving with whom.
+
+## Who might want it, and what they get
+
+| Who | Can they read positions, speeds, names, routes? | What they can still learn or do |
+|---|---|---|
+| Server operator | No. Payloads are encrypted with a key the server never sees. | Metadata (see below). Dropping or delaying messages. |
+| Someone on the network (Wi-Fi, ISP) | No. Everything goes over TLS. | That you talk to a FoxNav server, and how much. |
+| Operator of the invite-link domain | No for the app. Links open in the app, and the fragment holding the key is never sent to any server. | A web page served from that domain *can* read the fragment, so web joiners trust the link domain, like any end-to-end encrypted web app. |
+| Anyone the invite link is forwarded to | Yes. The link is the key. | Everything a member can see, until the creator removes them. |
+| Current members | Yes, by design. | |
+| Removed members | Not after the key rotation, as long as the server is honest. | With a malicious server's help: the rotated key, because it's sent under the old key. |
+
+## Integrity
+
+- **Moving messages.** A payload is bound to its convoy, sender and channel by the encryption's associated data. A server that moves it elsewhere makes decryption fail.
+- **Impersonation.** The server stamps the real sender on every relayed message, and that sender is part of the associated data. So a member can't impersonate another member on their own, only with the server's help.
+- **Replay.** A malicious server could replay old payloads.
+  - Clients ignore positions older than the latest one they have from that member, using `fix_time_ms`.
+  - Events need a message ID or timestamp to drop duplicates. That's still to be done before v1.
+
+## Metadata the server sees
+
+- IP addresses and connection times of members.
+- How many members a convoy has, and when they join and leave.
+- Message timing and size. Members send about once per second while moving and rarely when parked, so the server can tell moving from parked.
+
+Possible later mitigations: sending at a constant rate, padding payloads, and connecting through a proxy or Tor.
+
+## Out of scope
+
+- A compromised phone. Malware on a member's phone sees what that member sees.
+- Members screenshotting or sharing what they see.
+
+## Advice for users
+
+- Share invite links only in private chats. Anyone with the link can join.
+- Watch who joins. Remove anyone you don't recognise.
+- End the convoy after the drive. The key is discarded with it.
+
+## Possible upgrades
+
+- **Per-member keys or MLS ([RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)).** This makes key rotation safe against a malicious server and gives forward secrecy.
+- **Join approval and expiring invite tokens.**
+- **Per-member signatures.** These make forgery impossible even with the server's help.

@@ -1,0 +1,29 @@
+FoxNav app exception
+
+Additional permissions under section 7 of the GNU General Public License, version 3
+
+These permissions apply to the FoxNav apps: the files in the `android/` and `ios/`
+directories of the FoxNav repository. Those files are licensed under the GNU General
+Public License as published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version ("the GPL"), with the additional
+permissions below. Contributions to those directories are accepted under the same terms.
+
+1. App store distribution
+
+You may convey the Program, or any covered work, in object code form through an
+application store or similar distribution service (for example Apple's App Store or
+Google Play), even if that service's terms, usage rules or technical measures impose
+restrictions on recipients that would otherwise be further restrictions under section 10
+of the GPL. This permission applies only if you make the Corresponding Source of the work
+you convey available to every recipient, at no charge, under the terms of the GPL with
+these additional permissions.
+
+2. Google Play Services
+
+If you modify the Program, or any covered work, by linking or combining it with Google
+Play Services or Firebase libraries (or modified versions of those libraries), containing
+parts covered by the terms of their own licenses, the licensors of the Program grant you
+additional permission to convey the resulting work.
+
+You may remove these additional permissions from your copy of the Program, or from any
+part of it, as described in section 7 of the GPL.

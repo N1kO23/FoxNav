@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The kitsune mark (design/README.md), scaled into the adaptive icon's safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#F4F1EA"
+        android:pathData="M31,27 L47,42 L54,39 L61,42 L77,27 L74,55 L54,81 L34,55 Z" />
+    <path
+        android:fillColor="#E5462E"
+        android:pathData="M34,31.5 L43.5,42 L36.5,45 Z M74,31.5 L64.5,42 L71.5,45 Z M54,43 L57,47.5 L54,52 L51,47.5 Z" />
+    <path
+        android:pathData="M40.5,54 L50,58.5 M67.5,54 L58,58.5"
+        android:strokeWidth="2.5"
+        android:strokeColor="#E5462E"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#0B0D12"
+        android:pathData="M51.5,74 L56.5,74 L54,78 Z" />
+</vector>

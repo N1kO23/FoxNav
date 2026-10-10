@@ -1,0 +1,61 @@
+# Local FoxNav map stack. Everything sits behind one origin, http://localhost:8080:
+#   /.well-known/foxnav, /styles/*   FoxNav server (discovery document, map styles)
+#   /valhalla/*                      Valhalla (routing)
+#   /photon/*                        Photon (search)
+#   /tiles/*, /assets/*              static files (PMTiles map data, fonts, sprites)
+#
+# Fetch the data first with infra/scripts/fetch-data.sh, then: docker compose up -d
+# The first start builds the routing graph and search index; see infra/README.md.
+name: foxnav
+
+x-host-user: &host-user
+  # Run as your user so everything written to infra/data/ stays yours.
+  user: "${FOXNAV_UID:-1000}:${FOXNAV_GID:-1000}"
+
+services:
+  gateway:
+    image: caddy:2.11
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/tiles:/srv/tiles:ro
+      - ./data/assets:/srv/assets:ro
+    depends_on: [server, valhalla, photon]
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    environment:
+      FOXNAV_NAME: FoxNav (local)
+      FOXNAV_REGIONS: FI
+      FOXNAV_STYLES_DIR: /srv/styles
+    volumes:
+      - ./styles:/srv/styles:ro
+    restart: unless-stopped
+
+  valhalla:
+    image: ghcr.io/valhalla/valhalla-scripted:3.9.1
+    <<: *host-user
+    environment:
+      server_threads: "4"
+      build_admins: "True"
+      build_time_zones: "True"
+      build_elevation: "False"
+    volumes:
+      # Builds the routing graph from the .pbf files here on first start.
+      - ./data/valhalla:/custom_files
+    restart: unless-stopped
+
+  photon:
+    build: ./photon
+    <<: *host-user
+    environment:
+      PHOTON_LANGUAGES: fi,sv,en
+      JAVA_TOOL_OPTIONS: -Xmx2g
+    volumes:
+      # Imports data/photon/import.jsonl.zst into data/photon/photon_data on first start.
+      - ./data/photon:/photon
+    restart: unless-stopped

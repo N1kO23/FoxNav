@@ -1,0 +1,33 @@
+{
+	admin off
+	auto_https off
+}
+
+# Plain HTTP for local use. For a public server, replace ":8080" with your domain and
+# Caddy fetches TLS certificates automatically.
+:8080 {
+	handle_path /valhalla/* {
+		reverse_proxy valhalla:8002
+	}
+
+	handle_path /photon/* {
+		reverse_proxy photon:2322
+	}
+
+	# Static files support range requests, which PMTiles needs.
+	handle_path /tiles/* {
+		root * /srv/tiles
+		header Access-Control-Allow-Origin *
+		file_server
+	}
+
+	handle_path /assets/* {
+		root * /srv/assets
+		header Access-Control-Allow-Origin *
+		file_server
+	}
+
+	handle {
+		reverse_proxy server:8080
+	}
+}
