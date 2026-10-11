@@ -1,15 +1,19 @@
 package app.nullpointr.foxnav.drive
 
 import app.nullpointr.foxnav.ui.format.distanceText
-import android.text.format.Formatter
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -25,7 +29,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -50,11 +53,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.nullpointr.foxnav.BuildConfig
 import app.nullpointr.foxnav.appGraph
-import app.nullpointr.foxnav.settings.OfflineMapsSheet
-import app.nullpointr.foxnav.settings.ServerSettingsSheet
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
-import app.nullpointr.foxnav.shared.format.formatDistance
 import app.nullpointr.foxnav.shared.format.formatDuration
+import app.nullpointr.foxnav.ui.components.DockedPanel
+import app.nullpointr.foxnav.ui.components.HudLabel
+import app.nullpointr.foxnav.ui.components.PanelAction
 import app.nullpointr.foxnav.ui.components.SpeedCluster
 import app.nullpointr.foxnav.ui.PanelBounds
 import app.nullpointr.foxnav.shared.map.MapCredit
@@ -63,18 +66,22 @@ import app.nullpointr.foxnav.ui.icons.FoxIcons
 import app.nullpointr.foxnav.ui.topPanelOf
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationMapState
-import org.maplibre.spatialk.geojson.BoundingBox
 import java.text.DecimalFormatSymbols
 
-/** Everything on top of the map when not navigating: search, route preview and the free-drive panel. */
+/**
+ * Everything on top of the map when not navigating, laid out as the free-drive mockup: search at
+ * the top with what's ahead under it, the map buttons at the right edge, and the panel docked
+ * at the bottom with speed, the road, and the Report and Convoy buttons.
+ */
 @Composable
-fun BoxScope.FreeDriveOverlay(
-    modifier: Modifier,
+fun FreeDriveOverlay(
     viewModel: DriveViewModel,
     document: DiscoveryDocument,
     navigationMapState: NavigationMapState,
     panels: PanelBounds,
     mapCredits: List<MapCredit>,
+    /** Cars in our convoy, us included; null when not in one. */
+    convoySize: Int?,
     onOpenConvoy: () -> Unit,
     onOpenReport: () -> Unit,
 ) {
@@ -84,55 +91,67 @@ fun BoxScope.FreeDriveOverlay(
     val query by viewModel.query.collectAsState()
     var showSettings by rememberSaveable { mutableStateOf(false) }
     val online by LocalContext.current.appGraph.connectivity.online.collectAsState()
+    val sides = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        if (preview == null) {
-            Row(Modifier.topPanelOf(panels), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                SearchPanel(viewModel, Modifier.weight(1f))
-                val inConvoy = LocalContext.current.appGraph.convoy.active.collectAsState().value != null
-                PanelButton(onClick = onOpenConvoy) {
-                    Icon(FoxIcons.Convoy, contentDescription = "Convoy", tint = if (inConvoy) MaterialTheme.colorScheme.secondary else LocalContentColor.current)
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (preview == null) {
+                Row(Modifier.topPanelOf(panels), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                    SearchPanel(viewModel, Modifier.weight(1f))
+                    VoiceSearchButton(onHeard = viewModel::onQueryChange)
+                    PanelButton(onClick = { showSettings = true }) { Icon(FoxIcons.Settings, contentDescription = "Settings") }
                 }
-                PanelButton(onClick = { showSettings = true }) { Icon(FoxIcons.Settings, contentDescription = "Settings") }
+                if (!online) OfflineChip()
+                if (query.isEmpty()) RoadWarnings(viewModel)
             }
-            if (!online) OfflineChip()
         }
         // While searching, the results and the keyboard need the room.
         if (preview != null || query.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (preview == null && viewModel.canReport) {
-                    ReportButton(onClick = onOpenReport, modifier = Modifier.align(Alignment.BottomStart))
+            Box(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(sides).padding(horizontal = 12.dp)) {
+                MapControls(
+                    navigationMapState,
+                    isMuted = uiState.isMuted,
+                    onToggleMute = viewModel::toggleMute,
+                    onRouteOverview = null,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
+                if (preview == null) {
+                    Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)) { ReportStack(viewModel) }
                 }
-                Column(Modifier.align(Alignment.BottomEnd), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (LocalContext.current.appGraph.settings.settings.collectAsState().value.zoomButtons) {
-                        PanelButton(onClick = { navigationMapState.zoomIn() }) { Icon(FoxIcons.Plus, contentDescription = "Zoom in") }
-                        PanelButton(onClick = { navigationMapState.zoomOut() }) { Icon(FoxIcons.Minus, contentDescription = "Zoom out") }
-                    }
-                    PanelButton(onClick = { navigationMapState.recenter(isNavigating = false) }) {
-                        Icon(FoxIcons.Locate, contentDescription = "Center on my location")
-                    }
-                }
-            }
-            if (preview == null) {
-                val cameraAhead by viewModel.cameraAhead.collectAsState()
-                ReportStack(viewModel)
-                CameraWarning(cameraAhead)
             }
             Column(Modifier.bottomPanelOf(panels)) {
-                MapCreditTag(mapCredits)
-                preview?.let { RoutePreviewPanel(it, viewModel) } ?: FreeDrivePanel(viewModel)
+                MapCreditTag(mapCredits, Modifier.windowInsetsPadding(sides).padding(start = 12.dp))
+                DockedPanel {
+                    preview?.let { RoutePreviewContent(it, viewModel) }
+                        ?: FreeDriveContent(viewModel, convoySize, onOpenConvoy, onOpenReport.takeIf { viewModel.canReport })
+                }
             }
         }
     }
 
     if (showSettings) {
         DriveSettings(document, viewModel, navigationMapState, onClose = { showSettings = false })
+    }
+}
+
+/** "Where to?" by voice: the phone's speech recogniser fills in the search. Hidden on phones without one. */
+@Composable
+private fun VoiceSearchButton(onHeard: (String) -> Unit) {
+    val context = LocalContext.current
+    val intent = remember {
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Where to?")
+    }
+    val available = remember { intent.resolveActivity(context.packageManager) != null }
+    val listen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let(onHeard)
+    }
+    if (available) {
+        PanelButton(onClick = { runCatching { listen.launch(intent) } }) { Icon(FoxIcons.Mic, contentDescription = "Search by voice") }
     }
 }
 
@@ -153,29 +172,28 @@ private fun OfflineChip() {
     }
 }
 
-/** Speed, limit and the road you're on, without a destination. */
+/** Speed, limit and the road you're on, without a destination; then Report and Convoy. */
 @Composable
-private fun FreeDrivePanel(viewModel: DriveViewModel) {
+private fun FreeDriveContent(viewModel: DriveViewModel, convoySize: Int?, onOpenConvoy: () -> Unit, onOpenReport: (() -> Unit)?) {
     val speed by viewModel.speed.collectAsState()
     val road by viewModel.road.collectAsState()
     val arrivedAt by viewModel.arrivedAt.collectAsState()
     val colors = MaterialTheme.colorScheme
 
-    Surface(shape = RoundedCornerShape(24.dp), color = colors.surface, border = BorderStroke(1.dp, colors.outline)) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            SpeedCluster(speed)
-            Column(Modifier.weight(1f)) {
-                Text(arrivedAt ?: road?.name ?: "Free drive", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    if (arrivedAt != null) "ARRIVED" else "FREE DRIVE",
-                    fontFamily = ChakraPetch,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp,
-                    letterSpacing = 2.sp,
-                    color = colors.secondary,
-                )
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        SpeedCluster(speed)
+        Column(Modifier.weight(1f)) {
+            Text(arrivedAt ?: road?.name ?: "Free drive", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (arrivedAt != null) {
+                HudLabel("ARRIVED", colors.secondary, accent = "到着")
+            } else {
+                HudLabel("FREE DRIVE", colors.secondary, accent = "走行中")
             }
         }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (onOpenReport != null) PanelAction("Report", FoxIcons.Report, onOpenReport, brand = true)
+        PanelAction("Convoy", FoxIcons.People, onOpenConvoy, badge = convoySize)
     }
 }
 
@@ -233,57 +251,56 @@ private fun SearchPanel(viewModel: DriveViewModel, modifier: Modifier = Modifier
     }
 }
 
+/** The routes to a place, to pick one and start. */
 @Composable
-private fun RoutePreviewPanel(preview: RoutePreview, viewModel: DriveViewModel) {
+private fun RoutePreviewContent(preview: RoutePreview, viewModel: DriveViewModel) {
     val simulate by viewModel.simulate.collectAsState()
     val colors = MaterialTheme.colorScheme
     val separator = DecimalFormatSymbols.getInstance().decimalSeparator
 
-    Surface(shape = RoundedCornerShape(20.dp), color = colors.surface, border = BorderStroke(1.dp, colors.outline)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column {
-                Text(preview.destination.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (preview.destination.detail.isNotEmpty()) {
-                    Text(preview.destination.detail, color = colors.onSurfaceVariant)
-                }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column {
+            Text(preview.destination.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (preview.destination.detail.isNotEmpty()) {
+                Text(preview.destination.detail, color = colors.onSurfaceVariant)
             }
-            when {
-                preview.loading -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Text("Finding routes…")
-                }
-                preview.error != null -> Text(preview.error, color = colors.error)
-                else -> preview.routes.forEachIndexed { index, route ->
-                    val selected = index == preview.selected
-                    Surface(
-                        onClick = { viewModel.selectRoute(index) },
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (selected) colors.secondary.copy(alpha = 0.15f) else Color.Transparent,
-                        border = if (selected) BorderStroke(1.dp, colors.secondary) else null,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(formatDuration(route.steps.sumOf { it.duration }), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                            Text(distanceText(route.distance), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = colors.onSurfaceVariant)
-                        }
+        }
+        when {
+            preview.loading -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("Finding routes…")
+            }
+            preview.error != null -> Text(preview.error, color = colors.error)
+            else -> preview.routes.forEachIndexed { index, route ->
+                val selected = index == preview.selected
+                Surface(
+                    onClick = { viewModel.selectRoute(index) },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (selected) colors.secondary.copy(alpha = 0.15f) else Color.Transparent,
+                    border = if (selected) BorderStroke(1.dp, colors.secondary) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(formatDuration(route.steps.sumOf { it.duration }), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(distanceText(route.distance), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = colors.onSurfaceVariant)
                     }
                 }
             }
-            if (BuildConfig.DEBUG) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Simulate the drive", Modifier.weight(1f), color = colors.onSurfaceVariant)
-                    Switch(checked = simulate, onCheckedChange = viewModel::setSimulate)
-                }
+        }
+        if (BuildConfig.DEBUG) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Simulate the drive", Modifier.weight(1f), color = colors.onSurfaceVariant)
+                Switch(checked = simulate, onCheckedChange = viewModel::setSimulate)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = viewModel::cancelPreview, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                Button(onClick = viewModel::startNavigation, enabled = preview.selectedRoute != null, modifier = Modifier.weight(1f)) { Text("Start") }
-            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = viewModel::cancelPreview, modifier = Modifier.weight(1f)) { Text("Cancel") }
+            Button(onClick = viewModel::startNavigation, enabled = preview.selectedRoute != null, modifier = Modifier.weight(1f)) { Text("Start") }
         }
     }
 }
 
-/** A round 56 dp panel-coloured button for map controls. */
+/** A 56 dp panel-coloured button beside the search, as in the mockups. */
 @Composable
 private fun PanelButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Surface(

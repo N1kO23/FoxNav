@@ -58,10 +58,13 @@
             android:foregroundServiceType="location" />
     </application>
 
-    <!-- Lets the app find the text-to-speech engine on Android 11+. -->
+    <!-- Lets the app find the text-to-speech engine and, for search by voice, a speech recogniser on Android 11+. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
     </queries>
 </manifest>

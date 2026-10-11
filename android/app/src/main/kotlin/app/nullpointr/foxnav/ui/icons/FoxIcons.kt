@@ -42,6 +42,23 @@ object FoxIcons {
     val Plus = strokeIcon("Plus", "M12 5v14 M5 12h14")
     val Minus = strokeIcon("Minus", "M5 12h14")
 
+    // From the mockups (design canvas): map controls, panels and the convoy sheet.
+    val SpeakerOn = strokeIcon("SpeakerOn", "M4 9h4l5-4v14l-5-4H4Z M16.5 9a4 4 0 0 1 0 6 M19 6.5a7.5 7.5 0 0 1 0 11")
+    val SpeakerOff = strokeIcon("SpeakerOff", "M4 9h4l5-4v14l-5-4H4Z M16.5 9.5l5 5 M21.5 9.5l-5 5")
+    val People = strokeIcon("People", "M9 5a3 3 0 1 1 0 6a3 3 0 1 1 0-6 M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6 M16 5.5a3 3 0 0 1 0 5.5 M18 14.5c2 0.8 3 2.8 3 5.5")
+    val RouteOverview = strokeIcon("RouteOverview", "M5 19C9 19 8 12 12 12S15 5 19 5 M5 18a1 1 0 1 1 0 2a1 1 0 1 1 0-2 M19 4a1 1 0 1 1 0 2a1 1 0 1 1 0-2")
+    val Qr = strokeIcon("Qr", "M4 4h6v6H4Z M14 4h6v6h-6Z M4 14h6v6H4Z M14 14h2v2h-2Z M18 18h2v2h-2Z M14 18h2 M18 14h2")
+    val More = filledIcon("More", "M5 10.4a1.6 1.6 0 1 1 0 3.2a1.6 1.6 0 1 1 0-3.2Z M12 10.4a1.6 1.6 0 1 1 0 3.2a1.6 1.6 0 1 1 0-3.2Z M19 10.4a1.6 1.6 0 1 1 0 3.2a1.6 1.6 0 1 1 0-3.2Z")
+    val Lock = strokeIcon("Lock", "M6 11h12v10H6Z M8.5 11V8a3.5 3.5 0 0 1 7 0v3")
+
+    // Quick messages (the convoy mockup's icons, plus slow down and all good).
+    val Fuel = strokeIcon("Fuel", "M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16 M3 21h14 M5 10h10 M15 8l3 3v7a1.5 1.5 0 0 0 3 0V9l-2.5-2.5")
+    val Coffee = strokeIcon("Coffee", "M4 9h12v5a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5Z M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16 M8 3v3 M12 3v3")
+    val PullOver = strokeIcon("PullOver", "M18 3v18 M7 21c0-6 2-9 6-10 M10.5 8L13 11L9.8 13")
+    val Police = strokeIcon("Police", "M7 18v-6a5 5 0 0 1 10 0v6 M5 18h14v3H5Z M12 2v2 M4.5 5.5l1.4 1.4 M19.5 5.5l-1.4 1.4")
+    val SlowDown = strokeIcon("SlowDown", "M6 5l6 6 6-6 M6 12l6 6 6-6")
+    val AllGood = strokeIcon("AllGood", "M5 12.5l4.5 4.5L19 7")
+
     // Sound: playing, recording and files (voice packs, the over-limit sound).
     val Play = strokeIcon("Play", "M8 5.5v13l10.5-6.5Z")
     val Stop = strokeIcon("Stop", "M7 7h10v10H7Z")

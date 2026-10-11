@@ -14,12 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,7 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.nullpointr.foxnav.shared.format.formatDistance
 import app.nullpointr.foxnav.shared.format.formatDuration
 import app.nullpointr.foxnav.shared.map.MapCredit
 import app.nullpointr.foxnav.shared.speed.SpeedReading
@@ -42,6 +38,24 @@ import app.nullpointr.foxnav.ui.components.ManeuverGlyph
 import app.nullpointr.foxnav.ui.components.SpeedCluster
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 import com.stadiamaps.ferrostar.core.NavigationUiState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import app.nullpointr.foxnav.ui.PanelBounds
+import app.nullpointr.foxnav.ui.bottomPanelOf
+import app.nullpointr.foxnav.ui.components.DockedPanel
+import app.nullpointr.foxnav.ui.components.JapaneseAccent
+import app.nullpointr.foxnav.ui.components.PanelAction
+import app.nullpointr.foxnav.ui.components.maneuverAccent
+import app.nullpointr.foxnav.ui.icons.FoxIcons
+import com.stadiamaps.ferrostar.core.boundingBox
+import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationMapState
 import uniffi.ferrostar.LaneInfo
 import uniffi.ferrostar.ManeuverModifier
 import uniffi.ferrostar.ManeuverType
@@ -50,12 +64,12 @@ import java.util.Date
 
 /** The next maneuver, HUD style: icon, distance and road, then the maneuver after it. */
 @Composable
-fun ManeuverCard(uiState: NavigationUiState, modifier: Modifier = Modifier) {
+fun ManeuverCard(uiState: NavigationUiState, modifier: Modifier = Modifier, warnings: @Composable () -> Unit = {}) {
     val instruction = uiState.visualInstruction ?: return
     val colors = MaterialTheme.colorScheme
     val next = uiState.remainingSteps?.getOrNull(1)
 
-    Column(modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
@@ -71,8 +85,9 @@ fun ManeuverCard(uiState: NavigationUiState, modifier: Modifier = Modifier) {
                         ManeuverGlyph(instruction.primaryContent, tint = colors.secondary, size = 52.dp)
                     }
                     Column(Modifier.weight(1f)) {
-                        uiState.progress?.distanceToNextManeuver?.let { DistanceReadout(it) }
-                        Text(instruction.primaryContent.text, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        val content = instruction.primaryContent
+                        uiState.progress?.distanceToNextManeuver?.let { DistanceReadout(it, maneuverAccent(content.maneuverType, content.maneuverModifier)) }
+                        Text(content.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 val nextContent = next?.visualInstructions?.firstOrNull()?.primaryContent
@@ -92,6 +107,7 @@ fun ManeuverCard(uiState: NavigationUiState, modifier: Modifier = Modifier) {
             }
         }
         LaneGuide(instruction.subContent?.laneInfo)
+        Box(Modifier.fillMaxWidth()) { warnings() }
     }
 }
 
@@ -151,27 +167,73 @@ fun RoadNamePill(roadName: String?, modifier: Modifier = Modifier) {
     }
 }
 
-/** "350 m" with a large number and a smaller unit. */
+/** "350 m" with a large number and a smaller unit, and the direction's Japanese accent (右方向). */
 @Composable
-private fun DistanceReadout(meters: Double) {
+private fun DistanceReadout(meters: Double, accent: String?) {
     val (number, unit) = distanceText(meters).split(' ', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
     Row {
-        Text(number, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 40.sp)
-        Text(" $unit", Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(number, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 44.sp, lineHeight = 44.sp)
+        Text(" $unit", Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        accent?.let { JapaneseAccent(it, Modifier.alignByBaseline().padding(start = 10.dp), fontSize = 14.sp) }
     }
 }
 
-/** Bottom panel while navigating: speed and limit, arrival, reporting, mute, convoy and end. */
+/** On top of the map while navigating: the map buttons at the right edge and the panel docked at the bottom. */
+@Composable
+fun NavigationOverlay(
+    uiState: NavigationUiState,
+    speed: SpeedReading,
+    navigationMapState: NavigationMapState,
+    panels: PanelBounds,
+    mapCredits: List<MapCredit>,
+    convoySize: Int?,
+    onToggleMute: () -> Unit,
+    onConvoy: () -> Unit,
+    onReport: (() -> Unit)?,
+    onEnd: () -> Unit,
+    onPanelHeight: (Int) -> Unit,
+) {
+    val density = LocalDensity.current
+    val sides = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val screenHeight = maxHeight
+        MapControls(
+            navigationMapState,
+            isMuted = uiState.isMuted,
+            onToggleMute = onToggleMute,
+            onRouteOverview = {
+                uiState.routeGeometry?.boundingBox()?.let { bounds ->
+                    // Between the maneuver card and the panel, with room to spare.
+                    val top = with(density) { panels.top.toDp() } + 24.dp
+                    val bottom = (screenHeight - with(density) { panels.bottom.coerceAtMost(constraints.maxHeight.toFloat()).toDp() }) + 24.dp
+                    navigationMapState.showRouteOverview(bounds, PaddingValues(start = 48.dp, end = 72.dp, top = top, bottom = bottom))
+                }
+            },
+            modifier = Modifier.align(Alignment.CenterEnd).windowInsetsPadding(sides).padding(end = 12.dp),
+        )
+        DrivePanel(
+            uiState,
+            speed,
+            onConvoy = onConvoy,
+            convoySize = convoySize,
+            onReport = onReport,
+            onEnd = onEnd,
+            mapCredits = mapCredits,
+            modifier = Modifier.align(Alignment.BottomCenter).bottomPanelOf(panels).onSizeChanged { onPanelHeight(it.height) },
+        )
+    }
+}
+
+/** Bottom panel while navigating, as in the mockup: speed and limit, arrival, then Report, Convoy and End. */
 @Composable
 fun DrivePanel(
     uiState: NavigationUiState,
     speed: SpeedReading,
-    onToggleMute: () -> Unit,
     onConvoy: () -> Unit,
     /** Cars in our convoy, us included; null when not in one. */
     convoySize: Int?,
     onReport: (() -> Unit)?,
-    onEnd: (() -> Unit)?,
+    onEnd: () -> Unit,
     mapCredits: List<MapCredit>,
     modifier: Modifier = Modifier,
 ) {
@@ -182,54 +244,34 @@ fun DrivePanel(
         DateFormat.getTimeFormat(context).format(Date(System.currentTimeMillis() + (progress.durationRemaining * 1000).toLong()))
     }
 
-    Column(modifier.fillMaxWidth().padding(12.dp)) {
-        MapCreditTag(mapCredits)
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            color = colors.surface,
-            border = BorderStroke(1.dp, colors.outline),
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SpeedCluster(speed)
-                    Spacer(Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(arrival, fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 30.sp)
-                        Text(
-                            "${formatDuration(progress.durationRemaining)} · ${distanceText(progress.distanceRemaining)}",
-                            fontFamily = ChakraPetch,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.onSurfaceVariant,
-                        )
+    Column(modifier) {
+        MapCreditTag(mapCredits, Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).padding(start = 12.dp))
+        DockedPanel {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SpeedCluster(speed)
+                Spacer(Modifier.weight(1f))
+                Column(horizontalAlignment = Alignment.End) {
+                    Row {
+                        JapaneseAccent("到着", Modifier.alignByBaseline().padding(end = 6.dp))
+                        Text(arrival, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 32.sp)
                     }
+                    Text(
+                        "${formatDuration(progress.durationRemaining)} · ${distanceText(progress.distanceRemaining)}",
+                        fontFamily = ChakraPetch,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        color = colors.onSurfaceVariant,
+                    )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (onReport != null) ReportButton(onClick = onReport, modifier = Modifier.size(PANEL_BUTTON_HEIGHT))
-                    OutlinedButton(onClick = onToggleMute, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) {
-                        Text(if (uiState.isMuted == true) "Unmute" else "Mute", maxLines = 1)
-                    }
-                    OutlinedButton(onClick = onConvoy, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) {
-                        Text("Convoy", maxLines = 1)
-                        if (convoySize != null) {
-                            Box(
-                                Modifier.padding(start = 6.dp).size(22.dp).background(colors.secondary, CircleShape),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text("$convoySize", fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = colors.onSecondary)
-                            }
-                        }
-                    }
-                    if (onEnd != null) {
-                        Button(onClick = onEnd, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) { Text("End", maxLines = 1) }
-                    }
-                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (onReport != null) PanelAction("Report", FoxIcons.Report, onReport, brand = true)
+                PanelAction("Convoy", FoxIcons.People, onConvoy, badge = convoySize)
+                PanelAction("End", FoxIcons.Close, onEnd, iconSize = 18.dp)
             }
         }
     }
 }
 
-private val PANEL_BUTTON_HEIGHT = 52.dp
-private val PANEL_BUTTON_PADDING = PaddingValues(horizontal = 8.dp)
 
 private fun decimalSeparator(): Char = DecimalFormatSymbols.getInstance().decimalSeparator

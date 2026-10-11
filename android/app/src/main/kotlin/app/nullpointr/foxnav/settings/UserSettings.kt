@@ -40,6 +40,8 @@ data class Settings(
     val zoomButtons: Boolean = false,
     // Look
     val accent: Accent = Accent.VERMILION,
+    /** Small Japanese labels beside some English ones, as in the design (design/README.md). */
+    val japaneseAccents: Boolean = true,
     // Voice
     /** A Valhalla guidance language like "fi-FI"; empty follows the phone's language. */
     val voiceLanguage: String = "",
@@ -76,6 +78,7 @@ class UserSettings(context: Context) {
             tilt = getBoolean("tilt", defaults.tilt),
             zoomButtons = getBoolean("zoom_buttons", defaults.zoomButtons),
             accent = enum("accent", defaults.accent),
+            japaneseAccents = getBoolean("japanese_accents", defaults.japaneseAccents),
             voiceLanguage = getString("voice_language", null) ?: defaults.voiceLanguage,
             voiceName = getString("voice_name", null) ?: defaults.voiceName,
             speechRate = getFloat("speech_rate", defaults.speechRate),
@@ -95,6 +98,7 @@ class UserSettings(context: Context) {
         putBoolean("tilt", settings.tilt)
         putBoolean("zoom_buttons", settings.zoomButtons)
         putString("accent", settings.accent.name)
+        putBoolean("japanese_accents", settings.japaneseAccents)
         putString("voice_language", settings.voiceLanguage)
         putString("voice_name", settings.voiceName)
         putFloat("speech_rate", settings.speechRate)

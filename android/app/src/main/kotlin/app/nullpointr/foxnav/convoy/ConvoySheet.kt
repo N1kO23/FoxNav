@@ -32,7 +32,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -75,6 +74,20 @@ import app.nullpointr.foxnav.shared.geo.GeoPoint
 import app.nullpointr.foxnav.ui.icons.FoxIcons
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 import kotlinx.coroutines.launch
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
+import kotlinx.coroutines.delay
+import app.nullpointr.foxnav.ui.format.LocalUnits
+import app.nullpointr.foxnav.shared.convoy.Signal
+import app.nullpointr.foxnav.ui.components.HudLabel
+import app.nullpointr.foxnav.ui.components.JapaneseAccent
 
 /** A destination someone in the convoy shares, to navigate there too. */
 data class SharedDestination(val point: GeoPoint, val name: String, val by: String)
@@ -136,7 +149,7 @@ private fun StartOrJoin(convoy: ConvoyController, serverUrl: String) {
     val starter = rememberConvoyStarter()
     val invite = remember(link) { Invite.parse(link) }
 
-    SheetTitle("Convoy")
+    ConvoyHeader()
     Text(
         "Drive together: everyone sees the others' cars and speeds live. Positions are end-to-end encrypted, so the server can't read them.",
         color = colors.onSurfaceVariant,
@@ -199,7 +212,6 @@ private fun InConvoy(
     onLeft: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val session = active.session
     val status by session.status.collectAsState()
@@ -208,83 +220,137 @@ private fun InConvoy(
     val invite by session.invite.collectAsState()
     val regroup by convoy.regroupPoint.collectAsState()
     val profile by convoy.profiles.profile.collectAsState()
+    val me by convoy.myFix.collectAsState()
     val myId = (status as? ConvoyStatus.Live)?.memberId
+    val iAmOwner = myId != null && myId == ownerId
+    val live = status is ConvoyStatus.Live
     var editingProfile by rememberSaveable { mutableStateOf(false) }
+    var removeMode by rememberSaveable { mutableStateOf(false) }
+    var showInvite by rememberSaveable { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<ConvoyMember?>(null) }
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        SheetTitle("Convoy", Modifier.weight(1f))
-        val (label, color) = when (status) {
-            is ConvoyStatus.Live -> "LIVE · ${members.size + 1}" to colors.secondary
-            ConvoyStatus.Connecting -> "CONNECTING" to colors.tertiary
-            is ConvoyStatus.Reconnecting -> "RECONNECTING" to colors.tertiary
-            is ConvoyStatus.Ended -> "ENDED" to colors.onSurfaceVariant
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            now = System.currentTimeMillis()
         }
-        Text(label, fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = color)
     }
+    val units = LocalUnits.current
+    val rows = towerRows(members, me, profile.colorRgb, carText(profile.carMake, profile.carModel), iAmOwner, ownerId, route = null, units = units, nowMs = now)
+    val destination = sharedDestination(members, ownerId)
 
-    // Big targets: these get pressed on the move.
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        QuickMessageKinds.forEach { kind ->
-            Button(
-                onClick = { convoy.sendQuickMessage(kind) },
-                enabled = status is ConvoyStatus.Live,
-                colors = if (kind.isWarning) {
-                    ButtonDefaults.buttonColors(containerColor = colors.tertiaryContainer, contentColor = colors.onTertiaryContainer)
-                } else {
-                    ButtonDefaults.buttonColors(containerColor = colors.secondaryContainer, contentColor = colors.onSecondaryContainer)
-                },
-                modifier = Modifier.heightIn(min = 52.dp),
-            ) {
-                Text(kind.label, fontWeight = FontWeight.SemiBold)
+    ConvoyHeader()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(destination?.let { "\u2192 ${it.name}" } ?: "On the road", fontWeight = FontWeight.Medium, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${rows.size} ${if (rows.size == 1) "car" else "cars"}", fontSize = 13.sp, color = colors.onSurfaceVariant)
+                val (label, color) = when (status) {
+                    is ConvoyStatus.Live -> "LIVE" to colors.secondary
+                    ConvoyStatus.Connecting -> "CONNECTING" to colors.tertiary
+                    is ConvoyStatus.Reconnecting -> "RECONNECTING" to colors.tertiary
+                    is ConvoyStatus.Ended -> "ENDED" to colors.onSurfaceVariant
+                }
+                HudLabel(label, color, fontSize = 11)
+            }
+        }
+        SquareIconButton(FoxIcons.Qr, "Invite to the convoy", enabled = invite != null) { showInvite = true }
+        Box {
+            SquareIconButton(FoxIcons.More, "More convoy options") { menu = true }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text("Edit your name, car and colour") }, onClick = { menu = false; editingProfile = true })
+                if (iAmOwner && members.isNotEmpty()) {
+                    DropdownMenuItem(text = { Text("Remove a driver") }, onClick = { menu = false; removeMode = true })
+                }
+                DropdownMenuItem(
+                    text = { Text("Leave the convoy", color = colors.error) },
+                    onClick = {
+                        menu = false
+                        scope.launch { convoy.leave(); onLeft() }
+                    },
+                )
             }
         }
     }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = convoy::dropRegroupPoint, enabled = status is ConvoyStatus.Live, modifier = Modifier.weight(1f)) {
-            Icon(FoxIcons.Flag, contentDescription = null, Modifier.size(18.dp))
-            Spacer(Modifier.size(8.dp))
-            Text("Regroup here")
-        }
-        regroup?.let { point ->
-            OutlinedButton(onClick = { onNavigateTo(point.point, point.name) }, modifier = Modifier.weight(1f)) { Text("Go to regroup") }
+    if (removeMode) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Remove whom?", Modifier.weight(1f), color = colors.onSurfaceVariant)
+            TextButton(onClick = { removeMode = false }) { Text("Done") }
         }
     }
-    regroup?.let { point ->
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Regroup point from ${point.by}", Modifier.weight(1f), color = colors.onSurfaceVariant)
-            TextButton(onClick = convoy::clearRegroupPoint) { Text("Clear") }
+    // The timing tower, in full: road order, gaps and live speeds.
+    Surface(shape = RoundedCornerShape(16.dp), color = Color.Transparent, border = BorderStroke(1.dp, colors.outline)) {
+        Column {
+            rows.forEachIndexed { index, row ->
+                if (index > 0) HorizontalDivider(color = colors.outlineVariant)
+                TowerListRow(
+                    position = index + 1,
+                    row = row,
+                    onRemove = if (removeMode && !row.isMe) ({ removing = members[row.key] }) else null,
+                )
+            }
         }
     }
 
-    sharedDestination(members, ownerId)?.let { destination ->
+    // Alone so far: the invite is what's needed.
+    if (members.isEmpty()) {
+        invite?.let { InviteSection(it, linkBase(it)) } ?: Text("Getting the invite ready\u2026", color = colors.onSurfaceVariant)
+    }
+
+    HudLabel("QUICK MESSAGE", colors.onSurfaceVariant, fontSize = 13)
+    // Big targets: these get pressed on the move. Regroup sits with the stops, as in the mockup.
+    val quick = QuickMessageKinds.map { kind ->
+        QuickItem(kind.label, kind.icon, if (kind.isWarning) colors.tertiary else colors.onSurface, kind.japanese) { convoy.sendQuickMessage(kind) }
+    }.toMutableList().apply {
+        add(5, QuickItem("Regroup", FoxIcons.Pin, colors.primary, "集合", convoy::dropRegroupPoint))
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        quick.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { item -> QuickButton(item.label, item.icon, item.tint, item.japanese, enabled = live, onClick = item.onClick) }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+
+    regroup?.let { point ->
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Regroup point from ${point.by}", Modifier.weight(1f), color = colors.onSurfaceVariant)
+            TextButton(onClick = convoy::clearRegroupPoint) { Text("Clear") }
+            OutlinedButton(onClick = { onNavigateTo(point.point, point.name) }) { Text("Go there") }
+        }
+    }
+
+    destination?.let { shared ->
         Surface(shape = RoundedCornerShape(16.dp), color = colors.secondary.copy(alpha = 0.12f), border = BorderStroke(1.dp, colors.secondary)) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Text(destination.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${destination.by}'s destination", color = colors.onSurfaceVariant)
+                    Text(shared.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${shared.by}'s destination", color = colors.onSurfaceVariant)
                 }
-                Button(onClick = { onNavigateTo(destination.point, destination.name) }) { Text("Navigate") }
+                Button(onClick = { onNavigateTo(shared.point, shared.name) }) { Text("Navigate") }
             }
         }
     }
 
-    HorizontalDivider(color = colors.outline)
-    invite?.let { InviteSection(it, linkBase(it)) } ?: Text("Getting the invite ready…", color = colors.onSurfaceVariant)
-
-    HorizontalDivider(color = colors.outline)
-    Text("In the convoy", style = MaterialTheme.typography.titleMedium)
-    MemberRow(name = "${profile.name.ifBlank { "You" }} (you)", detail = carText(profile.carMake, profile.carModel), colorRgb = profile.colorRgb, isOwner = myId != null && myId == ownerId)
-    members.values.sortedBy { it.profile?.display_name.orEmpty().lowercase() }.forEach { member ->
-        MemberRow(
-            name = member.profile?.display_name?.ifBlank { null } ?: "Joining…",
-            detail = carText(member.profile?.car?.make.orEmpty(), member.profile?.car?.model.orEmpty()),
-            colorRgb = member.profile?.car?.color_rgb ?: ConvoyPalette.first(),
-            isOwner = member.id == ownerId,
-            onRemove = if (myId != null && myId == ownerId) ({ removing = member }) else null,
-        )
+    if (editingProfile) {
+        HorizontalDivider(color = colors.outline)
+        ProfileEditor(profile, onChange = convoy.profiles::save)
+        TextButton(onClick = { editingProfile = false }) { Text("Done") }
     }
+
+    if (showInvite) {
+        invite?.let { current ->
+            AlertDialog(
+                onDismissRequest = { showInvite = false },
+                text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { InviteSection(current, linkBase(current)) } },
+                confirmButton = { TextButton(onClick = { showInvite = false }) { Text("Close") } },
+            )
+        }
+    }
+
     removing?.let { member ->
         val name = member.profile?.display_name?.ifBlank { null } ?: "this driver"
         AlertDialog(
@@ -296,26 +362,147 @@ private fun InConvoy(
                     onClick = {
                         session.remove(member.id)
                         removing = null
+                        removeMode = false
                     },
                 ) { Text("Remove", color = colors.error) }
             },
             dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } },
         )
     }
+}
 
-    if (editingProfile) {
-        ProfileEditor(profile, onChange = convoy.profiles::save)
-    } else {
-        TextButton(onClick = { editingProfile = true }) { Text("Edit your name, car and colour") }
+/** "CONVOY コンボイ", and that it's end-to-end encrypted, as in the mockup. */
+@Composable
+private fun ConvoyHeader() {
+    val colors = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("CONVOY", fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 2.6.sp)
+        JapaneseAccent("コンボイ", fontSize = 14.sp)
+        Spacer(Modifier.weight(1f))
+        Icon(FoxIcons.Lock, contentDescription = null, tint = colors.secondary, modifier = Modifier.size(14.dp))
+        Text("Encrypted", fontSize = 13.sp, color = colors.onSurfaceVariant)
     }
+}
 
-    OutlinedButton(
-        onClick = { scope.launch { convoy.leave(); onLeft() } },
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.error),
-        border = BorderStroke(1.dp, colors.error),
-        modifier = Modifier.fillMaxWidth().height(52.dp),
+/** One car in the sheet's timing tower: place, colour, name and car, gap and speed. */
+@Composable
+private fun TowerListRow(position: Int, row: TowerRow, onRemove: (() -> Unit)?) {
+    val colors = MaterialTheme.colorScheme
+    val units = LocalUnits.current
+    val lost = row.signal == Signal.LOST
+    val stopped = !row.isMe && row.signal == Signal.LIVE && row.speed == 0
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 50.dp)
+            .background(if (row.isMe) colors.surface else Color.Transparent)
+            .alpha(if (lost) 0.6f else 1f),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Leave the convoy")
+        Text(
+            "$position",
+            Modifier.width(34.dp),
+            fontFamily = ChakraPetch,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            textAlign = TextAlign.Center,
+            color = if (row.isMe) colors.primary else colors.onSurfaceVariant,
+        )
+        Box(Modifier.width(4.dp).height(30.dp).background(Color(0xFF000000.toInt() or row.colorRgb), RoundedCornerShape(2.dp)))
+        Column(Modifier.weight(1f).padding(start = 12.dp, top = 6.dp, bottom = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(row.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (row.isOwner) TowerBadge("OWNER", colors.secondary, filled = false)
+                if (stopped) TowerBadge("STOPPED", colors.tertiary, filled = true)
+            }
+            val note = when {
+                lost -> "signal lost ${silence(row.silentS)}"
+                row.signal == Signal.WAITING -> if (row.watching) "watching" else "joining"
+                else -> row.car
+            }
+            if (note.isNotEmpty()) Text(note, fontSize = 12.sp, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (onRemove != null) {
+            TextButton(onClick = onRemove) { Text("Remove", color = colors.error) }
+        } else {
+            Text(
+                if (row.isMe || lost || row.signal == Signal.WAITING) "" else gapText(row, units),
+                Modifier.width(76.dp),
+                fontFamily = ChakraPetch,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                textAlign = TextAlign.End,
+                color = colors.onSurface.copy(alpha = 0.8f),
+            )
+            Text(
+                row.speed?.takeIf { !lost }?.toString() ?: "\u2013",
+                Modifier.width(56.dp).padding(end = 12.dp),
+                fontFamily = ChakraPetch,
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp,
+                textAlign = TextAlign.End,
+                color = when {
+                    stopped -> colors.tertiary
+                    lost || row.speed == null -> colors.onSurfaceVariant
+                    else -> colors.onSurface
+                },
+            )
+        }
+    }
+}
+
+/** "40 s", "3 min". */
+private fun silence(seconds: Long?): String = when {
+    seconds == null -> ""
+    seconds < 120 -> "$seconds s"
+    else -> "${seconds / 60} min"
+}
+
+/** OWNER, STOPPED: the tower's small labels. */
+@Composable
+private fun TowerBadge(text: String, color: Color, filled: Boolean) {
+    val shape = RoundedCornerShape(6.dp)
+    Text(
+        text,
+        Modifier
+            .then(if (filled) Modifier.background(color, shape) else Modifier.border(1.dp, color, shape))
+            .padding(horizontal = 6.dp, vertical = 1.dp),
+        fontFamily = ChakraPetch,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 11.sp,
+        letterSpacing = 0.9.sp,
+        color = if (filled) MaterialTheme.colorScheme.onTertiary else color,
+    )
+}
+
+private class QuickItem(val label: String, val icon: ImageVector, val tint: Color, val japanese: String?, val onClick: () -> Unit)
+
+/** A quick message button: icon, label, and its Japanese accent under it. */
+@Composable
+private fun RowScope.QuickButton(label: String, icon: ImageVector, tint: Color, japanese: String?, enabled: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.weight(1f).heightIn(min = 64.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = colors.surface,
+        border = BorderStroke(1.dp, colors.outline),
+    ) {
+        Column(Modifier.padding(vertical = 8.dp).alpha(if (enabled) 1f else 0.5f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+            Text(label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
+            japanese?.let { JapaneseAccent(it, fontSize = 11.sp) }
+        }
+    }
+}
+
+/** A 44 dp square button for the sheet's header, as in the mockup. */
+@Composable
+private fun SquareIconButton(icon: ImageVector, description: String, enabled: Boolean = true, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(onClick = onClick, enabled = enabled, modifier = Modifier.size(44.dp), shape = RoundedCornerShape(12.dp), color = colors.surface, border = BorderStroke(1.dp, colors.outline)) {
+        Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = description, modifier = Modifier.size(18.dp)) }
     }
 }
 
@@ -349,20 +536,6 @@ private fun InviteSection(invite: Invite, base: String) {
             Spacer(Modifier.size(8.dp))
             Text("Copy link")
         }
-    }
-}
-
-@Composable
-private fun MemberRow(name: String, detail: String, colorRgb: Int, isOwner: Boolean, onRemove: (() -> Unit)? = null) {
-    val colors = MaterialTheme.colorScheme
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(14.dp).background(Color(0xFF000000.toInt() or colorRgb), CircleShape))
-        Column(Modifier.weight(1f)) {
-            Text(name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val subtitle = listOfNotNull(detail.ifBlank { null }, if (isOwner) "owner" else null).joinToString(" · ")
-            if (subtitle.isNotEmpty()) Text(subtitle, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        if (onRemove != null) TextButton(onClick = onRemove) { Text("Remove", color = colors.error) }
     }
 }
 
@@ -455,11 +628,6 @@ fun ProfileNameField(name: String, onChange: (String) -> Unit) {
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
         modifier = Modifier.fillMaxWidth(),
     )
-}
-
-@Composable
-private fun SheetTitle(text: String, modifier: Modifier = Modifier) {
-    Text(text, modifier, style = MaterialTheme.typography.headlineSmall)
 }
 
 private fun carText(make: String, model: String) = listOf(make, model).filter { it.isNotBlank() }.joinToString(" ")

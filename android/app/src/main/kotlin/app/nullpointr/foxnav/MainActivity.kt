@@ -24,6 +24,7 @@ import app.nullpointr.foxnav.ui.ServerGate
 import app.nullpointr.foxnav.ui.theme.FoxNavTheme
 import app.nullpointr.foxnav.ui.format.LocalSpeedometerStyle
 import app.nullpointr.foxnav.ui.format.LocalUnits
+import app.nullpointr.foxnav.ui.components.LocalJapaneseAccents
 import app.nullpointr.foxnav.ui.theme.rememberNight
 import app.nullpointr.foxnav.voice.applyVoiceSettings
 import com.stadiamaps.ferrostar.core.AndroidTtsStatusListener
@@ -56,7 +57,7 @@ class MainActivity : ComponentActivity(), AndroidTtsStatusListener {
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
             }
             FoxNavTheme(night = night, accent = settings.accent) {
-                CompositionLocalProvider(LocalUnits provides settings.units, LocalSpeedometerStyle provides settings.speedometer) {
+                CompositionLocalProvider(LocalUnits provides settings.units, LocalSpeedometerStyle provides settings.speedometer, LocalJapaneseAccents provides settings.japaneseAccents) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     ServerGate(appGraph.serverSettings) { document -> DriveRoute(document) }
                     val opened by openedInvite.collectAsState()

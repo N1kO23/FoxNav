@@ -69,7 +69,7 @@ The over-limit warning is an original take on the kin-kon chime (速度警告音
 
 - **Theme:** the Android theme and both map styles use these values. The map styles are generated from `tokens.json` by `infra/scripts/styles/generate.mjs`.
 - **Fonts:** Chakra Petch, IBM Plex Sans and DSEG7 Classic (the 7-segment speedometer; by keshikan, SIL Open Font License 1.1) are bundled. IBM Plex Sans JP isn't, until the Japanese accents ship.
-- **Japanese accents:** they stay out of the app until a native speaker has checked them.
+- **Japanese accents:** in the app since October 2026, on by default, and off with Settings → Look → Japanese accents. They stand beside the English, never instead of it, and screen readers skip them. They are set in Japanese, so the phone's own CJK font draws the Japanese forms of the kanji; IBM Plex Sans JP isn't bundled. **None has had a native speaker's check yet:** do that before a release (the table below).
 - **Points of interest:** the map shows only landmarks you navigate by, such as stations, airports, ferries, parks, peaks and attractions. Fuel stations need their own icon and data.
 - **Sounds:** scripts in `sounds/` generate the WAV files the app plays. The over-limit choices are the kin-kon (`kinkon.py`), a single strike of its bell (`ding.py`) and three even beeps (`beep.py`); drivers can also use a sound of their own. The camera and report warning is two rising pips (`alert.py`), so it never sounds like a speeding warning.
 - **Map credits:** the mockups' small "© OpenStreetMap contributors" tag, on the top edge of the bottom panel. The app takes its text from the map style's attribution.
@@ -87,11 +87,15 @@ Every string needs a native speaker's check before it ships:
 | 速度 | sokudo | speed | speed accent |
 | 報告 | hōkoku | report | reports |
 | オービス | ōbisu | speed camera (colloquial) | camera alert |
-| 右方向 | migi hōkō | to the right | maneuver card |
-| 到着 | tōchaku | arrival | ETA |
+| 右方向 · 左方向 | migi hōkō · hidari hōkō | to the right · to the left | maneuver card |
+| 斜め右方向 · 斜め左方向 | naname migi hōkō · naname hidari hōkō | bear right · bear left | maneuver card |
+| 直進 · Uターン | chokushin · yū tān | straight on · U-turn | maneuver card |
+| 合流 · 環状交差点 · 目的地 | gōryū · kanjō kōsaten · mokutekichi | merge · roundabout · destination | maneuver card |
+| 到着 | tōchaku | arrival | ETA, and "arrived" in free drive |
 | 再生中 | saisei-chū | now playing | convoy soundtrack |
 | 走行中 | sōkō-chū | driving | free drive |
 | 給油 · 休憩 · 停車 · 警察 · 危険 · 集合 | kyūyu · kyūkei · teisha · keisatsu · kiken · shūgō | fuel · break · pull over · police · danger · assemble | quick messages |
+| 減速 · 問題なし | gensoku · mondai nashi | slow down · no problem (all good) | quick messages, beyond the mockup |
 | 速度警告音 | sokudo keikoku on | speed warning sound | chime |
 | 夜 · 昼 | yoru · hiru | night · day | palette names |
 | 墨 · 和紙 · 朱 · 浅葱 · 琥珀 · 紅 · 藍 | sumi · washi · shu · asagi · kohaku · beni · ai | ink · Japanese paper · vermilion · pale blue-green · amber · crimson · indigo | colour names |

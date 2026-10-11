@@ -45,7 +45,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -199,7 +198,7 @@ fun BoxScope.ConvoyOverlay(
     }
 }
 
-private data class TowerRow(
+internal data class TowerRow(
     val key: Long,
     val name: String,
     val colorRgb: Int,
@@ -211,7 +210,49 @@ private data class TowerRow(
     val isMe: Boolean = false,
     /** Follows from a browser without sharing a position. */
     val watching: Boolean = false,
+    /** "Toyota GR86". */
+    val car: String = "",
+    /** May remove others: the convoy's creator, or whoever has been in it longest since. */
+    val isOwner: Boolean = false,
+    /** Seconds since we last heard from them; null for us and those not heard from yet. */
+    val silentS: Long? = null,
 )
+
+/**
+ * Everyone in road order, the cars ahead of us first: the timing tower's rows, on the map and in
+ * the convoy sheet.
+ */
+internal fun towerRows(
+    members: Map<Long, ConvoyMember>,
+    me: Fix?,
+    myColorRgb: Int,
+    myCar: String,
+    iAmOwner: Boolean,
+    ownerId: Long?,
+    route: List<GeoPoint>?,
+    units: UnitSystem,
+    nowMs: Long,
+): List<TowerRow> = buildList {
+    add(TowerRow(key = -1, name = "You", colorRgb = myColorRgb, offsetM = 0.0, speed = me?.let { speedIn(it.speedMps, units) }, signal = Signal.LIVE, isMe = true, car = myCar, isOwner = iAmOwner))
+    for (member in members.values) {
+        val fix = member.fix
+        val car = member.profile?.car
+        add(
+            TowerRow(
+                key = member.id,
+                name = member.profile?.display_name?.ifBlank { null } ?: "Driver",
+                colorRgb = car?.color_rgb ?: ConvoyPalette.first(),
+                offsetM = if (me != null && fix != null) roadGap(me, fix.point, route) else null,
+                speed = fix?.let { speedIn(it.speedMps, units) },
+                signal = member.signal(nowMs),
+                watching = member.profile?.watching == true && fix == null,
+                car = listOfNotNull(car?.make, car?.model).filter { it.isNotBlank() }.joinToString(" "),
+                isOwner = member.id == ownerId,
+                silentS = member.lastHeardMs?.let { (nowMs - it) / 1000 },
+            ),
+        )
+    }
+}.sortedByDescending { it.offsetM ?: Double.NEGATIVE_INFINITY }
 
 /**
  * Everyone in road order, the cars ahead of us at the top, with the gap to us and their live
@@ -238,24 +279,7 @@ private fun TimingTower(
         }
     }
 
-    val units = LocalUnits.current
-    val rows = buildList {
-        add(TowerRow(key = -1, name = "You", colorRgb = myColorRgb, offsetM = 0.0, speed = me?.let { speedIn(it.speedMps, units) }, signal = Signal.LIVE, isMe = true))
-        for (member in members.values) {
-            val fix = member.fix
-            add(
-                TowerRow(
-                    key = member.id,
-                    name = member.profile?.display_name?.ifBlank { null } ?: "Driver",
-                    colorRgb = member.profile?.car?.color_rgb ?: ConvoyPalette.first(),
-                    offsetM = if (me != null && fix != null) roadGap(me, fix.point, route) else null,
-                    speed = fix?.let { speedIn(it.speedMps, units) },
-                    signal = member.signal(now),
-                    watching = member.profile?.watching == true && fix == null,
-                ),
-            )
-        }
-    }.sortedByDescending { it.offsetM ?: Double.NEGATIVE_INFINITY }
+    val rows = towerRows(members, me, myColorRgb, myCar = "", iAmOwner = false, ownerId = null, route = route, units = LocalUnits.current, nowMs = now)
 
     Surface(
         onClick = onClick,
@@ -345,7 +369,7 @@ private fun TowerRowView(row: TowerRow) {
     }
 }
 
-private fun gapText(row: TowerRow, units: UnitSystem): String {
+internal fun gapText(row: TowerRow, units: UnitSystem): String {
     if (row.isMe) return ""
     return when (row.signal) {
         Signal.WAITING -> if (row.watching) "watching" else "joining"

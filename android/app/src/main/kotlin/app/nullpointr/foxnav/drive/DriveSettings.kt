@@ -39,6 +39,7 @@ import app.nullpointr.foxnav.settings.VoicePackSheet
 import app.nullpointr.foxnav.settings.ThemeMode
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.format.UnitSystem
+import app.nullpointr.foxnav.ui.components.Wordmark
 import app.nullpointr.foxnav.voice.GUIDANCE_LANGUAGES
 import app.nullpointr.foxnav.voice.effectiveLanguage
 import app.nullpointr.foxnav.voice.sampleSentence
@@ -178,6 +179,11 @@ fun DriveSettings(document: DiscoveryDocument, viewModel: DriveViewModel, naviga
 
         Section("Look")
         AccentRow(settings.accent) { accent -> store.update { it.copy(accent = accent) } }
+        SwitchRow(
+            "Japanese accents",
+            "Small Japanese labels beside some English ones, like \u5230\u7740 by the arrival time, as in the design. The English is always there.",
+            settings.japaneseAccents,
+        ) { on -> store.update { it.copy(japaneseAccents = on) } }
 
         Section("Your car")
         LinkRow(
@@ -203,7 +209,7 @@ fun DriveSettings(document: DiscoveryDocument, viewModel: DriveViewModel, naviga
         DataSources(viewModel)
 
         Section("About")
-        Text("FoxNav ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
+        Wordmark(detail = "Version ${BuildConfig.VERSION_NAME}")
         Text(
             "Open source: GPL-3.0 for the app, AGPL-3.0 for the server. Map data © OpenStreetMap contributors.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,

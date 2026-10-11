@@ -196,11 +196,20 @@ On the car screen only the map is ours, so the app's look has to live in the map
 
 "Tokyo night drive": a dark, high-tech car-navigation feel with Japanese accents. That means a kitsune (fox) mark, vermilion and electric cyan on near-black, digital instrument typography, and a day mode for sunlight. The design direction, mockups and design tokens live in [`design/`](../design/). Colours come from the tokens, one set per theme.
 
+The screens follow the mockups:
+
+- **Free drive:** search with voice search (the phone's speech recogniser, where it has one) and settings at the top, then what's ahead as solid amber chips ("Speed camera 400 m"). Round map buttons sit at the right edge: mute, and a compass that turns with the map and switches between heading-up and north-up. The bottom panel is docked to the screen's edge, with speed and limit, the road, and the Report and Convoy buttons.
+- **Navigating:** the maneuver card, lanes and warning chips at the top; mute and the whole route at the right edge; the docked panel with speed, limit and arrival, and Report, Convoy and End.
+- **The convoy sheet:** a full timing tower (place, colour, name, car, gap, speed, with owner and stopped badges, lost signal faded), quick messages as a grid of icon buttons, and the invite and options behind the header's buttons.
+- **Japanese accents:** small Japanese labels beside some English ones, like 到着 beside the arrival time and 左方向 beside a left turn's distance. Always beside the English, never instead of it; skipped by screen readers; off in settings. They await a native speaker's check (design/README.md).
+
+Ferrostar draws the map, the route and the camera, and the maneuver card goes in its slot; FoxNav's own layer on top has the panels and map buttons, with Ferrostar's buttons shrunk away. The camera's padding keeps the car clear of the docked panel in both modes.
+
 What drivers can change, on one settings page:
 
 - **Driving:** km/h or mph (speeds, limits, distances, Valhalla's guidance and the spoken warnings all follow); how far over the limit before the warning (0, 3, 5 or 10); the over-limit sound (see Voice); a modern or a 7-segment speedometer (DSEG7, with the unlit segments showing, like an 80s digital dash).
 - **Map:** day and night by sunrise and sunset where you are (a solar-elevation calculation, so midnight sun and kaamos work in Lapland), like the phone, or fixed; heading-up or north-up; 3D tilt while navigating; zoom buttons.
-- **Look:** an accent colour (vermilion, sakura, ocean, lime, violet or monochrome). Warnings keep amber and red, and the route keeps cyan, so they always read as what they are.
+- **Look:** an accent colour (vermilion, sakura, ocean, lime, violet or monochrome), and the Japanese accents on or off. Warnings keep amber and red, and the route keeps cyan, so they always read as what they are.
   - At night the route line glows like neon (a soft bloom, a glow and a bright core over the cyan line), as in the mockups; by day it's the plain line. Its corners are rounded off over 12 m either side (`RoutePath`), so bends drawn as a few straight pieces don't show as points, and your car follows the rounded line. The next maneuver's lanes show under the maneuver card where the map has them, the ones to take lit.
   - The map's credits are a small tag on the top edge of the bottom panel, as in the mockups, rather than MapLibre's logo and info button over the map. Its text is the map style's own attribution (any server's style credits its sources), and tapping it lists them with links.
 - **Your car:** name, make, model, colour and body style. Your own car on the map is its top-down silhouette (coupé, hatchback, sedan, wagon, convertible, kei car, SUV, van, pickup) in your colour, with an underglow at night; the convoy's cars show their own shapes.

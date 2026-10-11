@@ -38,32 +38,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.nullpointr.foxnav.shared.format.formatDistance
 import app.nullpointr.foxnav.shared.reports.Report
 import app.nullpointr.foxnav.shared.reports.ReportAhead
+import app.nullpointr.foxnav.shared.reports.ReportType
+import app.nullpointr.foxnav.ui.components.JapaneseAccent
+import app.nullpointr.foxnav.ui.components.WarningChip
 import app.nullpointr.foxnav.ui.icons.FoxIcons
-import app.nullpointr.foxnav.ui.theme.ChakraPetch
-import java.text.DecimalFormatSymbols
-
-/** The round button that opens the report sheet: by the map controls in free drive, in the panel while navigating. */
-@Composable
-fun ReportButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
-        color = colors.tertiaryContainer,
-        border = BorderStroke(1.dp, colors.tertiary),
-        modifier = modifier.size(56.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(FoxIcons.Report, contentDescription = "Report", tint = colors.tertiary)
-        }
-    }
-}
 
 /** Big buttons, one tap each: what's on the road here. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,7 +54,10 @@ fun ReportSheet(onReport: (String) -> Unit, onDismiss: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.padding(horizontal = 16.dp).navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Report", style = MaterialTheme.typography.titleLarge)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Report", style = MaterialTheme.typography.titleLarge)
+                JapaneseAccent("報告", fontSize = 14.sp)
+            }
             ReportButtonOrder.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { type ->
@@ -105,46 +90,24 @@ fun ReportSheet(onReport: (String) -> Unit, onDismiss: () -> Unit) {
     }
 }
 
-/** The report coming up, centred above the bottom panel like the camera warning. */
+/** The report coming up, as a chip like the camera's, in the report's warning colour. */
 @Composable
 fun ReportWarning(ahead: ReportAhead?, modifier: Modifier = Modifier) {
-    val colors = MaterialTheme.colorScheme
     var shown by remember { mutableStateOf(ahead) }
     if (ahead != null) shown = ahead
 
-    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        AnimatedVisibility(visible = ahead != null, enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut() + scaleOut(targetScale = 0.9f)) {
-            val warning = shown ?: return@AnimatedVisibility
-            val accent = reportColor(warning.report.type)
-            Surface(shape = RoundedCornerShape(22.dp), color = colors.surface, border = BorderStroke(1.dp, accent)) {
-                Row(
-                    Modifier.padding(start = 12.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(reportIcon(warning.report.type), contentDescription = null, tint = accent, modifier = Modifier.size(26.dp))
-                    Column {
-                        Text(
-                            ReportLabels.label(warning.report.type).uppercase(),
-                            fontFamily = ChakraPetch,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            letterSpacing = 1.sp,
-                        )
-                        // Official reports name their source: their licences ask for it.
-                        warning.report.source?.let { source ->
-                            Text(source.name, fontSize = 11.sp, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    Text(
-                        distanceText(warning.distanceM),
-                        fontFamily = ChakraPetch,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                    )
-                }
-            }
-        }
+    AnimatedVisibility(visible = ahead != null, modifier = modifier, enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut() + scaleOut(targetScale = 0.9f)) {
+        val warning = shown ?: return@AnimatedVisibility
+        val closed = warning.report.type == ReportType.ROAD_CLOSED
+        WarningChip(
+            icon = reportIcon(warning.report.type),
+            label = ReportLabels.label(warning.report.type),
+            distance = distanceText(warning.distanceM),
+            color = reportColor(warning.report.type),
+            onColor = if (closed) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onTertiary,
+            // Official reports name their source: their licences ask for it.
+            detail = warning.report.source?.name,
+        )
     }
 }
 
@@ -191,15 +154,26 @@ fun ReportNotice(text: String?, modifier: Modifier = Modifier) {
     }
 }
 
-/** Everything about reports that floats above the bottom panel. */
+/** What floats above the bottom panel, near the thumb: report notices and "still there?". */
 @Composable
 fun ReportStack(viewModel: DriveViewModel) {
-    val reportAhead by viewModel.reportAhead.collectAsState()
     val stillThere by viewModel.stillThere.collectAsState()
     val notice by viewModel.reportNotice.collectAsState()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ReportNotice(notice)
         StillTherePrompt(stillThere, onAnswer = viewModel::answerStillThere)
-        if (stillThere == null) ReportWarning(reportAhead)
+    }
+}
+
+/** What's ahead on the road, top left as in the mockups: the camera, then the report. */
+@Composable
+fun RoadWarnings(viewModel: DriveViewModel, modifier: Modifier = Modifier) {
+    val cameraAhead by viewModel.cameraAhead.collectAsState()
+    val reportAhead by viewModel.reportAhead.collectAsState()
+    val stillThere by viewModel.stillThere.collectAsState()
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        CameraWarning(cameraAhead)
+        // Asking about a report we passed: the next one can wait its turn.
+        ReportWarning(reportAhead.takeIf { stillThere == null })
     }
 }
