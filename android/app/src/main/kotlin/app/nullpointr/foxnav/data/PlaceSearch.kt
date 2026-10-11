@@ -15,13 +15,22 @@ import java.util.Locale
 class PlaceSearch(private val client: OkHttpClient, private val endpoint: ServiceEndpoint) {
     /** Results for [query], biased towards [near] when given. */
     suspend fun search(query: String, near: GeoPoint?): List<Place> = withContext(Dispatchers.IO) {
-        val language = Locale.getDefault().language.takeIf { it in SEARCH_LANGUAGES } ?: "en"
-        val url = endpoint.url.trimEnd('/') + Photon.searchPath(query, near, language = language)
+        val url = endpoint.url.trimEnd('/') + Photon.searchPath(query, near, language = language())
         client.newCall(Request.Builder().url(url).build()).execute().use { response ->
             if (!response.isSuccessful) throw IOException("Search failed: HTTP ${response.code}")
             Photon.parse(response.body.string())
         }
     }
+
+    /** A name for the area around [point], like "Helsinki", or for a [small] area "Kluuvi, Helsinki". */
+    suspend fun areaName(point: GeoPoint, small: Boolean): String? = withContext(Dispatchers.IO) {
+        val url = endpoint.url.trimEnd('/') + Photon.reversePath(point, language())
+        client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            if (response.isSuccessful) Photon.parseArea(response.body.string(), small) else null
+        }
+    }
+
+    private fun language() = Locale.getDefault().language.takeIf { it in SEARCH_LANGUAGES } ?: "en"
 
     private companion object {
         // Languages the local stack imports into Photon (infra/compose.yaml).

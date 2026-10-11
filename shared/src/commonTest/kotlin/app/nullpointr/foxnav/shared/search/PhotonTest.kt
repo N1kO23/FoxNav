@@ -43,4 +43,15 @@ class PhotonTest {
         assertEquals(emptyList(), Photon.parse("""{"features":[]}"""))
         assertEquals(emptyList(), Photon.parse("{}"))
     }
+
+    @Test
+    fun areasAreNamedAfterTheirCityOrDistrict() {
+        val kluuvi = """{"features":[{"geometry":{"coordinates":[24.94,60.17]},"properties":{"name":"Kaivokatu","locality":"City Centre","district":"Kluuvi","city":"Helsinki","state":"Uusimaa"}}]}"""
+        assertEquals("Helsinki", Photon.parseArea(kluuvi, small = false))
+        assertEquals("Kluuvi, Helsinki", Photon.parseArea(kluuvi, small = true))
+        val countryside = """{"features":[{"geometry":{"coordinates":[25.6,62.4]},"properties":{"name":"Riuttalantie","county":"Laukaa","state":"Keski-Suomi"}}]}"""
+        assertEquals("Laukaa", Photon.parseArea(countryside, small = true))
+        assertEquals(null, Photon.parseArea("""{"features":[]}""", small = false))
+        assertEquals("/reverse?lat=60.17&lon=24.94&limit=1&lang=fi", Photon.reversePath(GeoPoint(60.17, 24.94), "fi"))
+    }
 }

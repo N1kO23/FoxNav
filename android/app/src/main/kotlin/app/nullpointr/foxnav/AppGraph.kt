@@ -4,7 +4,10 @@ import android.content.Context
 import app.nullpointr.foxnav.convoy.ConvoyController
 import app.nullpointr.foxnav.convoy.ProfileStore
 import app.nullpointr.foxnav.convoy.TowerPlacementStore
+import app.nullpointr.foxnav.data.Connectivity
 import app.nullpointr.foxnav.data.DataPacks
+import app.nullpointr.foxnav.data.DiscoveryCache
+import app.nullpointr.foxnav.data.OfflineMaps
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.location.liveLocationProvider
@@ -61,6 +64,13 @@ class AppGraph(private val context: Context) {
     val alertSettings = AlertSettings(context)
 
     val dataPacks = DataPacks(context, httpClient)
+
+    val connectivity = Connectivity(context)
+
+    val discoveryCache = DiscoveryCache(context)
+
+    /** Map areas downloaded for driving without a connection. */
+    val offlineMaps by lazy { OfflineMaps(context) }
 
     /** Says [text] with the guidance voice, which ducks music and respects mute. */
     fun speak(text: String) {

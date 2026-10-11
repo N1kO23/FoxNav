@@ -14,11 +14,20 @@
 		reverse_proxy photon:2322
 	}
 
-	# Static files support range requests, which PMTiles needs.
+	# Map tiles as {z}/{x}/{y}.mvt, cut from the PMTiles archive by the tiles service: plain URLs that
+	# apps cache and download for offline use. The archive itself stays available for range
+	# requests (pmtiles:// sources).
 	handle_path /tiles/* {
-		root * /srv/tiles
 		header Access-Control-Allow-Origin *
-		file_server
+		@archive path *.pmtiles
+		handle @archive {
+			root * /srv/tiles
+			file_server
+		}
+		handle {
+			header Cache-Control "public, max-age=86400"
+			reverse_proxy tiles:8080
+		}
 	}
 
 	# Data packs: small JSON files the app downloads and revalidates (ETag).

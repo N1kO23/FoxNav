@@ -45,7 +45,8 @@ range_request() {
 }
 
 check "discovery document" json "$BASE/.well-known/foxnav" 'd["name"] + " (styles: " + ", ".join(d.get("styles", {})) + ")"'
-check "night style" json "$BASE/styles/night.json" 'd["sources"]["protomaps"]["url"]'
+check "night style" json "$BASE/styles/night.json" 'd["sources"]["protomaps"]["tiles"][0]'
+check "map tile" curl -fsS --max-time 30 -o /dev/null "$BASE/tiles/region/14/9330/4741.mvt"
 check "map tiles (range request)" range_request
 check "fonts" curl -fsS --max-time 30 -o /dev/null "$BASE/assets/fonts/Noto%20Sans%20Regular/0-255.pbf"
 check "sprites" json "$BASE/assets/sprites/v4/dark.json" 'f"{len(d)} icons"'

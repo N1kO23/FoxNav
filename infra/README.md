@@ -11,7 +11,8 @@ Everything the app needs from a backend, running on your machine behind one orig
 | `/join`, `/web/*`                  | FoxNav server                                    | Convoy page: invite links open here, in any browser         |
 | `/datapacks/FI/cameras.json`       | Caddy (static)                                   | Speed cameras for the app to match on the phone             |
 | `/datapacks/FI/speedlimits.json`   | Caddy (static)                                   | Winter limits, and official limits where OSM has none       |
-| `/tiles/region.pmtiles`            | Caddy (static)                                   | Vector map data for the region                              |
+| `/tiles/region/{z}/{x}/{y}.mvt`    | [go-pmtiles](https://github.com/protomaps/go-pmtiles) | Map tiles from the archive: cacheable, and downloadable for offline use |
+| `/tiles/region.pmtiles`            | Caddy (static)                                   | The vector map archive itself, for `pmtiles://` clients     |
 | `/assets/fonts`, `/assets/sprites` | Caddy (static)                                   | Label fonts and map icons                                   |
 | `/valhalla/*`                      | [Valhalla](https://github.com/valhalla/valhalla) | Routing and turn-by-turn instructions                       |
 | `/photon/*`                        | [Photon](https://github.com/komoot/photon)       | Address and place search                                    |

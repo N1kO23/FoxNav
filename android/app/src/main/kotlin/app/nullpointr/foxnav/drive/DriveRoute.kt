@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -17,6 +19,9 @@ import app.nullpointr.foxnav.data.ReportsClient
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.discovery.Feature
 import app.nullpointr.foxnav.voice.guidanceLanguage
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.seconds
 
 /** Sets up driving for the server described by [document]. */
 @Composable
@@ -46,6 +51,13 @@ fun DriveRoute(document: DiscoveryDocument) {
             reportWarnings = graph.alertSettings.reportWarnings,
             announce = graph::speak,
         )
+    }
+    LaunchedEffect(Unit) {
+        // Downloads interrupted when the app last closed carry on, once MapLibre has listed them.
+        val offline = graph.offlineMaps
+        offline.configure()
+        withTimeoutOrNull(5.seconds) { snapshotFlow { offline.areas }.first { it.isNotEmpty() } }
+        offline.resumeUnfinished()
     }
     // Follows the system theme for now; later at sunrise/sunset and in tunnels.
     val theme = if (isSystemInDarkTheme()) "night" else "day"

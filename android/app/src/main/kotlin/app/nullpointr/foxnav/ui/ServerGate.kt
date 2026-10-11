@@ -35,6 +35,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import app.nullpointr.foxnav.appGraph
 import app.nullpointr.foxnav.data.ACCESS_LOCAL_NETWORK
 import app.nullpointr.foxnav.data.fetchDiscovery
 import app.nullpointr.foxnav.data.isOnLocalNetwork
@@ -48,17 +49,22 @@ private sealed interface GateState {
     data object Loading : GateState
     data object NeedsLocalNetwork : GateState
     data class Failed(val message: String) : GateState
-    data class Ready(val document: DiscoveryDocument) : GateState
+    /** [saved]: the document from the last time, because the server can't be reached now. */
+    data class Ready(val document: DiscoveryDocument, val saved: Boolean = false) : GateState
 }
 
 /**
  * Connects to the server chosen in [settings] (asking for the local network permission when
  * needed) and shows [content] with its discovery document, with the user's overrides applied.
- * Whenever the app isn't connected, the user can choose a different server here.
+ * Without a connection it uses the document from last time, so downloaded maps still work, and
+ * fetches a fresh one when the connection is back. Whenever the app isn't connected, the user
+ * can choose a different server here.
  */
 @Composable
 fun ServerGate(settings: ServerSettings, content: @Composable (DiscoveryDocument) -> Unit) {
     val context = LocalContext.current
+    val cache = context.appGraph.discoveryCache
+    val online by context.appGraph.connectivity.online.collectAsState()
     val serverUrl by settings.serverUrl.collectAsState()
     val overrides by settings.overrides.collectAsState()
     var state by remember { mutableStateOf<GateState>(GateState.Loading) }
@@ -78,7 +84,8 @@ fun ServerGate(settings: ServerSettings, content: @Composable (DiscoveryDocument
             state = GateState.NoServer
             return@LaunchedEffect
         }
-        state = GateState.Loading
+        // Refreshing behind a working screen keeps it up; only a first start shows the spinner.
+        if (state !is GateState.Ready) state = GateState.Loading
         val blocked = localNetworkPermissionRequired &&
             ContextCompat.checkSelfPermission(context, ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED &&
             isOnLocalNetwork(serverUrl)
@@ -86,12 +93,22 @@ fun ServerGate(settings: ServerSettings, content: @Composable (DiscoveryDocument
             blocked -> GateState.NeedsLocalNetwork
             else -> runCatching { fetchDiscovery(serverUrl) }.fold(
                 onSuccess = { fetched ->
+                    cache.save(serverUrl, fetched)
                     val document = fetched.withOverrides(overrides.routing, overrides.search, overrides.style)
                     if (document.styles.isEmpty()) GateState.Failed("${document.name} publishes no map styles") else GateState.Ready(document)
                 },
-                onFailure = { GateState.Failed("Couldn't load $serverUrl: ${it.message}") },
+                onFailure = { error ->
+                    cache.load(serverUrl)?.takeIf { it.styles.isNotEmpty() }
+                        ?.let { GateState.Ready(it.withOverrides(overrides.routing, overrides.search, overrides.style), saved = true) }
+                        ?: GateState.Failed("Couldn't load $serverUrl: ${error.message}")
+                },
             )
         }
+    }
+
+    // Started offline: catch up once the connection is back.
+    LaunchedEffect(online) {
+        if (online && (state as? GateState.Ready)?.saved == true) attempt++
     }
 
     when (val current = state) {

@@ -18,6 +18,27 @@ object Photon {
             language?.let { append("&lang=").append(percentEncode(it)) }
         }
 
+    /** Path and query for what's at [point], relative to the search endpoint's URL. */
+    fun reversePath(point: GeoPoint, language: String? = null): String =
+        buildString {
+            append("/reverse?lat=").append(point.latitude).append("&lon=").append(point.longitude).append("&limit=1")
+            language?.let { append("&lang=").append(percentEncode(it)) }
+        }
+
+    /**
+     * A name for the area around a reverse lookup's result, for naming downloaded map areas: the
+     * city, or for a [small] area the district in it ("Kluuvi, Helsinki"). Null if it has neither.
+     */
+    fun parseArea(json: String, small: Boolean): String? {
+        val properties = FoxNavJson.decodeFromString(PhotonResponse.serializer(), json).features.firstOrNull()?.properties ?: return null
+        val city = properties.city ?: properties.county ?: properties.state
+        val district = properties.district ?: properties.locality
+        return when {
+            small && district != null && city != null && district != city -> "$district, $city"
+            else -> city ?: district ?: properties.name
+        }
+    }
+
     /** Parses a Photon GeoJSON response into places, skipping results without a usable name. */
     fun parse(json: String): List<Place> =
         FoxNavJson.decodeFromString(PhotonResponse.serializer(), json).features.mapNotNull { it.toPlace() }
@@ -64,6 +85,9 @@ private class PhotonProperties(
     val street: String? = null,
     val housenumber: String? = null,
     val city: String? = null,
+    val district: String? = null,
+    val locality: String? = null,
+    val county: String? = null,
     val state: String? = null,
     val country: String? = null,
     @SerialName("osm_value") val osmValue: String? = null,

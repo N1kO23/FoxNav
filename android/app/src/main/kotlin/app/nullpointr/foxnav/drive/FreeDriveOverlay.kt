@@ -1,5 +1,6 @@
 package app.nullpointr.foxnav.drive
 
+import android.text.format.Formatter
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.nullpointr.foxnav.BuildConfig
 import app.nullpointr.foxnav.appGraph
+import app.nullpointr.foxnav.settings.OfflineMapsSheet
 import app.nullpointr.foxnav.settings.ServerSettingsSheet
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.format.formatDistance
@@ -59,6 +61,7 @@ import app.nullpointr.foxnav.ui.icons.FoxIcons
 import app.nullpointr.foxnav.ui.topPanelOf
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationMapState
+import org.maplibre.spatialk.geojson.BoundingBox
 import java.text.DecimalFormatSymbols
 
 /** Everything on top of the map when not navigating: search, route preview and the free-drive panel. */
@@ -77,6 +80,8 @@ fun BoxScope.FreeDriveOverlay(
     val preview by viewModel.preview.collectAsState()
     val query by viewModel.query.collectAsState()
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var offlineArea by remember { mutableStateOf<OfflineSheetRequest?>(null) }
+    val online by LocalContext.current.appGraph.connectivity.online.collectAsState()
 
     Column(
         modifier = modifier
@@ -94,6 +99,7 @@ fun BoxScope.FreeDriveOverlay(
                 }
                 PanelButton(onClick = { showSettings = true }) { Icon(FoxIcons.Settings, contentDescription = "Server settings") }
             }
+            if (!online) OfflineChip()
         }
         // While searching, the results and the keyboard need the room.
         if (preview != null || query.isEmpty()) {
@@ -125,6 +131,10 @@ fun BoxScope.FreeDriveOverlay(
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     CameraWarningsSetting()
                     ReportWarningsSetting()
+                    OfflineMapsSetting(onManage = {
+                        showSettings = false
+                        offlineArea = OfflineSheetRequest(navigationMapState.cameraState.projection?.queryVisibleBoundingBox())
+                    })
                     DataSources(viewModel)
                 }
             },
@@ -137,6 +147,54 @@ fun BoxScope.FreeDriveOverlay(
             },
             onDismiss = { showSettings = false },
         )
+    }
+
+    offlineArea?.let { request ->
+        val graph = LocalContext.current.appGraph
+        OfflineMapsSheet(
+            visible = request.visible,
+            styleUrls = document.styles.values,
+            placeSearch = remember(document.search) { document.search?.takeIf { it.type == "photon" }?.let(graph::placeSearch) },
+            onDismiss = { offlineArea = null },
+        )
+    }
+}
+
+/** Opening the offline maps sheet, with what the map showed then. */
+private class OfflineSheetRequest(val visible: BoundingBox?)
+
+/** Without a connection: what still works. */
+@Composable
+private fun OfflineChip() {
+    val colors = MaterialTheme.colorScheme
+    Surface(shape = RoundedCornerShape(16.dp), color = colors.surface, border = BorderStroke(1.dp, colors.tertiary)) {
+        Text(
+            "OFFLINE · map from downloaded areas",
+            Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            fontFamily = ChakraPetch,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+            letterSpacing = 1.sp,
+            color = colors.tertiary,
+        )
+    }
+}
+
+/** Offline maps: how many areas, and the way to the sheet. */
+@Composable
+private fun OfflineMapsSetting(onManage: () -> Unit) {
+    val context = LocalContext.current
+    val areas = context.appGraph.offlineMaps.areas
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("Offline maps", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (areas.isEmpty()) "Download areas to keep the map without signal."
+                else "${areas.size} ${if (areas.size == 1) "area" else "areas"} · ${Formatter.formatShortFileSize(context, areas.sumOf { it.bytes })}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedButton(onClick = onManage) { Text("Manage") }
     }
 }
 

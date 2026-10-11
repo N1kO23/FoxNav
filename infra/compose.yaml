@@ -3,7 +3,8 @@
 #   /v1/ws, /v1/reports              FoxNav server (convoys, reports)
 #   /valhalla/*                      Valhalla (routing)
 #   /photon/*                        Photon (search)
-#   /tiles/*, /assets/*              static files (PMTiles map data, fonts, sprites)
+#   /tiles/region/{z}/{x}/{y}.mvt    map tiles, from the PMTiles archive (tiles service)
+#   /tiles/*.pmtiles, /assets/*      static files (the archive itself, fonts, sprites)
 #   /datapacks/*                     static files (speed cameras, winter limits; built by the datapacks service)
 #
 # Fetch the data first with infra/scripts/fetch-data.sh, then: docker compose up -d
@@ -24,7 +25,15 @@ services:
       - ./data/tiles:/srv/tiles:ro
       - ./data/assets:/srv/assets:ro
       - ./data/datapacks:/srv/datapacks:ro
-    depends_on: [server, valhalla, photon]
+    depends_on: [server, tiles, valhalla, photon]
+    restart: unless-stopped
+
+  # Serves the PMTiles archive as {z}/{x}/{y} tiles.
+  tiles:
+    image: protomaps/go-pmtiles:v1.31.2
+    command: ["serve", "/tiles", "--port=8080", "--cors=*"]
+    volumes:
+      - ./data/tiles:/tiles:ro
     restart: unless-stopped
 
   server:

@@ -74,9 +74,12 @@ for (const [theme, base] of Object.entries(THEMES)) {
     glyphs: `${ORIGIN}/assets/fonts/{fontstack}/{range}.pbf`,
     sprite: `${ORIGIN}/assets/sprites/v4/${base}`,
     sources: {
+      // Plain tile URLs rather than pmtiles://, so map apps can cache and download them offline.
       protomaps: {
         type: "vector",
-        url: `pmtiles://${ORIGIN}/tiles/region.pmtiles`,
+        tiles: [`${ORIGIN}/tiles/region/{z}/{x}/{y}.mvt`],
+        minzoom: 0,
+        maxzoom: 15,
         attribution:
           '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
       },

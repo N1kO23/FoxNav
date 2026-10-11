@@ -6,7 +6,11 @@
   "sources": {
     "protomaps": {
       "type": "vector",
-      "url": "pmtiles://{{origin}}/tiles/region.pmtiles",
+      "tiles": [
+        "{{origin}}/tiles/region/{z}/{x}/{y}.mvt"
+      ],
+      "minzoom": 0,
+      "maxzoom": 15,
       "attribution": "<a href=\"https://protomaps.com\">Protomaps</a> © <a href=\"https://openstreetmap.org/copyright\">OpenStreetMap</a>"
     }
   },

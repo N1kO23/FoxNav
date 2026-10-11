@@ -47,7 +47,7 @@ An *endpoint* is `{ "type": "<flavour>", "url": "<URL>" }`. Known flavours:
 
 Any URL in the document may be relative. Clients resolve it against the URL the document was fetched from, as in [RFC 3986 §5.2](https://www.rfc-editor.org/rfc/rfc3986#section-5.2). A relative `realtime` URL then switches `http` to `ws` and `https` to `wss`. A server that puts everything behind one origin therefore needs no configuration of its public address.
 
-Styles are [MapLibre style spec](https://maplibre.org/maplibre-style-spec/) documents. They may use any source type MapLibre supports, including `pmtiles://` URLs.
+Styles are [MapLibre style spec](https://maplibre.org/maplibre-style-spec/) documents. They may use any source type MapLibre supports, including `pmtiles://` URLs. Apps download map areas for offline use through MapLibre's offline packs, which need sources with tile URLs (`{z}/{x}/{y}`) or TileJSON; with `pmtiles://` sources the map only works online. Tiles should carry cache headers (`Cache-Control`, `ETag`), since apps keep what they've shown for driving out of coverage.
 
 ### Compatibility
 
