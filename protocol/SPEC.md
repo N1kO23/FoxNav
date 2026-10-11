@@ -201,24 +201,31 @@ GET {datapacks}/{region}/cameras.json
 
 The reference stack builds the pack from OpenStreetMap: `highway=speed_camera` nodes, and `type=enforcement` relations, whose `from` and `to` members give the direction. See `infra/datapacks/`. The app warns only where camera warnings are legal; see [`docs/architecture.md`](../docs/architecture.md#speed-limits-cameras-and-reports).
 
-### 3.2 Speed limits for part of the year
+### 3.2 Speed limits
 
 ```
 GET {datapacks}/{region}/speedlimits.json
 ```
 
-Limits that hold only on some dates, above all the Nordic winter limits. Routing engines report a road's plain limit all year (Valhalla ignores `maxspeed:conditional`), so clients correct it with this pack. Ways are OpenStreetMap ways, which Valhalla's `trace_attributes` returns as `edge.way_id`.
+What the routing engine's map gets wrong or doesn't know about speed limits, keyed by OpenStreetMap way (Valhalla's `trace_attributes` returns it as `edge.way_id`):
+
+- limits that hold only on some dates, above all the Nordic winter limits: routing engines report a road's plain limit all year (Valhalla ignores `maxspeed:conditional`);
+- limits for ways the map has none for, from official data, including where they change along a way;
+- optionally, official limits where the map's differ.
 
 ```json
 {
   "format": 1,
   "region": "FI",
   "generated": "2026-10-10T18:00:00Z",
-  "attribution": "© OpenStreetMap contributors, ODbL",
+  "attribution": "© OpenStreetMap contributors, ODbL; speed limits from Digiroad © Väylävirasto, CC BY 4.0",
   "ways": [
     { "way": 2287183, "maxspeed": 120,
-      "conditional": [{ "maxspeed": 100, "from": "10-15", "to": "04-30", "season": "winter" }] }
-  ]
+      "conditional": [{ "maxspeed": 100, "from": "10-15", "to": "04-30", "season": "winter" }] },
+    { "way": 59591033, "limit": 80,
+      "sections": [{ "maxspeed": 50, "line": [[25.12345, 62.12345], [25.12401, 62.12298], [25.12498, 62.12233]] }] }
+  ],
+  "fill": { "40": [4234567, 12, 3051], "80": [2287001] }
 }
 ```
 
@@ -226,10 +233,16 @@ Limits that hold only on some dates, above all the Nordic winter limits. Routing
 |---|---|
 | `format` | `1`. A client that doesn't know a pack's format ignores the pack. |
 | `way` | The OpenStreetMap way ID. |
-| `maxspeed` | The way's plain limit in km/h, as the routing engine reports it. Clients apply the way's conditional limits only while the engine reports this value there: a different value means the engine has moved on to another road, or the map has changed since the pack was built. |
-| `conditional` | Limits for parts of the year; the first that applies wins. `from` and `to` are the first and last day, `MM-DD` every year (a range may wrap round the new year) or `YYYY-MM-DD` once, in local time. `season`, when present, is `winter` or `summer`, for clients to show. |
+| `maxspeed` | What the routing engine reports for the way, in km/h; absent where it reports none. Clients use the way's entry only while the engine reports this (or nothing): a different value means the engine has moved on to another road, say an exit ramp while the last road lookup still says motorway, or the map has changed since the pack was built. |
+| `limit` | The way's limit in km/h instead of the engine's, or where the engine has none. |
+| `sections` | Stretches of the way with another limit, such as a village's 50 on a long rural road: `maxspeed` and `line`, the stretch as `[lon, lat]` pairs (GeoJSON order). A client on a stretch (within about 25 m of it, and between its ends) uses its limit. |
+| `conditional` | Limits for parts of the year; the first that applies wins, except on a section. `from` and `to` are the first and last day, `MM-DD` every year (a range may wrap round the new year) or `YYYY-MM-DD` once, in local time. `season`, when present, is `winter` or `summer`, for clients to show. Where `limit` replaces the engine's limit, a conditional limit counts only below it. |
+| `fill` | Limits for whole ways the routing engine has none for: km/h → way IDs. Each list is sorted, and every ID after the first is given as the difference from the one before (`[4234567, 12, 3051]` is ways 4234567, 4234579 and 4237630), which keeps a few hundred thousand ways small. Clients use these only where the engine reports no limit. |
+| `attribution` | Credits for the pack's sources, which clients show. |
 
 OpenStreetMap often says only "winter", whose dates vary by year and region. The reference builder (`infra/datapacks/`) turns it into dates per region, erring towards a long winter: a winter limit shown a little early means a slower drive, a summer limit shown too long means a fine. Server operators can set the dates with `--season`. Conditions other than dates (times of day, weekdays, wet roads) are left out for now, as are limits for one direction of a way.
+
+For Finland, the reference builder fills from [Digiroad](https://vayla.fi/en/transport-network/data/digiroad) (Väylävirasto, CC BY 4.0), which has a limit for nearly every public road and street. It matches Digiroad's segments to OpenStreetMap ways by position and direction: a way gets its most common limit, and stretches of 60 m or more with another one become sections. Where both sources have a limit, they agree on about 90 % of road length. By default OpenStreetMap wins where they differ, as routing uses it too; `--prefer digiroad` makes Digiroad win, with `limit` and `sections` on those ways. Digiroad's winter limits fill in where OpenStreetMap has none. Legal default limits ("50 in built-up areas, 80 outside") are deliberately not used: in Finland most streets are in 30 or 40 zones, so the default would usually be wrong.
 
 ## 4. Reports (draft)
 

@@ -6,6 +6,8 @@
 #   photon/import.jsonl.zst            search index dump (GraphHopper)
 #   tiles/region.pmtiles               vector map tiles cut from the Protomaps planet build
 #   assets/fonts, assets/sprites       label fonts and map icons (Protomaps basemaps-assets)
+#   digiroad/<area>/                   Finland only: official speed limits from Digiroad
+#                                      (Väylävirasto, CC BY 4.0), via the FUNET mirror
 #
 # Usage: infra/scripts/fetch-data.sh [region]     regions: finland (default)
 set -euo pipefail
@@ -17,6 +19,7 @@ case "$REGION" in
         PBF_URL=https://download.geofabrik.de/europe/finland-latest.osm.pbf
         PHOTON_URL=https://download1.graphhopper.com/public/europe/finland/photon-dump-finland-1.0-latest.jsonl.zst
         BBOX=19.0,59.3,31.6,70.1
+        DIGIROAD=https://www.nic.funet.fi/index/geodata/vayla/digiroad
         ;;
     *)
         echo "Unknown region '$REGION'. Known regions: finland" >&2
@@ -86,8 +89,39 @@ else
     cp -r "$TMP/assets/sprites/v4" "$DATA/assets/sprites/"
 fi
 
-# Speed cameras from the OpenStreetMap extract (protocol/SPEC.md §3). Delete the file to rebuild
-# after fetching newer data.
+# Official speed limits, which fill the roads OpenStreetMap has none for. Digiroad comes as
+# Shapefiles per area; only the two speed limit layers are needed (about 1 GB for Finland).
+if [ -n "${DIGIROAD:-}" ]; then
+    if [ -f "$DATA/digiroad/.complete" ]; then
+        echo "✓ Digiroad speed limits already downloaded"
+    else
+        # The newest release year on the mirror that has the K format.
+        YEAR=$(curl -fsS "$DIGIROAD/" | grep -oE 'href="20[0-9]{2}/"' | grep -oE '20[0-9]{2}' | sort -r \
+            | while read -r year; do curl -fsS -o /dev/null "$DIGIROAD/$year/Digiroad_K/shp/" && { echo "$year"; break; }; done)
+        SHP="$DIGIROAD/$YEAR/Digiroad_K/shp"
+        echo "↓ Digiroad $YEAR speed limits"
+        for AREA in $(curl -fsS "$SHP/" | grep -oE 'href="[A-Z0-9_-]+/"' | grep -oE '[A-Z0-9_-]+' | sort -u); do
+            mkdir -p "$DATA/digiroad/$AREA"
+            for LAYER in DR_NOPEUSRAJOITUS_K DR_TALVINOPEUSRAJOITUS_K; do
+                for EXT in shp shx dbf prj cpg; do
+                    FILE="$DATA/digiroad/$AREA/$LAYER.$EXT"
+                    [ -f "$FILE" ] && continue
+                    # Not every area has every layer (Åland has no winter limits).
+                    if ! curl -fsL --retry 3 -o "$FILE.part" "$SHP/$AREA/$LAYER.$EXT"; then
+                        rm -f "$FILE.part"
+                        continue
+                    fi
+                    mv "$FILE.part" "$FILE"
+                done
+            done
+            echo "  ✓ $AREA"
+        done
+        echo "$YEAR" > "$DATA/digiroad/.complete"
+    fi
+fi
+
+# Speed cameras and speed limits from the OpenStreetMap extract and Digiroad (protocol/SPEC.md §3).
+# Delete the files to rebuild after fetching newer data.
 if [ -f "$DATA/datapacks/$COUNTRY/cameras.json" ]; then
     echo "✓ data packs already built"
 else

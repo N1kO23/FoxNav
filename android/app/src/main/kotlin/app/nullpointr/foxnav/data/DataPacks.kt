@@ -6,8 +6,11 @@ import app.nullpointr.foxnav.shared.discovery.Feature
 import app.nullpointr.foxnav.shared.safety.Camera
 import app.nullpointr.foxnav.shared.safety.CameraPack
 import app.nullpointr.foxnav.shared.speed.SpeedLimitPack
-import app.nullpointr.foxnav.shared.speed.WayLimits
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,23 +18,30 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * The server's data packs (protocol/SPEC.md §3) for all its regions: speed cameras and limits for
- * part of the year. Each is kept on the phone and revalidated with its ETag, so they work offline
- * and cost next to nothing to refresh.
+ * The server's data packs (protocol/SPEC.md §3) for all its regions: speed cameras and speed
+ * limits. Each is kept on the phone and revalidated with its ETag, so they work offline and cost
+ * next to nothing to refresh.
  */
 class DataPacks(context: Context, private val client: OkHttpClient) {
     private val directory = File(context.filesDir, "datapacks")
 
+    private val _attributions = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Credits the loaded packs ask for, to show with the app's data sources. */
+    val attributions: StateFlow<Set<String>> = _attributions.asStateFlow()
+
     suspend fun cameras(document: DiscoveryDocument): List<Camera> =
-        load(document, "cameras.json") { CameraPack.parse(it).cameras }
+        load(document, "cameras.json") { CameraPack.parse(it).let { pack -> pack.cameras to pack.attribution } }.flatten()
 
-    suspend fun speedLimits(document: DiscoveryDocument): List<WayLimits> =
-        load(document, "speedlimits.json") { SpeedLimitPack.parse(it).ways }
+    suspend fun speedLimits(document: DiscoveryDocument): List<SpeedLimitPack> =
+        load(document, "speedlimits.json") { SpeedLimitPack.parse(it).let { pack -> pack to pack.attribution } }
 
-    private suspend fun <T> load(document: DiscoveryDocument, name: String, parse: (String) -> List<T>): List<T> = withContext(Dispatchers.IO) {
+    private suspend fun <T> load(document: DiscoveryDocument, name: String, parse: (String) -> Pair<T, String?>): List<T> = withContext(Dispatchers.IO) {
         val base = document.datapacks?.takeIf { Feature.DATA_PACKS in document.features } ?: return@withContext emptyList()
-        document.regions.flatMap { region ->
-            fetch(base.trimEnd('/') + "/$region/$name")?.let { runCatching { parse(it) }.getOrNull() }.orEmpty()
+        document.regions.mapNotNull { region ->
+            val parsed = fetch(base.trimEnd('/') + "/$region/$name")?.let { runCatching { parse(it) }.getOrNull() } ?: return@mapNotNull null
+            parsed.second?.let { credit -> _attributions.update { it + credit } }
+            parsed.first
         }
     }
 

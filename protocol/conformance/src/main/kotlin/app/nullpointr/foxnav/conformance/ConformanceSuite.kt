@@ -155,6 +155,19 @@ class ConformanceSuite(
                     expect(limit.maxspeed in 5..200) { "$url has way ${way.way} with a limit of ${limit.maxspeed}" }
                     expect(DAY.matches(limit.from) && DAY.matches(limit.to)) { "$url has way ${way.way} with dates ${limit.from}–${limit.to}" }
                 }
+                for (way in pack.ways) {
+                    way.limit?.let { expect(it in 5..200) { "$url has way ${way.way} with a limit of $it" } }
+                    for (section in way.sections) {
+                        expect(section.maxspeed in 5..200) { "$url has a section of way ${way.way} with a limit of ${section.maxspeed}" }
+                        expect(section.line.size >= 2 && section.line.all { it.size == 2 && it[0] in -180.0..180.0 && it[1] in -90.0..90.0 }) {
+                            "$url has a section of way ${way.way} whose line isn't [lon, lat] pairs"
+                        }
+                    }
+                }
+                for ((limit, deltas) in pack.fill) {
+                    expect(limit.toIntOrNull() in 5..200) { "$url fills ways with a limit of $limit" }
+                    expect(deltas.drop(1).all { it > 0 }) { "$url has fill IDs for $limit that aren't sorted and distinct" }
+                }
                 found++
             }
             if (found == 0) throw Skipped("no region has one")

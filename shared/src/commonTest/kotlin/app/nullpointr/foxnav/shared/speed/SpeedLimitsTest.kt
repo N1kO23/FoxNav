@@ -1,5 +1,6 @@
 package app.nullpointr.foxnav.shared.speed
 
+import app.nullpointr.foxnav.shared.geo.GeoPoint
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -62,5 +63,53 @@ class SpeedLimitsTest {
         )
         assertEquals(listOf(winter), pack.ways.single().conditional)
         assertFailsWith<IllegalArgumentException> { SpeedLimitPack.parse("""{"format":2,"region":"FI"}""") }
+    }
+
+    @Test
+    fun theFillGivesLimitsWhereTheMapHasNone() {
+        val pack = SpeedLimitPack.parse(
+            """{"format":1,"region":"FI","ways":[{"way":30,"maxspeed":80,"conditional":[{"maxspeed":60,"from":"10-15","to":"04-30","season":"winter"}]}],
+               "fill":{"40":[10,5,2],"80":[30]}}""",
+        )
+        assertEquals(mapOf(10L to 40, 15L to 40, 17L to 40, 30L to 80), pack.fillLimits())
+        val limits = SpeedLimits(listOf(pack))
+        val summer = Day(2026, 6, 1)
+        assertEquals(Limit(40), limits.limit(15, null, summer))
+        // The map's own limit wins over the fill.
+        assertEquals(Limit(30), limits.limit(15, 30, summer))
+        assertNull(limits.limit(16, null, summer))
+        // A filled way's winter limit.
+        assertEquals(Limit(80), limits.limit(30, null, summer))
+        assertEquals(Limit(60, "winter"), limits.limit(30, null, Day(2026, 12, 1)))
+    }
+
+    @Test
+    fun sectionsGiveTheirLimitWhereTheCarIsOnThem() {
+        // A long rural road at 80 through a village at 50, which the map has no limit for.
+        val village = Section(50, line = listOf(listOf(25.000, 62.000), listOf(25.000, 62.005)))
+        val limits = SpeedLimits(listOf(WayLimits(way = 7, limit = 80, sections = listOf(village))))
+        val day = Day(2026, 6, 1)
+        assertEquals(Limit(50), limits.limit(7, null, day, GeoPoint(62.0025, 25.0001)))
+        // Before the village and past it, the road's limit.
+        assertEquals(Limit(80), limits.limit(7, null, day, GeoPoint(61.998, 25.0)))
+        assertEquals(Limit(80), limits.limit(7, null, day, GeoPoint(62.007, 25.0)))
+        // At its ends (where a section meets a junction), still on it.
+        assertEquals(Limit(50), limits.limit(7, null, day, GeoPoint(62.005, 25.0)))
+        assertEquals(Limit(50), limits.limit(7, null, day, GeoPoint(62.00505, 25.0)))
+        // Well off to the side: not on it.
+        assertEquals(Limit(80), limits.limit(7, null, day, GeoPoint(62.0025, 25.002)))
+        // Without a position, the road's limit.
+        assertEquals(Limit(80), limits.limit(7, null, day))
+        // The engine reports a limit here, the pack says it has none for way 7: a different road.
+        assertEquals(Limit(60), limits.limit(7, 60, day, GeoPoint(62.0025, 25.0001)))
+    }
+
+    @Test
+    fun aReplacedLimitWinsOnlyWhereTheEngineSaysWhatThePackExpects() {
+        val limits = SpeedLimits(listOf(WayLimits(way = 8, maxspeed = 80, limit = 60, conditional = listOf(ConditionalLimit(70, "10-15", "04-30", "winter")))))
+        assertEquals(Limit(60), limits.limit(8, 80, Day(2026, 6, 1)))
+        assertEquals(Limit(100), limits.limit(8, 100, Day(2026, 6, 1)))
+        // The map's winter 70 is above the replacing 60: 60 stands.
+        assertEquals(Limit(60), limits.limit(8, 80, Day(2026, 12, 1)))
     }
 }

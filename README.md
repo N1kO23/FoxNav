@@ -3,7 +3,7 @@
 Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras, and **live convoys** where you see your friends' cars and speeds on the map as you drive. Open source, built on OpenStreetMap, and you can run your own server.
 
 > **Status:** early development. Against the local backend, the Android app does:
-> - free drive with speed limits, including winter limits;
+> - free drive with speed limits, including winter limits, and official limits from Digiroad where OpenStreetMap has none;
 > - search and route alternatives;
 > - turn-by-turn with voice;
 > - convoys: live cars and speeds, invite links and QR codes, quick messages and a shared destination;

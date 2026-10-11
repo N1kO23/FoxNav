@@ -9,7 +9,7 @@ Everything the app needs from a backend, running on your machine behind one orig
 | `/v1/ws`                           | FoxNav server                                    | Convoy relay (WebSocket), forwarding encrypted positions    |
 | `/v1/reports`                      | FoxNav server                                    | Reports: police, accidents, roadworks… and "still there?"   |
 | `/datapacks/FI/cameras.json`       | Caddy (static)                                   | Speed cameras for the app to match on the phone             |
-| `/datapacks/FI/speedlimits.json`   | Caddy (static)                                   | Winter (and other part-year) speed limits per road          |
+| `/datapacks/FI/speedlimits.json`   | Caddy (static)                                   | Winter limits, and official limits where OSM has none       |
 | `/tiles/region.pmtiles`            | Caddy (static)                                   | Vector map data for the region                              |
 | `/assets/fonts`, `/assets/sprites` | Caddy (static)                                   | Label fonts and map icons                                   |
 | `/valhalla/*`                      | [Valhalla](https://github.com/valhalla/valhalla) | Routing and turn-by-turn instructions                       |
@@ -50,7 +50,7 @@ OpenStreetMap changes daily; refresh whenever you like:
 - **Routing:** delete `data/valhalla/` and re-run `fetch-data.sh`. The next start rebuilds the graph.
 - **Search:** delete `data/photon/` and re-run `fetch-data.sh`. The next start re-imports.
 - **Map tiles:** delete `data/tiles/region.pmtiles` and re-run `fetch-data.sh`.
-- **Speed cameras and winter limits:** after new routing data, rebuild the data packs with `docker compose -f infra/compose.yaml run --rm datapacks`. That takes under a minute, so a public server can do it nightly. When the road agency announces the winter dates, pass them, e.g. `… run --rm datapacks --region FI --season winter=10-27:04-12 --season summer=04-13:10-26 /osm/finland-latest.osm.pbf /out`.
+- **Speed cameras and speed limits:** after new routing data, rebuild the data packs with `docker compose -f infra/compose.yaml run --rm datapacks`. For Finland that includes matching Digiroad's official limits to the map, about 7 minutes; where OpenStreetMap and Digiroad disagree, OpenStreetMap wins unless you set `FOXNAV_SPEED_LIMITS_PREFER=digiroad`. Digiroad is published a few times a year: delete `data/digiroad/` and re-run `fetch-data.sh` to get the newest release. When the road agency announces the winter dates, pass them, e.g. `… run --rm datapacks --region FI --digiroad /digiroad --season winter=10-27:04-12 --season summer=04-13:10-26 /osm/finland-latest.osm.pbf /out`.
 
 ## Map styles
 
@@ -72,4 +72,4 @@ The same stack works on a server:
 
 ## Attribution
 
-Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL), map tiles from [Protomaps](https://protomaps.com) builds, search dumps from [GraphHopper](https://download1.graphhopper.com/public/), traffic messages from [Fintraffic / digitraffic.fi](https://www.digitraffic.fi) (CC BY 4.0), and the Noto Sans fonts (SIL Open Font License). Anything shown to users must credit OpenStreetMap; the styles include the attribution text.
+Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL), speed limits from [Digiroad](https://vayla.fi/vaylista/aineistot/digiroad/aineisto) © Väylävirasto (CC BY 4.0), map tiles from [Protomaps](https://protomaps.com) builds, search dumps from [GraphHopper](https://download1.graphhopper.com/public/), traffic messages from [Fintraffic / digitraffic.fi](https://www.digitraffic.fi) (CC BY 4.0), and the Noto Sans fonts (SIL Open Font License). Anything shown to users must credit OpenStreetMap; the styles include the attribution text.

@@ -24,9 +24,9 @@ import app.nullpointr.foxnav.shared.safety.CameraRules
 import app.nullpointr.foxnav.shared.safety.CameraWatch
 import app.nullpointr.foxnav.shared.search.Place
 import app.nullpointr.foxnav.shared.speed.Day
+import app.nullpointr.foxnav.shared.speed.SpeedLimitPack
 import app.nullpointr.foxnav.shared.speed.SpeedLimits
 import app.nullpointr.foxnav.shared.speed.SpeedReading
-import app.nullpointr.foxnav.shared.speed.WayLimits
 import com.stadiamaps.ferrostar.core.DefaultNavigationViewModel
 import com.stadiamaps.ferrostar.core.FerrostarCore
 import com.stadiamaps.ferrostar.core.NavigationUiState
@@ -95,8 +95,8 @@ class DriveViewModel(
     private val playOverLimitChime: () -> Unit,
     /** The server's speed cameras (an empty list without data packs). */
     private val loadCameras: suspend () -> List<Camera>,
-    /** The server's limits for part of the year, like winter limits (empty without data packs). */
-    private val loadSpeedLimits: suspend () -> List<WayLimits>,
+    /** The server's speed limit packs: winter limits, and limits for roads the map has none for. */
+    private val loadSpeedLimits: suspend () -> List<SpeedLimitPack>,
     cameraWarnings: StateFlow<Boolean>,
     /** The server's reports; null if it has none. */
     private val reportsClient: ReportsClient?,
@@ -163,7 +163,8 @@ class DriveViewModel(
     private val speedLimits = MutableStateFlow(SpeedLimits())
 
     // The limit where we are: from the route's annotations while navigating, the road otherwise,
-    // corrected for the date where the road has a winter limit (which routing ignores).
+    // corrected for the date where the road has a winter limit (which routing ignores), and from
+    // the speed limit pack where the map has none.
     private val limit =
         combine(navigationUiState, _road, speedLimits) { uiState, road, limits ->
             val mapKmh = if (uiState.isNavigating()) {
@@ -171,7 +172,8 @@ class DriveViewModel(
             } else {
                 road?.speedLimitKmh
             }
-            limits.limit(road?.wayId, mapKmh, today())
+            val here = uiState.location?.coordinates?.let { GeoPoint(it.lat, it.lng) }
+            limits.limit(road?.wayId, mapKmh, today(), here)
         }
 
     private val _cameras = MutableStateFlow<List<Camera>>(emptyList())
@@ -258,7 +260,7 @@ class DriveViewModel(
         }
         viewModelScope.launch { trackRoad() }
         viewModelScope.launch { _cameras.value = runCatching { loadCameras() }.getOrDefault(emptyList()) }
-        viewModelScope.launch { speedLimits.value = SpeedLimits(runCatching { loadSpeedLimits() }.getOrDefault(emptyList())) }
+        viewModelScope.launch(Dispatchers.Default) { speedLimits.value = SpeedLimits(runCatching { loadSpeedLimits() }.getOrDefault(emptyList())) }
         viewModelScope.launch {
             // Once per camera, as it comes into range.
             cameraAhead.distinctUntilChangedBy { it?.camera?.id }.filterNotNull().collect { announce(it.spoken()) }

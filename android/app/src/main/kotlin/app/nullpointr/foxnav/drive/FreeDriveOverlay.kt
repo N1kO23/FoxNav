@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -124,6 +125,7 @@ fun BoxScope.FreeDriveOverlay(
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     CameraWarningsSetting()
                     ReportWarningsSetting()
+                    DataSources(viewModel)
                 }
             },
             current = document,
@@ -313,5 +315,22 @@ private fun ReportWarningsSetting() {
             )
         }
         Switch(checked = on, onCheckedChange = settings::setReportWarnings)
+    }
+}
+
+/** Credits for the data behind limits, cameras and reports, as their licences ask. */
+@Composable
+private fun DataSources(viewModel: DriveViewModel) {
+    val packCredits by LocalContext.current.appGraph.dataPacks.attributions.collectAsState()
+    val reports by viewModel.reports.collectAsState()
+    val credits = remember(packCredits, reports) {
+        val fromPacks = packCredits.flatMap { it.split("; ") }.map { it.replaceFirstChar(Char::uppercase) }
+        val fromReports = reports.mapNotNull { it.source }.map { source -> "Reports from ${source.name}" + (source.licence?.let { ", $it" } ?: "") }
+        (fromPacks + fromReports).distinct()
+    }
+    if (credits.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("Data", style = MaterialTheme.typography.titleMedium)
+        credits.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
