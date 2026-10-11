@@ -74,6 +74,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
     val query by viewModel.query.collectAsState()
     val settings by graph.settings.settings.collectAsState()
     val profile by graph.profiles.profile.collectAsState()
+    val mapCredits = rememberMapCredits(styleUrl)
 
     // Heading up or north up, whenever the camera follows us (navigating or not).
     LaunchedEffect(navigationMapState, settings.orientation) {
@@ -115,6 +116,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
                     convoySize = activeConvoy?.let { convoyMembers.size + 1 },
                     onReport = if (viewModel.canReport) ({ showReport = true }) else null,
                     onEnd = onTapExit,
+                    mapCredits = mapCredits,
                     modifier = modifier.bottomPanelOf(panels.navigation),
                 )
             }
@@ -133,6 +135,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
                     document,
                     navigationMapState,
                     panels.freeDrive,
+                    mapCredits,
                     onOpenConvoy = { showConvoy = true },
                     onOpenReport = { showReport = true },
                 )
@@ -156,7 +159,8 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
             viewModel.preview(Place(title = "Dropped pin", detail = "", latitude = position.lat, longitude = position.lng))
             NavigationMapClickResult.Consume
         },
-        mapOptions = MapOptions(ornamentOptions = OrnamentOptions(isCompassEnabled = false, isScaleBarEnabled = false)),
+        // The credits are our own tag on the panels (MapCreditTag), where they don't cover the map's controls.
+        mapOptions = MapOptions(ornamentOptions = OrnamentOptions(isCompassEnabled = false, isScaleBarEnabled = false, isLogoEnabled = false, isAttributionEnabled = false)),
     ) { uiState ->
         if (!uiState.isNavigating()) RoutePreviewLayers(preview)
         ReportLayers(reports)

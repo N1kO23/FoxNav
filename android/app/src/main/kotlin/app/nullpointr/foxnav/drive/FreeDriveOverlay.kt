@@ -57,6 +57,7 @@ import app.nullpointr.foxnav.shared.format.formatDistance
 import app.nullpointr.foxnav.shared.format.formatDuration
 import app.nullpointr.foxnav.ui.components.SpeedCluster
 import app.nullpointr.foxnav.ui.PanelBounds
+import app.nullpointr.foxnav.shared.map.MapCredit
 import app.nullpointr.foxnav.ui.bottomPanelOf
 import app.nullpointr.foxnav.ui.icons.FoxIcons
 import app.nullpointr.foxnav.ui.topPanelOf
@@ -73,6 +74,7 @@ fun BoxScope.FreeDriveOverlay(
     document: DiscoveryDocument,
     navigationMapState: NavigationMapState,
     panels: PanelBounds,
+    mapCredits: List<MapCredit>,
     onOpenConvoy: () -> Unit,
     onOpenReport: () -> Unit,
 ) {
@@ -122,7 +124,8 @@ fun BoxScope.FreeDriveOverlay(
                 ReportStack(viewModel)
                 CameraWarning(cameraAhead)
             }
-            Box(Modifier.bottomPanelOf(panels)) {
+            Column(Modifier.bottomPanelOf(panels)) {
+                MapCreditTag(mapCredits)
                 preview?.let { RoutePreviewPanel(it, viewModel) } ?: FreeDrivePanel(viewModel)
             }
         }

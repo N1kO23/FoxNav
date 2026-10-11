@@ -72,6 +72,7 @@ The over-limit warning is an original take on the kin-kon chime (速度警告音
 - **Japanese accents:** they stay out of the app until a native speaker has checked them.
 - **Points of interest:** the map shows only landmarks you navigate by, such as stations, airports, ferries, parks, peaks and attractions. Fuel stations need their own icon and data.
 - **Sounds:** scripts in `sounds/` generate the WAV files the app plays. The over-limit choices are the kin-kon (`kinkon.py`), a single strike of its bell (`ding.py`) and three even beeps (`beep.py`); drivers can also use a sound of their own. The camera and report warning is two rising pips (`alert.py`), so it never sounds like a speeding warning.
+- **Map credits:** the mockups' small "© OpenStreetMap contributors" tag, on the top edge of the bottom panel. The app takes its text from the map style's attribution.
 - **Glow:** the night route line is the one glowing thing on the map, a soft bloom, a glow and a bright core like the mockup's blurred line, plus a faint underglow in your car's colour under your own car. By day there's no glow.
 
 ## Japanese strings to check

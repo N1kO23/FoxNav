@@ -25,11 +25,12 @@ import uniffi.ferrostar.GeographicCoordinate
 @MaplibreComposable
 fun NavigationRoute(geometry: List<GeographicCoordinate>) {
     if (geometry.size < 2) return
-    val feature = remember(geometry) {
-        Feature(LineString(geometry.map { Position(longitude = it.lng, latitude = it.lat) }), JsonObject(emptyMap()))
-    }
+    val feature = remember(geometry) { RoutePath(geometry.map { Position(longitude = it.lng, latitude = it.lat) }).toFeature() }
     RouteLine("foxnav-route", rememberGeoJsonSource(GeoJsonData.Features(feature)))
 }
+
+/** The route's rounded line ([RoutePath]) as a map feature. */
+fun RoutePath.toFeature() = Feature(LineString(rounded), JsonObject(emptyMap()))
 
 /**
  * A route as the design draws it: a cyan line which, at night, glows like neon on the dark map,

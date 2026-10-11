@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.nullpointr.foxnav.shared.format.formatDistance
 import app.nullpointr.foxnav.shared.format.formatDuration
+import app.nullpointr.foxnav.shared.map.MapCredit
 import app.nullpointr.foxnav.shared.speed.SpeedReading
 import app.nullpointr.foxnav.ui.components.ManeuverGlyph
 import app.nullpointr.foxnav.ui.components.SpeedCluster
@@ -171,6 +172,7 @@ fun DrivePanel(
     convoySize: Int?,
     onReport: (() -> Unit)?,
     onEnd: (() -> Unit)?,
+    mapCredits: List<MapCredit>,
     modifier: Modifier = Modifier,
 ) {
     val progress = uiState.progress ?: return
@@ -180,44 +182,47 @@ fun DrivePanel(
         DateFormat.getTimeFormat(context).format(Date(System.currentTimeMillis() + (progress.durationRemaining * 1000).toLong()))
     }
 
-    Surface(
-        modifier = modifier.fillMaxWidth().padding(12.dp),
-        shape = RoundedCornerShape(24.dp),
-        color = colors.surface,
-        border = BorderStroke(1.dp, colors.outline),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SpeedCluster(speed)
-                Spacer(Modifier.weight(1f))
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(arrival, fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 30.sp)
-                    Text(
-                        "${formatDuration(progress.durationRemaining)} · ${distanceText(progress.distanceRemaining)}",
-                        fontFamily = ChakraPetch,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.onSurfaceVariant,
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (onReport != null) ReportButton(onClick = onReport, modifier = Modifier.size(PANEL_BUTTON_HEIGHT))
-                OutlinedButton(onClick = onToggleMute, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) {
-                    Text(if (uiState.isMuted == true) "Unmute" else "Mute", maxLines = 1)
-                }
-                OutlinedButton(onClick = onConvoy, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) {
-                    Text("Convoy", maxLines = 1)
-                    if (convoySize != null) {
-                        Box(
-                            Modifier.padding(start = 6.dp).size(22.dp).background(colors.secondary, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("$convoySize", fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = colors.onSecondary)
-                        }
+    Column(modifier.fillMaxWidth().padding(12.dp)) {
+        MapCreditTag(mapCredits)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = colors.surface,
+            border = BorderStroke(1.dp, colors.outline),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SpeedCluster(speed)
+                    Spacer(Modifier.weight(1f))
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(arrival, fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 30.sp)
+                        Text(
+                            "${formatDuration(progress.durationRemaining)} · ${distanceText(progress.distanceRemaining)}",
+                            fontFamily = ChakraPetch,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.onSurfaceVariant,
+                        )
                     }
                 }
-                if (onEnd != null) {
-                    Button(onClick = onEnd, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) { Text("End", maxLines = 1) }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (onReport != null) ReportButton(onClick = onReport, modifier = Modifier.size(PANEL_BUTTON_HEIGHT))
+                    OutlinedButton(onClick = onToggleMute, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) {
+                        Text(if (uiState.isMuted == true) "Unmute" else "Mute", maxLines = 1)
+                    }
+                    OutlinedButton(onClick = onConvoy, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) {
+                        Text("Convoy", maxLines = 1)
+                        if (convoySize != null) {
+                            Box(
+                                Modifier.padding(start = 6.dp).size(22.dp).background(colors.secondary, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("$convoySize", fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = colors.onSecondary)
+                            }
+                        }
+                    }
+                    if (onEnd != null) {
+                        Button(onClick = onEnd, contentPadding = PANEL_BUTTON_PADDING, modifier = Modifier.weight(1f).height(PANEL_BUTTON_HEIGHT)) { Text("End", maxLines = 1) }
+                    }
                 }
             }
         }
