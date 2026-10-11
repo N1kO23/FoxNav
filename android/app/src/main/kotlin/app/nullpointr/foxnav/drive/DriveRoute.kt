@@ -52,6 +52,9 @@ fun DriveRoute(document: DiscoveryDocument) {
             reportsClient = document.reports?.takeIf { Feature.REPORTS in document.features }?.let { ReportsClient(graph.httpClient, it) },
             reportWarnings = graph.alertSettings.reportWarnings,
             say = graph.guidanceVoice::say,
+            places = graph.places,
+            travelTimes = graph.travelTimes(routing),
+            retired = graph.claimDrive(),
         )
     }
     LaunchedEffect(Unit) {

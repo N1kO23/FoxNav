@@ -38,7 +38,8 @@ class PhrasesTest {
         assertEquals(listOf("arrive"), Phrases.guidance("arrive", 10.0, UnitSystem.METRIC))
         assertEquals(listOf("speed_camera", "in_400_m"), Phrases.warning("speed_camera", 410.0, UnitSystem.METRIC, short = false))
         assertEquals(listOf("police"), Phrases.warning("police", 410.0, UnitSystem.METRIC, short = true))
-        assertNull(Phrases.warning("roadworks", 410.0, UnitSystem.METRIC, short = false))
+        assertEquals(listOf("roadworks", "in_400_m"), Phrases.warning("roadworks", 410.0, UnitSystem.METRIC, short = false))
+        assertNull(Phrases.warning("meteor_shower", 410.0, UnitSystem.METRIC, short = false))
     }
 
     @Test

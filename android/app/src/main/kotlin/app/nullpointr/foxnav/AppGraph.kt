@@ -2,6 +2,7 @@ package app.nullpointr.foxnav
 
 import android.content.Context
 import app.nullpointr.foxnav.convoy.ConvoyController
+import app.nullpointr.foxnav.convoy.MusicSessions
 import app.nullpointr.foxnav.convoy.ProfileStore
 import app.nullpointr.foxnav.convoy.TowerPlacementStore
 import app.nullpointr.foxnav.data.Connectivity
@@ -12,7 +13,9 @@ import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.ValhallaRoutes
 import app.nullpointr.foxnav.shared.format.UnitSystem
 import app.nullpointr.foxnav.voice.effectiveLanguage
+import app.nullpointr.foxnav.data.PlaceStore
 import app.nullpointr.foxnav.data.RoadLookup
+import app.nullpointr.foxnav.data.TravelTimes
 import app.nullpointr.foxnav.location.liveLocationProvider
 import app.nullpointr.foxnav.settings.AlertSettings
 import app.nullpointr.foxnav.settings.ServerSettings
@@ -41,6 +44,12 @@ import uniffi.ferrostar.stepAdvanceDistanceEntryAndExit
 import uniffi.ferrostar.stepAdvanceDistanceToEndOfStep
 import java.time.Duration
 import java.util.UUID
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** App-wide objects, created once in [FoxNavApplication]. Small enough not to need a DI framework. */
 class AppGraph(private val context: Context) {
@@ -63,7 +72,7 @@ class AppGraph(private val context: Context) {
     val profiles = ProfileStore(context)
 
     /** The convoy we're in, if any; it shares positions from [locationProvider]. */
-    val convoy by lazy { ConvoyController(context, locationProvider, profiles, voice) }
+    val convoy by lazy { ConvoyController(context, locationProvider, profiles, voice, MusicSessions(context), settings.settings) }
 
     /** Where the user put the convoy tower on the map. */
     val towerPlacement = TowerPlacementStore(context)
@@ -105,11 +114,49 @@ class AppGraph(private val context: Context) {
 
     fun roadLookup(routing: ServiceEndpoint) = RoadLookup(httpClient, routing)
 
+    /** Travel times for the shortcuts; only Valhalla says them. */
+    fun travelTimes(routing: ServiceEndpoint): TravelTimes? = routing.takeIf { it.type == "valhalla" }?.let { TravelTimes(httpClient, it.url) }
+
+    /** Home, work, favourites and recent destinations. */
+    val places by lazy { PlaceStore(context) }
+
+    private var navigationCore: Pair<String, FerrostarCore>? = null
+
+    private val driveOwner = MutableStateFlow(0L)
+    private var lastDriveOwner = 0L
+
     /**
-     * A navigation core that routes with the server's Valhalla, in the guidance language and
-     * units of the settings at the time of each route.
+     * For a new drive screen's view model: a flow that turns true once a newer one takes over
+     * (another server's). The old one then stops its work, or its warnings would double up.
      */
+    @Synchronized
+    fun claimDrive(): Flow<Boolean> {
+        val me = ++lastDriveOwner
+        driveOwner.value = me
+        return driveOwner.map { it != me }
+    }
+
+    /**
+     * The navigation core, routing with the server's Valhalla in the guidance language and units
+     * of the settings at the time of each route.
+     *
+     * One for the app's life: the drive screen's view model goes when its activity does, but a
+     * trip under way carries on in the foreground service. Reopened, the screen picks that trip
+     * up again rather than starting a second core beside it, which would go on navigating and
+     * talking unseen. Only another server gets a new core, and the old one stops.
+     */
+    @Synchronized
     fun ferrostarCore(routing: ServiceEndpoint): FerrostarCore {
+        navigationCore?.let { (url, existing) ->
+            if (url == routing.url) return existing
+            existing.spokenInstructionObserver = null
+            existing.stopNavigation()
+            locationProvider.disableSimulation()
+        }
+        return newFerrostarCore(routing).also { navigationCore = routing.url to it }
+    }
+
+    private fun newFerrostarCore(routing: ServiceEndpoint): FerrostarCore {
         val routes = ValhallaRoutes(httpClient, routing.url.trimEnd('/') + "/route") {
             val current = settings.settings.value
             mapOf(
@@ -132,12 +179,23 @@ class AppGraph(private val context: Context) {
             ),
         ).also { core ->
             core.spokenInstructionObserver = guidanceVoice
-            // What the instruction being spoken is about, for voice packs: the current step's manoeuvre.
-            guidanceVoice.currentManeuver = {
-                val navigating = core.state.value.tripState as? TripState.Navigating
-                navigating?.remainingSteps?.firstOrNull()?.visualInstructions?.firstOrNull()?.primaryContent
+            // What an instruction is about, for voice packs: the manoeuvre of the route step it
+            // belongs to. Starting a trip (or after a new route), the core asks for the first
+            // instruction a moment before it says it's navigating that route: wait for it.
+            guidanceVoice.maneuverFor = { instruction ->
+                withTimeoutOrNull(STEP_LOOKUP_MS) {
+                    core.state
+                        .map { state ->
+                            (state.tripState as? TripState.Navigating)?.remainingSteps
+                                ?.firstOrNull { step -> step.spokenInstructions.any { it.utteranceId == instruction.utteranceId } }
+                        }
+                        .filterNotNull()
+                        .first()
+                }?.visualInstructions?.firstOrNull()?.primaryContent
                     ?.let { content -> content.maneuverType?.name?.let { it to content.maneuverModifier?.name } }
             }
         }
     }
 }
+
+private const val STEP_LOOKUP_MS = 500L

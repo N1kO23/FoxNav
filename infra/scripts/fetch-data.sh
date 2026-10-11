@@ -6,8 +6,8 @@
 #   photon/import.jsonl.zst            search index dump (GraphHopper)
 #   tiles/region.pmtiles               vector map tiles cut from the Protomaps planet build
 #   assets/fonts, assets/sprites       label fonts and map icons (Protomaps basemaps-assets)
-#   digiroad/<area>/                   Finland only: official speed limits from Digiroad
-#                                      (Väylävirasto, CC BY 4.0), via the FUNET mirror
+#   digiroad/<area>/                   Finland only: official speed limits from Digiroad, now
+#                                      Fintraffic's Digitraffic Road Network (CC BY 4.0)
 #
 # Usage: infra/scripts/fetch-data.sh [region]     regions: finland (default)
 set -euo pipefail
@@ -19,7 +19,7 @@ case "$REGION" in
         PBF_URL=https://download.geofabrik.de/europe/finland-latest.osm.pbf
         PHOTON_URL=https://download1.graphhopper.com/public/europe/finland/photon-dump-finland-1.0-latest.jsonl.zst
         BBOX=19.0,59.3,31.6,70.1
-        DIGIROAD=https://www.nic.funet.fi/index/geodata/vayla/digiroad
+        DIGIROAD=https://tie.digitraffic.fi/roadnetwork
         ;;
     *)
         echo "Unknown region '$REGION'. Known regions: finland" >&2
@@ -89,34 +89,33 @@ else
     cp -r "$TMP/assets/sprites/v4" "$DATA/assets/sprites/"
 fi
 
-# Official speed limits, which fill the roads OpenStreetMap has none for. Digiroad comes as
-# Shapefiles per area; only the two speed limit layers are needed (about 1 GB for Finland).
+# Official speed limits, ahead of OpenStreetMap's where both have one. Digiroad moved from
+# Väylävirasto to Fintraffic in 2026 (Digitraffic Road Network); its releases are zips per region,
+# half a gigabyte each, of which only the two speed limit layers are needed: zip-extract.py reads
+# just those with range requests (about 1 GB for Finland). A newer release replaces the old data,
+# and the packs are rebuilt from it.
 if [ -n "${DIGIROAD:-}" ]; then
-    if [ -f "$DATA/digiroad/.complete" ]; then
-        echo "✓ Digiroad speed limits already downloaded"
+    list() { curl -fsS --retry 3 "$DIGIROAD/?list-type=2&delimiter=/&prefix=$1"; }
+    # The newest release in the old Digiroad K format (digiroad/2026_02 and so on). Fintraffic's
+    # own format, under releases/ from 2027, needs its own reader.
+    RELEASE=$(list digiroad/ | grep -oE 'digiroad/[0-9]{4}_[0-9]{2}/' | sort -u | tail -1 | cut -d/ -f2)
+    if [ -z "$RELEASE" ]; then
+        echo "✗ no Digiroad release found at $DIGIROAD; speed limits stay as they were" >&2
+    elif [ "$(cat "$DATA/digiroad/.complete" 2>/dev/null)" = "$RELEASE" ]; then
+        echo "✓ Digiroad $RELEASE speed limits already downloaded"
     else
-        # The newest release year on the mirror that has the K format.
-        YEAR=$(curl -fsS "$DIGIROAD/" | grep -oE 'href="20[0-9]{2}/"' | grep -oE '20[0-9]{2}' | sort -r \
-            | while read -r year; do curl -fsS -o /dev/null "$DIGIROAD/$year/Digiroad_K/shp/" && { echo "$year"; break; }; done)
-        SHP="$DIGIROAD/$YEAR/Digiroad_K/shp"
-        echo "↓ Digiroad $YEAR speed limits"
-        for AREA in $(curl -fsS "$SHP/" | grep -oE 'href="[A-Z0-9_-]+/"' | grep -oE '[A-Z0-9_-]+' | sort -u); do
-            mkdir -p "$DATA/digiroad/$AREA"
-            for LAYER in DR_NOPEUSRAJOITUS_K DR_TALVINOPEUSRAJOITUS_K; do
-                for EXT in shp shx dbf prj cpg; do
-                    FILE="$DATA/digiroad/$AREA/$LAYER.$EXT"
-                    [ -f "$FILE" ] && continue
-                    # Not every area has every layer (Åland has no winter limits).
-                    if ! curl -fsL --retry 3 -o "$FILE.part" "$SHP/$AREA/$LAYER.$EXT"; then
-                        rm -f "$FILE.part"
-                        continue
-                    fi
-                    mv "$FILE.part" "$FILE"
-                done
-            done
-            echo "  ✓ $AREA"
+        echo "↓ Digiroad $RELEASE speed limits (Fintraffic)"
+        rm -rf "$DATA/digiroad.new"
+        mkdir -p "$DATA/digiroad.new"
+        for ZIP in $(list "digiroad/$RELEASE/Maakuntajako_digiroad_K/" | grep -oE '<Key>[^<]+\.zip</Key>' | sed -E 's|</?Key>||g'); do
+            python3 -I "$(dirname "$0")/zip-extract.py" "$DIGIROAD/$ZIP" "$DATA/digiroad.new" DR_NOPEUSRAJOITUS_K DR_TALVINOPEUSRAJOITUS_K
+            echo "  ✓ $(basename "$ZIP" .zip)"
         done
-        echo "$YEAR" > "$DATA/digiroad/.complete"
+        echo "$RELEASE" > "$DATA/digiroad.new/.complete"
+        rm -rf "$DATA/digiroad"
+        mv "$DATA/digiroad.new" "$DATA/digiroad"
+        # The packs were built from older limits.
+        rm -f "$DATA/datapacks/$COUNTRY/cameras.json"
     fi
 fi
 

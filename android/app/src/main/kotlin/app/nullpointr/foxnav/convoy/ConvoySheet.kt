@@ -88,6 +88,7 @@ import app.nullpointr.foxnav.ui.format.LocalUnits
 import app.nullpointr.foxnav.shared.convoy.Signal
 import app.nullpointr.foxnav.ui.components.HudLabel
 import app.nullpointr.foxnav.ui.components.JapaneseAccent
+import app.nullpointr.foxnav.protocol.convoy.v0.Profile
 
 /** A destination someone in the convoy shares, to navigate there too. */
 data class SharedDestination(val point: GeoPoint, val name: String, val by: String)
@@ -237,7 +238,11 @@ private fun InConvoy(
         }
     }
     val units = LocalUnits.current
-    val rows = towerRows(members, me, profile.colorRgb, carText(profile.carMake, profile.carModel), iAmOwner, ownerId, route = null, units = units, nowMs = now)
+    val myRole by convoy.myRole.collectAsState()
+    val settingsStore = LocalContext.current.appGraph.settings
+    val settings by settingsStore.settings.collectAsState()
+    var explainSharing by remember { mutableStateOf(false) }
+    val rows = towerRows(members, me, profile.colorRgb, carText(profile.carMake, profile.carModel), iAmOwner, myRole, ownerId, route = null, units = units, nowMs = now)
     val destination = sharedDestination(members, ownerId)
 
     ConvoyHeader()
@@ -259,6 +264,34 @@ private fun InConvoy(
         Box {
             SquareIconButton(FoxIcons.More, "More convoy options") { menu = true }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                // Each driver takes their own part; anyone may lead, or sweep at the back.
+                listOf(
+                    Profile.Role.ROLE_LEAD to "I'm leading the way",
+                    Profile.Role.ROLE_TAIL to "I'm last, sweeping up",
+                    Profile.Role.ROLE_UNSPECIFIED to "Just driving along",
+                ).forEach { (role, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        trailingIcon = { if (role == myRole) Icon(FoxIcons.AllGood, contentDescription = "Chosen", tint = colors.secondary) },
+                        onClick = { menu = false; convoy.setRole(role) },
+                    )
+                }
+                HorizontalDivider(color = colors.outline)
+                DropdownMenuItem(
+                    text = { Text("Share what I'm playing") },
+                    trailingIcon = { if (settings.shareNowPlaying) Icon(FoxIcons.AllGood, contentDescription = "On", tint = colors.secondary) },
+                    onClick = {
+                        menu = false
+                        if (settings.shareNowPlaying) {
+                            settingsStore.update { it.copy(shareNowPlaying = false) }
+                        } else if (convoy.music.hasAccess()) {
+                            settingsStore.update { it.copy(shareNowPlaying = true) }
+                        } else {
+                            explainSharing = true
+                        }
+                    },
+                )
+                HorizontalDivider(color = colors.outline)
                 DropdownMenuItem(text = { Text("Edit your name, car and colour") }, onClick = { menu = false; editingProfile = true })
                 if (iAmOwner && members.isNotEmpty()) {
                     DropdownMenuItem(text = { Text("Remove a driver") }, onClick = { menu = false; removeMode = true })
@@ -293,6 +326,8 @@ private fun InConvoy(
             }
         }
     }
+
+    NowPlayingCard(convoy, rows, members)
 
     // Alone so far: the invite is what's needed.
     if (members.isEmpty()) {
@@ -349,6 +384,26 @@ private fun InConvoy(
                 confirmButton = { TextButton(onClick = { showInvite = false }) { Text("Close") } },
             )
         }
+    }
+
+    if (explainSharing) {
+        AlertDialog(
+            onDismissRequest = { explainSharing = false },
+            title = { Text("Share what you're playing?") },
+            text = {
+                Text(
+                    "The convoy sees the song and artist your music app is playing, and can play it too. Android shows apps what's playing only with notification access: FoxNav uses it for that alone, and reads none of your notifications. Turn on FoxNav on the next page, then come back.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    explainSharing = false
+                    settingsStore.update { it.copy(shareNowPlaying = true) }
+                    convoy.music.requestAccess()
+                }) { Text("Continue") }
+            },
+            dismissButton = { TextButton(onClick = { explainSharing = false }) { Text("Not now") } },
+        )
     }
 
     removing?.let { member ->
@@ -412,7 +467,12 @@ private fun TowerListRow(position: Int, row: TowerRow, onRemove: (() -> Unit)?) 
         Column(Modifier.weight(1f).padding(start = 12.dp, top = 6.dp, bottom = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(row.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (row.isOwner) TowerBadge("OWNER", colors.secondary, filled = false)
+                when (row.role) {
+                    Profile.Role.ROLE_LEAD -> TowerBadge("LEAD", colors.secondary, filled = false)
+                    Profile.Role.ROLE_TAIL -> TowerBadge("TAIL", colors.onSurfaceVariant, filled = false)
+                    else -> Unit
+                }
+                if (row.isOwner) TowerBadge("OWNER", colors.onSurfaceVariant, filled = false)
                 if (stopped) TowerBadge("STOPPED", colors.tertiary, filled = true)
             }
             val note = when {
@@ -473,6 +533,47 @@ private fun TowerBadge(text: String, color: Color, filled: Boolean) {
         letterSpacing = 0.9.sp,
         color = if (filled) MaterialTheme.colorScheme.onTertiary else color,
     )
+}
+
+/**
+ * What another car is playing, as in the mockup, with "Play along": the leader's if they share
+ * it, else whoever does.
+ */
+@Composable
+private fun NowPlayingCard(convoy: ConvoyController, rows: List<TowerRow>, members: Map<Long, ConvoyMember>) {
+    val colors = MaterialTheme.colorScheme
+    val playingAlongWith by convoy.playingAlongWith.collectAsState()
+    val sharing = rows.filter { !it.isMe && members[it.key]?.nowPlaying != null }
+    val row = sharing.firstOrNull { it.role == Profile.Role.ROLE_LEAD } ?: sharing.firstOrNull() ?: return
+    val track = members[row.key]?.nowPlaying ?: return
+    val following = playingAlongWith == row.key
+    Surface(shape = RoundedCornerShape(16.dp), color = colors.surface, border = BorderStroke(1.dp, colors.outline)) {
+        Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(44.dp).background(colors.secondary.copy(alpha = 0.14f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                Icon(FoxIcons.Music, contentDescription = null, tint = colors.secondary, modifier = Modifier.size(22.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Text(track.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val by = listOf(track.artist, "${row.name} is playing").filter { it.isNotBlank() }.joinToString(" \u00b7 ")
+                    Text(by, Modifier.weight(1f, fill = false), fontSize = 12.sp, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    JapaneseAccent("再生中", fontSize = 12.sp)
+                }
+            }
+            Surface(
+                onClick = { if (following) convoy.stopPlayingAlong() else convoy.playAlong(row.key) },
+                modifier = Modifier.heightIn(min = 44.dp),
+                shape = RoundedCornerShape(22.dp),
+                color = if (following) colors.secondary else Color.Transparent,
+                contentColor = if (following) colors.onSecondary else colors.secondary,
+                border = BorderStroke(1.dp, colors.secondary),
+            ) {
+                Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                    Text(if (following) "Playing along" else "Play along", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
+                }
+            }
+        }
+    }
 }
 
 private class QuickItem(val label: String, val icon: ImageVector, val tint: Color, val japanese: String?, val onClick: () -> Unit)

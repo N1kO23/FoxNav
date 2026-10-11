@@ -51,6 +51,9 @@ data class Settings(
     val announcements: Announcements = Announcements.FULL,
     /** The ID of a voice pack; empty speaks with the phone's text-to-speech. */
     val voicePack: String = "",
+    // Convoy
+    /** Tell the convoy what the car's music is playing (needs notification access). */
+    val shareNowPlaying: Boolean = false,
 )
 
 /** [Settings], kept on the phone. */
@@ -84,6 +87,7 @@ class UserSettings(context: Context) {
             speechRate = getFloat("speech_rate", defaults.speechRate),
             announcements = enum("announcements", defaults.announcements),
             voicePack = getString("voice_pack", null) ?: defaults.voicePack,
+            shareNowPlaying = getBoolean("share_now_playing", defaults.shareNowPlaying),
         )
     }
 
@@ -104,6 +108,7 @@ class UserSettings(context: Context) {
         putFloat("speech_rate", settings.speechRate)
         putString("announcements", settings.announcements.name)
         putString("voice_pack", settings.voicePack)
+        putBoolean("share_now_playing", settings.shareNowPlaying)
     }
 
     private inline fun <reified T : Enum<T>> SharedPreferences.enum(key: String, default: T): T =

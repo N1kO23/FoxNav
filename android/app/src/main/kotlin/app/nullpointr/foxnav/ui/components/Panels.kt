@@ -29,10 +29,16 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import app.nullpointr.foxnav.ui.LocalCompact
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 import app.nullpointr.foxnav.ui.theme.LocalNight
 
@@ -40,17 +46,43 @@ import app.nullpointr.foxnav.ui.theme.LocalNight
  * The bottom panel as the mockups draw it: docked to the screen's bottom edge, rounded at the
  * top, a hairline along the top edge, and the ground colour just see-through enough to hint at
  * the map. It reaches under the navigation bar, with its content above it.
+ *
+ * Not [docked] (the side column of wide windows), it floats instead: rounded all round, with a
+ * hairline all round, clear of the screen's edges.
  */
 @Composable
-fun DockedPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun BottomPanel(modifier: Modifier = Modifier, docked: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Surface(
-        modifier = modifier.fillMaxWidth().topHairline(colors.outline, PANEL_RADIUS),
-        shape = RoundedCornerShape(topStart = PANEL_RADIUS, topEnd = PANEL_RADIUS),
-        color = colors.background.copy(alpha = if (LocalNight.current) 0.94f else 0.96f),
-    ) {
-        Column(Modifier.navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), content = content)
+    val color = colors.background.copy(alpha = if (LocalNight.current) 0.94f else 0.96f)
+    if (docked) {
+        Surface(
+            modifier = modifier.fillMaxWidth().topHairline(colors.outline, PANEL_RADIUS),
+            shape = RoundedCornerShape(topStart = PANEL_RADIUS, topEnd = PANEL_RADIUS),
+            color = color,
+        ) {
+            PanelContent(Modifier.navigationBarsPadding(), content)
+        }
+    } else {
+        Surface(
+            modifier = modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(PANEL_RADIUS),
+            color = color,
+            border = BorderStroke(1.dp, colors.outline),
+        ) {
+            PanelContent(Modifier, content)
+        }
     }
+}
+
+/** The panel's content, scrolling if the window is too short for it all (a route preview on a phone on its side). */
+@Composable
+private fun PanelContent(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val compact = LocalCompact.current
+    Column(
+        modifier.verticalScroll(rememberScrollState()).padding(if (compact) 12.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
+        content = content,
+    )
 }
 
 /** A 1 dp line along the rounded top edge only: the panel's sides and bottom are the screen's. */
@@ -83,7 +115,8 @@ fun RowScope.PanelAction(
     val colors = MaterialTheme.colorScheme
     Surface(
         onClick = onClick,
-        modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+        // Named here: with large text on a narrow screen, the label gives way to the icon.
+        modifier = Modifier.weight(1f).heightIn(min = if (LocalCompact.current) 46.dp else 56.dp).semantics { contentDescription = label },
         shape = RoundedCornerShape(16.dp),
         color = if (brand) colors.primary else colors.surface,
         contentColor = if (brand) colors.onPrimary else colors.onSurface,
@@ -91,7 +124,7 @@ fun RowScope.PanelAction(
     ) {
         Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(iconSize))
-            Text(label, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, Modifier.weight(1f, fill = false).clearAndSetSemantics { }.wholeOrNothing(), fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1)
             badge?.let { CountBadge(it) }
         }
     }

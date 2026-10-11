@@ -1,4 +1,9 @@
-"""Official Finnish speed limits from Digiroad (Väylävirasto, CC BY 4.0), matched to OpenStreetMap ways.
+"""Official Finnish speed limits from Digiroad, matched to OpenStreetMap ways.
+
+Digiroad, the national road and street database, moved from Väylävirasto to Fintraffic on
+1 January 2026 and becomes Digitraffic Road Network: Fintraffic publishes it (CC BY 4.0) at
+https://tie.digitraffic.fi/roadnetwork/. The road authorities keep its limits up to date, winter
+limits included, so they win over OpenStreetMap's where the two disagree (build.py --prefer).
 
 Digiroad has a limit for nearly every public road and street in Finland; OpenStreetMap has one for
 about half of them. Digiroad's segments don't share geometry or IDs with OpenStreetMap, so each way
@@ -24,7 +29,8 @@ import shapely
 import shapely.ops
 from pyproj import Transformer
 
-ATTRIBUTION = "speed limits from Digiroad © Väylävirasto, CC BY 4.0"
+# Fintraffic asks for the source, the licence and a note that the data was changed (here: matched to OpenStreetMap).
+ATTRIBUTION = "speed limits from Digiroad (Digitraffic Road Network) © Fintraffic, CC BY 4.0, matched to OpenStreetMap"
 
 LIMITS = "DR_NOPEUSRAJOITUS_K"
 WINTER_LIMITS = "DR_TALVINOPEUSRAJOITUS_K"

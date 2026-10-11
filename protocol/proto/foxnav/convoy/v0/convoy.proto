@@ -166,8 +166,9 @@ message ConvoyPayload {
 // latest STATE payload for people who join later, so it must be complete on its own.
 message MemberState {
   Profile profile = 1;
-  Position position = 2; // absent until the first GPS fix
-  RouteShare route = 3;  // a shared destination, usually only the leader's
+  Position position = 2;      // absent until the first GPS fix
+  RouteShare route = 3;       // a shared destination, usually only the leader's
+  NowPlaying now_playing = 4; // absent unless the member chooses to share it
 }
 
 message Position {
@@ -180,9 +181,23 @@ message Position {
 }
 
 message Profile {
+  // A part in the convoy that a member takes on themselves; anyone may, and more than one may.
+  enum Role {
+    ROLE_UNSPECIFIED = 0; // just driving along
+    ROLE_LEAD = 1;        // leads the way: the others follow
+    ROLE_TAIL = 2;        // sweeps up at the back: nobody gets left behind
+  }
   string display_name = 1;
   Car car = 2;
   bool watching = 3; // follows the convoy (say, from a browser) without sharing a position
+  Role role = 4;
+}
+
+// What the member's car stereo is playing, for the others to play along in their own music app.
+message NowPlaying {
+  string title = 1;
+  string artist = 2;
+  string app = 3; // the music app's name, like "Spotify"
 }
 
 message Car {

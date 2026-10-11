@@ -12,12 +12,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.layout.onSizeChanged
 import kotlin.time.Duration.Companion.milliseconds
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
+import app.nullpointr.foxnav.ui.LocalCompact
+import app.nullpointr.foxnav.ui.rememberWindowLayout
+import androidx.compose.runtime.CompositionLocalProvider
 import com.stadiamaps.ferrostar.composeui.theme.DefaultNavigationUITheme
 import com.stadiamaps.ferrostar.composeui.theme.InstructionRowTheme
 import com.stadiamaps.ferrostar.composeui.theme.NavigationUITheme
@@ -91,6 +96,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
     val mapCredits = rememberMapCredits(styleUrl)
     val uiState by viewModel.navigationUiState.collectAsState()
     val density = LocalDensity.current
+    val layout = rememberWindowLayout()
     var screenHeight by remember { mutableIntStateOf(0) }
     // A little further out than Ferrostar's default while browsing, so free drive shows the road ahead.
     val cameraOptions = navigationCameraOptions().let { defaults ->
@@ -100,7 +106,15 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         // navigating; with this much already, it adds nothing, so its options and ours agree.
         val navigating = uiState.isNavigating()
         val panelTop = if (navigating) panels.navigation.bottom else panels.freeDrive.bottom
-        if (screenHeight == 0 || panelTop.isInfinite()) {
+        if (layout.side) {
+            // The side column covers the left: the car drives in the map right of it.
+            val beside = layout.columnWidth + 24.dp
+            val below = if (navigating) ROAD_NAME_ROOM else 0.dp
+            tilted.copy(
+                browsingPadding = PaddingValues(start = beside),
+                navigationPadding = PaddingValues(start = beside, top = layout.height * 0.5f, bottom = below),
+            )
+        } else if (screenHeight == 0 || panelTop.isInfinite()) {
             tilted
         } else {
             val height = with(density) { screenHeight.toDp() }
@@ -126,7 +140,12 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
     // Frame the selected route while previewing.
     LaunchedEffect(preview?.selectedRoute) {
         preview?.selectedRoute?.geometry?.boundingBox()?.let { bounds ->
-            navigationMapState.showRouteOverview(bounds, PaddingValues(start = 48.dp, end = 48.dp, top = 120.dp, bottom = 360.dp))
+            val padding = if (layout.side) {
+                PaddingValues(start = layout.columnWidth + 48.dp, end = 72.dp, top = 48.dp, bottom = 48.dp)
+            } else {
+                PaddingValues(start = 48.dp, end = 48.dp, top = 120.dp, bottom = 360.dp)
+            }
+            navigationMapState.showRouteOverview(bounds, padding)
         }
     }
 
@@ -152,86 +171,94 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         if (camera.position.padding != padding) camera.animateTo(camera.position.copy(padding = padding), duration = 300.milliseconds)
     }
 
-    Box(Modifier.fillMaxSize().onSizeChanged { screenHeight = it.height }) {
-        DynamicallyOrientingNavigationView(
-            modifier = Modifier.fillMaxSize(),
-            baseStyle = BaseStyle.Uri(styleUrl),
-            navigationMapState = navigationMapState,
-            navigationCameraOptions = cameraOptions,
-            viewModel = rememberGlidingViewModel(viewModel),
-            // Our own car (MyCarLayer) instead of Ferrostar's puck.
-            showDefaultPuck = false,
-            // Our own map buttons (MapControls) instead of Ferrostar's.
-            theme = WithoutFerrostarButtons,
-            config = VisualNavigationViewConfig(showMute = false, showZoom = false, showRecenter = false),
-            views = NavigationViewComponentBuilder.Default()
-                .withInstructionsView { modifier, state ->
-                    ManeuverCard(state, modifier.topPanelOf(panels.navigation)) { RoadWarnings(viewModel) }
-                }
-                .withProgressView { modifier, _, _ ->
-                    Spacer(modifier.fillMaxWidth().height(with(density) { (drivePanelHeight - navigationBar).coerceAtLeast(0).toDp() }))
-                }
-                .withRoadNameView { modifier, roadName, _ ->
-                    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ReportStack(viewModel)
-                        RoadNamePill(roadName)
+    CompositionLocalProvider(LocalCompact provides layout.compact) {
+        Box(Modifier.fillMaxSize().onSizeChanged { screenHeight = it.height }) {
+            DynamicallyOrientingNavigationView(
+                modifier = Modifier.fillMaxSize(),
+                baseStyle = BaseStyle.Uri(styleUrl),
+                navigationMapState = navigationMapState,
+                navigationCameraOptions = cameraOptions,
+                viewModel = rememberGlidingViewModel(viewModel),
+                // Our own car (MyCarLayer) instead of Ferrostar's puck.
+                showDefaultPuck = false,
+                // Our own map buttons (MapControls) instead of Ferrostar's.
+                theme = WithoutFerrostarButtons,
+                config = VisualNavigationViewConfig(showMute = false, showZoom = false, showRecenter = false),
+                views = NavigationViewComponentBuilder.Default()
+                    .withInstructionsView { modifier, state ->
+                        ManeuverCard(state, modifier.topPanelOf(panels.navigation), maxWidth = if (layout.side) layout.columnWidth else Dp.Unspecified) {
+                            RoadWarnings(viewModel)
+                        }
                     }
+                    .withProgressView { modifier, _, _ ->
+                        Spacer(modifier.fillMaxWidth().height(with(density) { (drivePanelHeight - navigationBar).coerceAtLeast(0).toDp() }))
+                    }
+                    .withRoadNameView { modifier, roadName, _ ->
+                        // In the open map: right of the side column when Ferrostar spans the screen with it.
+                        val beside = if (layout.side && !layout.ferrostarLandscape) layout.columnWidth + 12.dp else 0.dp
+                        Column(modifier.padding(start = beside), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ReportStack(viewModel)
+                            RoadNamePill(roadName)
+                        }
+                    },
+                routeOverlayBuilder = RouteOverlayBuilder(
+                    navigationPath = { state -> state.routeGeometry?.let { NavigationRoute(it) } },
+                ),
+                onTapExit = { viewModel.stopNavigation() },
+                onMapLongClick = { position, _ ->
+                    viewModel.preview(Place(title = "Dropped pin", detail = "", latitude = position.lat, longitude = position.lng))
+                    NavigationMapClickResult.Consume
                 },
-            routeOverlayBuilder = RouteOverlayBuilder(
-                navigationPath = { state -> state.routeGeometry?.let { NavigationRoute(it) } },
-            ),
-            onTapExit = { viewModel.stopNavigation() },
-            onMapLongClick = { position, _ ->
-                viewModel.preview(Place(title = "Dropped pin", detail = "", latitude = position.lat, longitude = position.lng))
-                NavigationMapClickResult.Consume
-            },
-            // The credits are our own tag on the panels (MapCreditTag), where they don't cover the map's controls.
-            mapOptions = MapOptions(ornamentOptions = OrnamentOptions(isCompassEnabled = false, isScaleBarEnabled = false, isLogoEnabled = false, isAttributionEnabled = false)),
-        ) { state ->
-            if (!state.isNavigating()) RoutePreviewLayers(preview)
-            ReportLayers(reports)
-            CameraLayers(cameras)
-            ConvoyLayers(convoyMembers, regroupPoint)
-            MyCarLayer(rememberShownLocation(state), profile.colorRgb, profile.bodyStyle)
-        }
+                // The credits are our own tag on the panels (MapCreditTag), where they don't cover the map's controls.
+                mapOptions = MapOptions(ornamentOptions = OrnamentOptions(isCompassEnabled = false, isScaleBarEnabled = false, isLogoEnabled = false, isAttributionEnabled = false)),
+            ) { state ->
+                if (!state.isNavigating()) RoutePreviewLayers(preview)
+                ReportLayers(reports)
+                CameraLayers(cameras)
+                ConvoyLayers(convoyMembers, regroupPoint)
+                MyCarLayer(rememberShownLocation(state), profile.colorRgb, profile.bodyStyle)
+            }
 
-        if (uiState.isNavigating()) {
-            val speed by viewModel.speed.collectAsState()
-            NavigationOverlay(
-                uiState,
-                speed,
-                navigationMapState,
-                panels.navigation,
-                mapCredits,
-                convoySize = convoySize,
-                onToggleMute = viewModel::toggleMute,
-                onConvoy = { showConvoy = true },
-                onReport = if (viewModel.canReport) ({ showReport = true }) else null,
-                onEnd = viewModel::stopNavigation,
-                onPanelHeight = { drivePanelHeight = it },
-            )
-        } else {
-            FreeDriveOverlay(
-                viewModel,
-                document,
-                navigationMapState,
-                panels.freeDrive,
-                mapCredits,
-                convoySize = convoySize,
-                onOpenConvoy = { showConvoy = true },
-                onOpenReport = { showReport = true },
+            if (uiState.isNavigating()) {
+                val speed by viewModel.speed.collectAsState()
+                NavigationOverlay(
+                    uiState,
+                    speed,
+                    navigationMapState,
+                    panels.navigation,
+                    layout,
+                    mapCredits,
+                    convoySize = convoySize,
+                    onToggleMute = viewModel::toggleMute,
+                    onConvoy = { showConvoy = true },
+                    onReport = if (viewModel.canReport) ({ showReport = true }) else null,
+                    onEnd = viewModel::stopNavigation,
+                    onPanelHeight = { drivePanelHeight = it },
+                )
+            } else {
+                FreeDriveOverlay(
+                    viewModel,
+                    document,
+                    navigationMapState,
+                    panels.freeDrive,
+                    layout,
+                    mapCredits,
+                    convoySize = convoySize,
+                    onOpenConvoy = { showConvoy = true },
+                    onOpenReport = { showReport = true },
+                )
+            }
+            val route = remember(uiState.routeGeometry) { uiState.routeGeometry?.map { GeoPoint(it.lat, it.lng) } }
+            ConvoyOverlay(
+                convoy = convoy,
+                placements = graph.towerPlacement,
+                panels = panels.of(navigating = uiState.isNavigating()),
+                // Out of the way of search results.
+                hidden = query.isNotEmpty() && !uiState.isNavigating(),
+                route = route,
+                onOpen = { showConvoy = true },
             )
         }
-        val route = remember(uiState.routeGeometry) { uiState.routeGeometry?.map { GeoPoint(it.lat, it.lng) } }
-        ConvoyOverlay(
-            convoy = convoy,
-            placements = graph.towerPlacement,
-            panels = panels.of(navigating = uiState.isNavigating()),
-            // Out of the way of search results.
-            hidden = query.isNotEmpty() && !uiState.isNavigating(),
-            route = route,
-            onOpen = { showConvoy = true },
-        )
     }
 
     if (showReport) {

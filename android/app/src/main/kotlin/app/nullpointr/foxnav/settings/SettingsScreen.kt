@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -69,16 +70,19 @@ fun SettingsScreen(onClose: () -> Unit, content: @Composable SettingsScope.() ->
             }
         }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onClose) { Icon(FoxIcons.Back, contentDescription = "Back") }
-                    Text("Settings", style = MaterialTheme.typography.titleLarge)
-                }
-                Column(
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 32.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    SettingsScope.content()
+            // On a tablet or a phone on its side, a column of readable width rather than lines across the screen.
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                Column(Modifier.widthIn(max = 640.dp).fillMaxSize().safeDrawingPadding()) {
+                    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onClose) { Icon(FoxIcons.Back, contentDescription = "Back") }
+                        Text("Settings", style = MaterialTheme.typography.titleLarge)
+                    }
+                    Column(
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 32.dp),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        SettingsScope.content()
+                    }
                 }
             }
         }

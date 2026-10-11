@@ -93,6 +93,7 @@ Spoken alone ("Speed camera") or followed by a distance ("Speed camera" + "In 40
 | `accident` | Accident |
 | `hazard` | Hazard |
 | `stopped_vehicle` | Stopped vehicle |
+| `roadworks` | Roadworks |
 | `slippery_road` | Slippery road |
 | `animal` | Animal on the road |
 | `road_closed` | Road closed |

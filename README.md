@@ -3,13 +3,14 @@
 Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras, and **live convoys** where you see your friends' cars and speeds on the map as you drive. Open source, built on OpenStreetMap, and you can run your own server.
 
 > **Status:** early development. Against the local backend, the Android app does:
-> - free drive with speed limits, including winter limits, and official limits from Digiroad where OpenStreetMap has none;
+> - free drive with speed limits, including winter limits: Finland's official ones (Digiroad, from Fintraffic) first, OpenStreetMap's elsewhere;
 > - offline map areas, and starting without a connection;
 > - settings for units, warnings, the over-limit sound, voice, map behaviour and looks, and your car's shape on the map;
 > - voice packs: recorded in the app or made from audio files, shared as zip files;
-> - search and route alternatives;
+> - search and route alternatives, home, work and favourites with travel times, and recent destinations;
 > - turn-by-turn with voice;
-> - convoys: live cars and speeds, invite links and QR codes, quick messages and a shared destination, and following a convoy from any browser;
+> - convoys: live cars and speeds, invite links and QR codes, quick messages, a shared destination, lead and tail roles, sharing and playing along to each other's music, and following a convoy from any browser;
+> - phones, landscape and tablets, from 360 dp wide, with large text;
 > - speed camera warnings, from OpenStreetMap;
 > - reports (police, accidents, roadworks, moose…) with spoken warnings and "still there?" votes, seeded from Fintraffic in Finland.
 >

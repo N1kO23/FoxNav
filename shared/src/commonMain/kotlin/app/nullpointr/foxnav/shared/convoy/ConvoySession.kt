@@ -10,6 +10,7 @@ import app.nullpointr.foxnav.protocol.convoy.v0.Joined
 import app.nullpointr.foxnav.protocol.convoy.v0.KeyRotation
 import app.nullpointr.foxnav.protocol.convoy.v0.LeaveConvoy
 import app.nullpointr.foxnav.protocol.convoy.v0.MemberState
+import app.nullpointr.foxnav.protocol.convoy.v0.NowPlaying
 import app.nullpointr.foxnav.protocol.convoy.v0.Ping
 import app.nullpointr.foxnav.protocol.convoy.v0.Position
 import app.nullpointr.foxnav.protocol.convoy.v0.Profile
@@ -71,6 +72,8 @@ data class ConvoyMember(
     val fix: Fix? = null,
     /** The destination and via points they share, if any. */
     val route: RouteShare? = null,
+    /** What their music is playing, if they share it. */
+    val nowPlaying: NowPlaying? = null,
     /** When they last sent their state (our clock, Unix ms); null until the first one. */
     val lastHeardMs: Long? = null,
 )
@@ -556,12 +559,12 @@ internal fun ConvoyMember.withState(state: MemberState?, heardMs: Long): ConvoyM
     if (state == null) return this
     val position = state.position
     if (position != null && fix != null && position.fix_time_ms < fix.timeMs) return this
-    return copy(profile = state.profile ?: profile, fix = position?.toFix() ?: fix, route = state.route, lastHeardMs = heardMs)
+    return copy(profile = state.profile ?: profile, fix = position?.toFix() ?: fix, route = state.route, nowPlaying = state.now_playing, lastHeardMs = heardMs)
 }
 
 /** Our state as the others see it. [fix] is null until we have a GPS fix. */
-fun memberState(profile: Profile, fix: Fix?, route: RouteShare? = null) =
-    MemberState(profile = profile, position = fix?.toPosition(), route = route)
+fun memberState(profile: Profile, fix: Fix?, route: RouteShare? = null, nowPlaying: NowPlaying? = null) =
+    MemberState(profile = profile, position = fix?.toPosition(), route = route, now_playing = nowPlaying)
 
 fun Position.toFix() = Fix(GeoPoint(lat_e7 / 1e7, lon_e7 / 1e7), speed_mps.toDouble(), heading_deg.toDouble(), fix_time_ms)
 

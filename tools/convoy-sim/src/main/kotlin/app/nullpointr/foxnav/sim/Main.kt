@@ -1,6 +1,7 @@
 package app.nullpointr.foxnav.sim
 
 import app.nullpointr.foxnav.protocol.convoy.v0.Car
+import app.nullpointr.foxnav.protocol.convoy.v0.NowPlaying
 import app.nullpointr.foxnav.protocol.convoy.v0.Profile
 import app.nullpointr.foxnav.protocol.convoy.v0.QuickMessage
 import app.nullpointr.foxnav.shared.convoy.ConvoyEvent
@@ -67,6 +68,8 @@ Bots that join a FoxNav convoy and drive one behind the other, for testing convo
   --kmh N             Cruising speed (default 60); each bot varies it a little.
   --spacing M         Metres between bots (default 150).
   --chatty            Send a random quick message every minute or so.
+  --roles             The bot in front leads and the one at the back sweeps up (LEAD, TAIL).
+  --music "TITLE/ARTIST"  The bot in front shares that it's playing this song.
   --minutes N         Leave after N minutes (default: run until Ctrl+C).
 """
 
@@ -82,6 +85,8 @@ data class Options(
     val kmh: Double = 60.0,
     val spacingM: Double = 150.0,
     val chatty: Boolean = false,
+    val roles: Boolean = false,
+    val music: NowPlaying? = null,
     val minutes: Double? = null,
 ) {
     companion object {
@@ -105,6 +110,10 @@ data class Options(
                     "--kmh" -> options = options.copy(kmh = number(flag))
                     "--spacing" -> options = options.copy(spacingM = number(flag))
                     "--chatty" -> options = options.copy(chatty = true)
+                    "--roles" -> options = options.copy(roles = true)
+                    "--music" -> options = options.copy(
+                        music = value(flag).split('/', limit = 2).let { NowPlaying(title = it[0].trim(), artist = it.getOrElse(1) { "" }.trim(), app = "convoy-sim") },
+                    )
                     "--minutes" -> options = options.copy(minutes = number(flag))
                     "--help", "-h" -> throw IllegalArgumentException("")
                     else -> throw IllegalArgumentException("Unknown option $flag")
@@ -155,7 +164,15 @@ class Simulation(private val options: Options) {
         fun newBot(start: ConvoySession.Start): Bot {
             val session = ConvoySession(http, realtime, start, this, System::currentTimeMillis, clientName = "FoxNav convoy-sim")
             // The first bot leads: it starts furthest along the track.
-            return Bot(bots.size, session, track, startDistance = (options.bots - 1 - bots.size) * options.spacingM, options.kmh)
+            // The first bot starts furthest along: it's in front.
+            val index = bots.size
+            val role = when {
+                !options.roles -> Profile.Role.ROLE_UNSPECIFIED
+                index == 0 -> Profile.Role.ROLE_LEAD
+                index == options.bots - 1 -> Profile.Role.ROLE_TAIL
+                else -> Profile.Role.ROLE_UNSPECIFIED
+            }
+            return Bot(index, session, track, startDistance = (options.bots - 1 - index) * options.spacingM, options.kmh, role, options.music.takeIf { index == 0 })
                 .also { bots += it }
         }
 
@@ -270,9 +287,17 @@ class Simulation(private val options: Options) {
 }
 
 /** One bot: a convoy member driving along [track]. */
-class Bot(index: Int, val session: ConvoySession, private val track: Track, startDistance: Double, private val kmh: Double) {
+class Bot(
+    index: Int,
+    val session: ConvoySession,
+    private val track: Track,
+    startDistance: Double,
+    private val kmh: Double,
+    role: Profile.Role = Profile.Role.ROLE_UNSPECIFIED,
+    private val music: NowPlaying? = null,
+) {
     val name: String = NAMES[index % NAMES.size] + if (index >= NAMES.size) " ${index / NAMES.size + 1}" else ""
-    private val profile = Profile(display_name = name, car = CARS[index % CARS.size].copy(color_rgb = PALETTE[index % PALETTE.size]))
+    private val profile = Profile(display_name = name, car = CARS[index % CARS.size].copy(color_rgb = PALETTE[index % PALETTE.size]), role = role)
     private var distance = startDistance
     private var job: Job? = null
 
@@ -319,7 +344,7 @@ class Bot(index: Int, val session: ConvoySession, private val track: Track, star
                 last = now
                 val current = track.poseAt(distance)
                 pose = current
-                session.updateState(memberState(profile, Fix(current.point, speed, current.headingDeg, now)))
+                session.updateState(memberState(profile, Fix(current.point, speed, current.headingDeg, now), nowPlaying = music))
                 delay(1_000)
             }
         }

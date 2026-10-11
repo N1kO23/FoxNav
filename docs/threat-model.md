@@ -5,7 +5,8 @@ What convoy encryption ([ADR 0003](adr/0003-convoy-encryption.md), [spec §2.3](
 ## What's at stake
 
 - Live position and speed of each member.
-- Who they are: display name and car.
+- Who they are: display name and car, and the role they took on (leading, at the back).
+- What their music is playing, for members who choose to share it.
 - Where the convoy is going: the shared route and regroup pins.
 - Who is driving with whom.
 

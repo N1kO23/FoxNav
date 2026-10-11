@@ -56,6 +56,15 @@
             android:name=".convoy.ConvoyService"
             android:exported="false"
             android:foregroundServiceType="location" />
+        <!-- Lets FoxNav see what music apps play, for sharing it in a convoy. It reads no notifications. -->
+        <service
+            android:name=".convoy.NowPlayingListener"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 
     <!-- Lets the app find the text-to-speech engine and, for search by voice, a speech recogniser on Android 11+. -->

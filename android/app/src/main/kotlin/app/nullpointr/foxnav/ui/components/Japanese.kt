@@ -6,6 +6,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.FirstBaseline
+import androidx.compose.ui.layout.LastBaseline
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
@@ -38,10 +43,25 @@ fun JapaneseAccent(
     if (!LocalJapaneseAccents.current) return
     Text(
         text,
-        modifier.clearAndSetSemantics { },
+        modifier.clearAndSetSemantics { }.wholeOrNothing(),
         style = TextStyle(localeList = JAPANESE, fontSize = fontSize, fontWeight = FontWeight.Normal, letterSpacing = letterSpacing, color = if (color == Color.Unspecified) LocalContentColor.current else color),
         maxLines = 1,
     )
+}
+
+/**
+ * Measured at its natural width, and shown only if that fits: where room runs out (a narrow
+ * phone, large text), an accent steps aside rather than squeezing or clipping the English, and a
+ * button's label leaves its icon to speak for it.
+ */
+internal fun Modifier.wholeOrNothing() = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints.copy(minWidth = 0, maxWidth = Constraints.Infinity))
+    if (placeable.width > constraints.maxWidth) {
+        layout(0, 0) {}
+    } else {
+        val lines: Map<AlignmentLine, Int> = listOf<AlignmentLine>(FirstBaseline, LastBaseline).associateWith { placeable[it] }.filterValues { it != AlignmentLine.Unspecified }
+        layout(placeable.width, placeable.height, lines) { placeable.place(0, 0) }
+    }
 }
 
 /** The car-navi way of saying a manoeuvre's direction, like 右方向 ("to the right"); null where there's none. */

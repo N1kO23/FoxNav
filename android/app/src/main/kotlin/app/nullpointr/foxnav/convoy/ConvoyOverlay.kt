@@ -1,5 +1,7 @@
 package app.nullpointr.foxnav.convoy
 
+import app.nullpointr.foxnav.protocol.convoy.v0.Profile
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
@@ -216,6 +218,7 @@ internal data class TowerRow(
     val isOwner: Boolean = false,
     /** Seconds since we last heard from them; null for us and those not heard from yet. */
     val silentS: Long? = null,
+    val role: Profile.Role = Profile.Role.ROLE_UNSPECIFIED,
 )
 
 /**
@@ -228,12 +231,13 @@ internal fun towerRows(
     myColorRgb: Int,
     myCar: String,
     iAmOwner: Boolean,
+    myRole: Profile.Role,
     ownerId: Long?,
     route: List<GeoPoint>?,
     units: UnitSystem,
     nowMs: Long,
 ): List<TowerRow> = buildList {
-    add(TowerRow(key = -1, name = "You", colorRgb = myColorRgb, offsetM = 0.0, speed = me?.let { speedIn(it.speedMps, units) }, signal = Signal.LIVE, isMe = true, car = myCar, isOwner = iAmOwner))
+    add(TowerRow(key = -1, name = "You", colorRgb = myColorRgb, offsetM = 0.0, speed = me?.let { speedIn(it.speedMps, units) }, signal = Signal.LIVE, isMe = true, car = myCar, isOwner = iAmOwner, role = myRole))
     for (member in members.values) {
         val fix = member.fix
         val car = member.profile?.car
@@ -249,6 +253,7 @@ internal fun towerRows(
                 car = listOfNotNull(car?.make, car?.model).filter { it.isNotBlank() }.joinToString(" "),
                 isOwner = member.id == ownerId,
                 silentS = member.lastHeardMs?.let { (nowMs - it) / 1000 },
+                role = member.profile?.role ?: Profile.Role.ROLE_UNSPECIFIED,
             ),
         )
     }
@@ -279,7 +284,7 @@ private fun TimingTower(
         }
     }
 
-    val rows = towerRows(members, me, myColorRgb, myCar = "", iAmOwner = false, ownerId = null, route = route, units = LocalUnits.current, nowMs = now)
+    val rows = towerRows(members, me, myColorRgb, myCar = "", iAmOwner = false, myRole = Profile.Role.ROLE_UNSPECIFIED, ownerId = null, route = route, units = LocalUnits.current, nowMs = now)
 
     Surface(
         onClick = onClick,

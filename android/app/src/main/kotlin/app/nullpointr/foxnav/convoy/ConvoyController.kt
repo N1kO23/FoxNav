@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package app.nullpointr.foxnav.convoy
 
 import android.Manifest
@@ -49,6 +51,14 @@ import kotlinx.coroutines.launch
 import uniffi.ferrostar.SpokenInstruction
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import app.nullpointr.foxnav.protocol.convoy.v0.Profile
+import app.nullpointr.foxnav.settings.Settings
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /** A convoy we're in. */
 class ActiveConvoy(val session: ConvoySession, val serverUrl: String)
@@ -69,6 +79,9 @@ class ConvoyController(
     private val locationProvider: NavigationLocationProviding,
     val profiles: ProfileStore,
     private val voice: AndroidTtsObserver,
+    /** What the car's music plays: shared if [settings] say so, and played along to. */
+    val music: MusicSessions,
+    private val settings: StateFlow<Settings>,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val http = HttpClient(OkHttp) { install(WebSockets) }
@@ -82,6 +95,16 @@ class ConvoyController(
     val myFix: StateFlow<Fix?> = _myFix.asStateFlow()
 
     private val myDestination = MutableStateFlow<Waypoint?>(null)
+
+    private val _myRole = MutableStateFlow(Profile.Role.ROLE_UNSPECIFIED)
+
+    /** Our part in this convoy: leading, at the back, or just driving. It ends with the convoy. */
+    val myRole: StateFlow<Profile.Role> = _myRole.asStateFlow()
+
+    private val _playingAlongWith = MutableStateFlow<Long?>(null)
+
+    /** The member whose music we follow, quietly, song by song; null when we don't. */
+    val playingAlongWith: StateFlow<Long?> = _playingAlongWith.asStateFlow()
 
     private val _regroupPoint = MutableStateFlow<RegroupPoint?>(null)
     val regroupPoint: StateFlow<RegroupPoint?> = _regroupPoint.asStateFlow()
@@ -153,6 +176,31 @@ class ConvoyController(
 
     fun nameOf(memberId: Long): String = names[memberId]?.takeIf { it.isNotBlank() } ?: "A driver"
 
+    fun setRole(role: Profile.Role) {
+        _myRole.value = role
+    }
+
+    /**
+     * Plays what [memberId] is playing, in our own music app. Where FoxNav can steer the music
+     * app quietly, it keeps following their songs until [stopPlayingAlong]; otherwise the music
+     * app opens for this one song.
+     */
+    fun playAlong(memberId: Long) {
+        val track = _active.value?.session?.members?.value?.get(memberId)?.nowPlaying ?: return
+        when (music.playAlong(track)) {
+            PlayAlong.QUIET -> {
+                _playingAlongWith.value = memberId
+                notify(ConvoyNotice("Playing along with ${nameOf(memberId)}", colors[memberId]))
+            }
+            PlayAlong.OPENED -> _playingAlongWith.value = null
+            PlayAlong.FAILED -> notify(ConvoyNotice("No music app on this phone takes a song to play", warning = true))
+        }
+    }
+
+    fun stopPlayingAlong() {
+        _playingAlongWith.value = null
+    }
+
     private suspend fun run(active: ActiveConvoy) {
         val session = active.session
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
@@ -165,6 +213,7 @@ class ConvoyController(
                     launch(start = CoroutineStart.UNDISPATCHED) { session.events.collect(::onEvent) },
                     launch { session.members.collect(::rememberMembers) },
                     launch { publishOurState(session) },
+                    launch { followTheirMusic(session) },
                 )
                 session.start()
                 val ended = session.status.filterIsInstance<ConvoyStatus.Ended>().first()
@@ -177,10 +226,21 @@ class ConvoyController(
         if (_active.compareAndSet(active, null)) {
             _myFix.value = null
             _regroupPoint.value = null
+            _myRole.value = Profile.Role.ROLE_UNSPECIFIED
+            _playingAlongWith.value = null
             names.clear()
             colors.clear()
             awaitingName.clear()
         }
+    }
+
+    /** Their next song, quietly in our music app too, while we play along with them. */
+    private suspend fun followTheirMusic(session: ConvoySession) {
+        combine(_playingAlongWith, session.members) { id, members -> id?.let { members[it]?.nowPlaying } }
+            .distinctUntilChanged()
+            .drop(1) // the song we just started
+            .filterNotNull()
+            .collect { track -> if (music.playAlong(track) != PlayAlong.QUIET) _playingAlongWith.value = null }
     }
 
     private suspend fun publishOurState(session: ConvoySession) = coroutineScope {
@@ -200,8 +260,10 @@ class ConvoyController(
                     _myFix.value = fix
                 }
         }
-        combine(profiles.profile, _myFix, myDestination) { profile, fix, destination ->
-            memberState(profile.toProtocol(), fix, destination?.let { RouteShare(waypoints = listOf(it)) })
+        // Only while the driver shares it: the music apps' sessions aren't even looked at otherwise.
+        val playing = settings.map { it.shareNowPlaying }.distinctUntilChanged().flatMapLatest { share -> if (share) music.nowPlaying() else flowOf(null) }
+        combine(profiles.profile, _myFix, myDestination, _myRole, playing) { profile, fix, destination, role, track ->
+            memberState(profile.toProtocol().copy(role = role), fix, destination?.let { RouteShare(waypoints = listOf(it)) }, track)
         }.collect(session::updateState)
     }
 

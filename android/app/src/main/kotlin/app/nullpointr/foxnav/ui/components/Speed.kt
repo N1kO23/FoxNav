@@ -32,6 +32,8 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import app.nullpointr.foxnav.ui.LocalCompact
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.nullpointr.foxnav.R
@@ -57,7 +59,8 @@ fun SpeedCluster(reading: SpeedReading, modifier: Modifier = Modifier) {
     val warn = reading.overLimit
     val units = LocalUnits.current
     val segment = LocalSpeedometerStyle.current == SpeedometerStyle.SEGMENT
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    val compact = LocalCompact.current
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(
             shape = RoundedCornerShape(18.dp),
             color = if (segment) SegmentPanel else colors.surface,
@@ -65,38 +68,38 @@ fun SpeedCluster(reading: SpeedReading, modifier: Modifier = Modifier) {
         ) {
             Column(
                 modifier = Modifier
-                    .size(width = 96.dp, height = 76.dp)
+                    .size(width = if (compact) 80.dp else 96.dp, height = if (compact) 62.dp else 76.dp)
                     .semantics { contentDescription = "Speed ${reading.speed ?: "unknown"} ${units.speedLabel}" },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
                 if (segment) {
-                    SegmentDigits(reading.speed, lit = if (warn) colors.error else SegmentLit)
+                    SegmentDigits(reading.speed, lit = if (warn) colors.error else SegmentLit, fontSize = if (compact) 26.sp else 32.sp)
                 } else {
                     Text(
                         text = reading.speed?.toString() ?: "–",
                         fontFamily = ChakraPetch,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 40.sp,
-                        lineHeight = 40.sp,
+                        fontSize = if (compact) 32.sp else 40.sp,
+                        lineHeight = if (compact) 32.sp else 40.sp,
                         color = if (warn) colors.error else colors.onSurface,
                     )
                 }
                 Text(units.speedLabel, style = MaterialTheme.typography.labelSmall, color = if (segment) SegmentUnlit.copy(alpha = 1f) else colors.onSurfaceVariant)
             }
         }
-        reading.limit?.let { SpeedLimitSign(it, pulsing = warn, winter = reading.limitSeason == "winter") }
+        reading.limit?.let { SpeedLimitSign(it, pulsing = warn, size = if (compact) 48.dp else 56.dp, winter = reading.limitSeason == "winter") }
     }
 }
 
 /** A 7-segment readout: the unlit "888" behind the speed, like an 80s digital dash. */
 @Composable
-private fun SegmentDigits(speed: Int?, lit: Color) {
+private fun SegmentDigits(speed: Int?, lit: Color, fontSize: TextUnit) {
     Box(contentAlignment = Alignment.CenterEnd) {
-        Text("888", fontFamily = Dseg7, fontSize = 32.sp, lineHeight = 36.sp, color = SegmentUnlit)
+        Text("888", fontFamily = Dseg7, fontSize = fontSize, lineHeight = fontSize * 1.125f, color = SegmentUnlit)
         // DSEG7's "!" is a blank cell, so the digits right-align over the ghosts.
         val digits = speed?.coerceIn(0, 999)?.toString() ?: "-"
-        Text(digits.padStart(3, '!'), fontFamily = Dseg7, fontSize = 32.sp, lineHeight = 36.sp, color = lit)
+        Text(digits.padStart(3, '!'), fontFamily = Dseg7, fontSize = fontSize, lineHeight = fontSize * 1.125f, color = lit)
     }
 }
 

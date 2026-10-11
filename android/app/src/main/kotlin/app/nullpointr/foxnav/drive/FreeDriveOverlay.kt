@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -39,6 +41,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,7 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,11 +60,12 @@ import app.nullpointr.foxnav.BuildConfig
 import app.nullpointr.foxnav.appGraph
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.format.formatDuration
-import app.nullpointr.foxnav.ui.components.DockedPanel
+import app.nullpointr.foxnav.ui.components.BottomPanel
 import app.nullpointr.foxnav.ui.components.HudLabel
 import app.nullpointr.foxnav.ui.components.PanelAction
 import app.nullpointr.foxnav.ui.components.SpeedCluster
 import app.nullpointr.foxnav.ui.PanelBounds
+import app.nullpointr.foxnav.ui.WindowLayout
 import app.nullpointr.foxnav.shared.map.MapCredit
 import app.nullpointr.foxnav.ui.bottomPanelOf
 import app.nullpointr.foxnav.ui.icons.FoxIcons
@@ -67,6 +73,13 @@ import app.nullpointr.foxnav.ui.topPanelOf
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationMapState
 import java.text.DecimalFormatSymbols
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import app.nullpointr.foxnav.shared.search.SavedPlace
+import app.nullpointr.foxnav.shared.search.SavedPlaces
 
 /**
  * Everything on top of the map when not navigating, laid out as the free-drive mockup: search at
@@ -79,6 +92,7 @@ fun FreeDriveOverlay(
     document: DiscoveryDocument,
     navigationMapState: NavigationMapState,
     panels: PanelBounds,
+    layout: WindowLayout,
     mapCredits: List<MapCredit>,
     /** Cars in our convoy, us included; null when not in one. */
     convoySize: Int?,
@@ -92,43 +106,71 @@ fun FreeDriveOverlay(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     val online by LocalContext.current.appGraph.connectivity.online.collectAsState()
     val sides = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
+    // While searching, the results and the keyboard need the room.
+    val showPanel = preview != null || query.isEmpty()
+    val density = LocalDensity.current
+    var bottomStack by remember { mutableIntStateOf(0) }
+    val controls = @Composable { modifier: Modifier ->
+        MapControls(navigationMapState, isMuted = uiState.isMuted, onToggleMute = viewModel::toggleMute, onRouteOverview = null, modifier = modifier)
+    }
 
-    Column(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)).padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (preview == null) {
-                Row(Modifier.topPanelOf(panels), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                    SearchPanel(viewModel, Modifier.weight(1f))
-                    VoiceSearchButton(onHeard = viewModel::onQueryChange)
-                    PanelButton(onClick = { showSettings = true }) { Icon(FoxIcons.Settings, contentDescription = "Settings") }
+    Box(Modifier.fillMaxSize()) {
+        // Everything but the map buttons: across the screen, or the side column.
+        Column(if (layout.side) Modifier.fillMaxHeight().width(layout.columnWidth + 24.dp) else Modifier.fillMaxSize()) {
+            Column(
+                Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (preview == null) {
+                    Row(Modifier.topPanelOf(panels), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                        SearchPanel(viewModel, Modifier.weight(1f))
+                        VoiceSearchButton(onHeard = viewModel::onQueryChange)
+                        PanelButton(onClick = { showSettings = true }) { Icon(FoxIcons.Settings, contentDescription = "Settings") }
+                    }
+                    if (query.isEmpty()) ShortcutChips(viewModel)
+                    if (!online) OfflineChip()
+                    if (query.isEmpty()) RoadWarnings(viewModel)
                 }
-                if (!online) OfflineChip()
-                if (query.isEmpty()) RoadWarnings(viewModel)
+            }
+            if (showPanel) {
+                // The rest of the height: map buttons (with the bottom panel), notices, and the panel,
+                // which may take all of it (and then scrolls) but no more.
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    if (!layout.side) {
+                        // Centred in the map between the top and the panel, however tall the panel grows.
+                        Box(Modifier.fillMaxSize().padding(bottom = with(density) { bottomStack.toDp() })) {
+                            controls(Modifier.align(Alignment.CenterEnd).windowInsetsPadding(sides).padding(end = 12.dp))
+                        }
+                    }
+                    Column(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .onSizeChanged { bottomStack = it.height }
+                            .fillMaxWidth()
+                            .then(if (layout.side) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)).padding(start = 12.dp, end = 12.dp, bottom = 12.dp) else Modifier),
+                    ) {
+                        if (preview == null) {
+                            Box(Modifier.fillMaxWidth().windowInsetsPadding(sides).padding(horizontal = 12.dp).padding(bottom = 10.dp), contentAlignment = Alignment.Center) {
+                                ReportStack(viewModel)
+                            }
+                        }
+                        MapCreditTag(mapCredits, Modifier.windowInsetsPadding(sides).padding(start = if (layout.side) 4.dp else 12.dp))
+                        BottomPanel(Modifier.weight(1f, fill = false).bottomPanelOf(panels), docked = !layout.side) {
+                            preview?.let {
+                                RoutePreviewContent(it, viewModel) {
+                                    viewModel.cancelPreview()
+                                    // Back from the route's overview to following the car.
+                                    navigationMapState.recenter(isNavigating = false)
+                                }
+                            }
+                                ?: FreeDriveContent(viewModel, convoySize, onOpenConvoy, onOpenReport.takeIf { viewModel.canReport })
+                        }
+                    }
+                }
             }
         }
-        // While searching, the results and the keyboard need the room.
-        if (preview != null || query.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(sides).padding(horizontal = 12.dp)) {
-                MapControls(
-                    navigationMapState,
-                    isMuted = uiState.isMuted,
-                    onToggleMute = viewModel::toggleMute,
-                    onRouteOverview = null,
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                )
-                if (preview == null) {
-                    Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)) { ReportStack(viewModel) }
-                }
-            }
-            Column(Modifier.bottomPanelOf(panels)) {
-                MapCreditTag(mapCredits, Modifier.windowInsetsPadding(sides).padding(start = 12.dp))
-                DockedPanel {
-                    preview?.let { RoutePreviewContent(it, viewModel) }
-                        ?: FreeDriveContent(viewModel, convoySize, onOpenConvoy, onOpenReport.takeIf { viewModel.canReport })
-                }
-            }
+        if (showPanel && layout.side) {
+            controls(Modifier.align(Alignment.CenterEnd).windowInsetsPadding(sides).padding(end = 12.dp))
         }
     }
 
@@ -201,11 +243,18 @@ private fun FreeDriveContent(viewModel: DriveViewModel, convoySize: Int?, onOpen
 private fun SearchPanel(viewModel: DriveViewModel, modifier: Modifier = Modifier) {
     val query by viewModel.query.collectAsState()
     val results by viewModel.results.collectAsState()
+    val places by viewModel.savedPlaces.collectAsState()
     val colors = MaterialTheme.colorScheme
+    val focus = remember { MutableInteractionSource() }
+    val focused by focus.collectIsFocusedAsState()
+    val focusManager = LocalFocusManager.current
+    // Before typing: the saved places, then where you've been lately.
+    val suggestions = if (focused && query.isEmpty()) (SavedPlaces.shortcuts(places) + SavedPlaces.recent(places)).take(MAX_SUGGESTIONS) else emptyList()
 
     Surface(modifier = modifier, shape = RoundedCornerShape(18.dp), color = colors.surface, border = BorderStroke(1.dp, colors.outline)) {
         Column {
             TextField(
+                interactionSource = focus,
                 value = query,
                 onValueChange = viewModel::onQueryChange,
                 placeholder = { Text("Where to?") },
@@ -224,6 +273,31 @@ private fun SearchPanel(viewModel: DriveViewModel, modifier: Modifier = Modifier
                 ),
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (suggestions.isNotEmpty()) {
+                HorizontalDivider(color = colors.outline)
+                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    suggestions.forEach { saved ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    focusManager.clearFocus()
+                                    viewModel.preview(saved.place)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(saved.kind.icon, contentDescription = null, tint = if (saved.kind == SavedPlace.Kind.FAVOURITE) colors.primary else colors.onSurfaceVariant)
+                            Column {
+                                Text(saved.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val detail = if (saved.kind == SavedPlace.Kind.HOME || saved.kind == SavedPlace.Kind.WORK) saved.place.title else saved.place.detail
+                                if (detail.isNotEmpty()) Text(detail, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
             if (results.isNotEmpty()) {
                 HorizontalDivider(color = colors.outline)
                 LazyColumn(Modifier.heightIn(max = 320.dp)) {
@@ -253,17 +327,20 @@ private fun SearchPanel(viewModel: DriveViewModel, modifier: Modifier = Modifier
 
 /** The routes to a place, to pick one and start. */
 @Composable
-private fun RoutePreviewContent(preview: RoutePreview, viewModel: DriveViewModel) {
+private fun RoutePreviewContent(preview: RoutePreview, viewModel: DriveViewModel, onCancel: () -> Unit) {
     val simulate by viewModel.simulate.collectAsState()
     val colors = MaterialTheme.colorScheme
     val separator = DecimalFormatSymbols.getInstance().decimalSeparator
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column {
-            Text(preview.destination.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (preview.destination.detail.isNotEmpty()) {
-                Text(preview.destination.detail, color = colors.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(preview.destination.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (preview.destination.detail.isNotEmpty()) {
+                    Text(preview.destination.detail, color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
             }
+            SavePlaceButton(viewModel, preview.destination)
         }
         when {
             preview.loading -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -294,11 +371,13 @@ private fun RoutePreviewContent(preview: RoutePreview, viewModel: DriveViewModel
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = viewModel::cancelPreview, modifier = Modifier.weight(1f)) { Text("Cancel") }
+            OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
             Button(onClick = viewModel::startNavigation, enabled = preview.selectedRoute != null, modifier = Modifier.weight(1f)) { Text("Start") }
         }
     }
 }
+
+private const val MAX_SUGGESTIONS = 8
 
 /** A 56 dp panel-coloured button beside the search, as in the mockups. */
 @Composable

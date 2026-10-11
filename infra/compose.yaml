@@ -80,8 +80,9 @@ services:
   # Builds the data packs from the OpenStreetMap extract. Not a long-running service: run it after
   # fetching new data (fetch-data.sh does), e.g. nightly on a public server:
   #   docker compose -f infra/compose.yaml run --rm datapacks
-  # Where OpenStreetMap and Digiroad (Finland) both have a speed limit and disagree, osm or
-  # digiroad wins: FOXNAV_SPEED_LIMITS_PREFER=digiroad docker compose … run --rm datapacks
+  # Where OpenStreetMap and Digiroad (Finland's official limits, from Fintraffic) both have a speed
+  # limit and disagree, Digiroad wins, winter limits included. For OpenStreetMap's instead:
+  # FOXNAV_SPEED_LIMITS_PREFER=osm docker compose … run --rm datapacks
   datapacks:
     build: ./datapacks
     <<: *host-user
@@ -90,7 +91,7 @@ services:
       - ./data/valhalla:/osm:ro
       - ./data/digiroad:/digiroad:ro
       - ./data/datapacks:/out
-    command: ["--region", "${FOXNAV_REGION_CODE:-FI}", "--digiroad", "/digiroad", "--prefer", "${FOXNAV_SPEED_LIMITS_PREFER:-osm}", "/osm/${FOXNAV_REGION:-finland}-latest.osm.pbf", "/out"]
+    command: ["--region", "${FOXNAV_REGION_CODE:-FI}", "--digiroad", "/digiroad", "--prefer", "${FOXNAV_SPEED_LIMITS_PREFER:-digiroad}", "/osm/${FOXNAV_REGION:-finland}-latest.osm.pbf", "/out"]
 
 volumes:
   reports:

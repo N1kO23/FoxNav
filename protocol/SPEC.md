@@ -153,9 +153,10 @@ See [`docs/threat-model.md`](../docs/threat-model.md) for what this protects aga
 Defined in the `.proto` file.
 
 - **`STATE`** carries a `MemberState`, everything the others need about a member in one message, because the server keeps only the latest one:
-  - `Profile`: display name and car (make, model, colour, body style), and `watching` for a member who follows without sharing a position (say, from a browser). Clients show such a member as watching rather than joining;
+  - `Profile`: display name and car (make, model, colour, body style), and `watching` for a member who follows without sharing a position (say, from a browser). Clients show such a member as watching rather than joining. `role` is a part the member takes on themselves: `ROLE_LEAD` leads the way, `ROLE_TAIL` sweeps up at the back. Nobody assigns roles, and more than one member may take the same one;
   - `Position`: location, speed, heading, accuracy and fix time. It is absent until the first GPS fix;
-  - `RouteShare`: a shared destination and via points, with the destination last.
+  - `RouteShare`: a shared destination and via points, with the destination last;
+  - `NowPlaying`: the song the member's music is playing (title, artist, the music app's name), only if they choose to share it, so the others can play it too. Absent when they don't, or when nothing plays.
 - **`EVENT`** carries a `QuickMessage` or a `RegroupPin`.
 - **`KEY`** carries a `KeyRotation`.
 
@@ -180,7 +181,7 @@ These arrive in a later version of this document:
 - new reports pushed over this connection, instead of clients polling the feed (§4);
 - quick messages and regroup points sent from the convoy page;
 - more data packs (speed-limit fixes, average-speed sections);
-- a `NowPlaying` payload for the convoy soundtrack: track metadata, service IDs and ISRC, playback position and state.
+- more for the convoy soundtrack in `NowPlaying` (§2.4): service IDs and ISRC to find the exact recording, and the playback position and state to play in step.
 
 ## 3. Data packs (draft)
 
@@ -233,7 +234,7 @@ What the routing engine's map gets wrong or doesn't know about speed limits, key
   "format": 1,
   "region": "FI",
   "generated": "2026-10-10T18:00:00Z",
-  "attribution": "© OpenStreetMap contributors, ODbL; speed limits from Digiroad © Väylävirasto, CC BY 4.0",
+  "attribution": "© OpenStreetMap contributors, ODbL; speed limits from Digiroad (Digitraffic Road Network) © Fintraffic, CC BY 4.0, matched to OpenStreetMap",
   "ways": [
     { "way": 2287183, "maxspeed": 120,
       "conditional": [{ "maxspeed": 100, "from": "10-15", "to": "04-30", "season": "winter" }] },
@@ -257,7 +258,7 @@ What the routing engine's map gets wrong or doesn't know about speed limits, key
 
 OpenStreetMap often says only "winter", whose dates vary by year and region. The reference builder (`infra/datapacks/`) turns it into dates per region, erring towards a long winter: a winter limit shown a little early means a slower drive, a summer limit shown too long means a fine. Server operators can set the dates with `--season`. Conditions other than dates (times of day, weekdays, wet roads) are left out for now, as are limits for one direction of a way.
 
-For Finland, the reference builder fills from [Digiroad](https://vayla.fi/en/transport-network/data/digiroad) (Väylävirasto, CC BY 4.0), which has a limit for nearly every public road and street. It matches Digiroad's segments to OpenStreetMap ways by position and direction: a way gets its most common limit, and stretches of 60 m or more with another one become sections. Where both sources have a limit, they agree on about 90 % of road length. By default OpenStreetMap wins where they differ, as routing uses it too; `--prefer digiroad` makes Digiroad win, with `limit` and `sections` on those ways. Digiroad's winter limits fill in where OpenStreetMap has none. Legal default limits ("50 in built-up areas, 80 outside") are deliberately not used: in Finland most streets are in 30 or 40 zones, so the default would usually be wrong.
+For Finland, the reference builder takes the official limits from [Digiroad](https://www.fintraffic.fi/fi/digitrafficroadnetwork) (Fintraffic's Digitraffic Road Network since 2026, CC BY 4.0), which has a limit for nearly every public road and street. It matches Digiroad's segments to OpenStreetMap ways by position and direction: a way gets its most common limit, and stretches of 60 m or more with another one become sections. Where both sources have a limit, they agree on about 90 % of road length. By default Digiroad wins where they differ, being kept up to date by the road authorities, with `limit` and `sections` on those ways, and its winter limits replace OpenStreetMap's; `--prefer osm` keeps OpenStreetMap's and uses Digiroad only where OpenStreetMap has nothing. Legal default limits ("50 in built-up areas, 80 outside") are deliberately not used: in Finland most streets are in 30 or 40 zones, so the default would usually be wrong.
 
 ## 4. Reports (draft)
 

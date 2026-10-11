@@ -7,9 +7,10 @@ Writes into output-dir/FI/:
 - cameras.json: fixed speed and red-light cameras, with the travel directions they enforce where
   OpenStreetMap knows them;
 - speedlimits.json: limits for parts of the year (maxspeed:conditional), such as winter limits,
-  which routing engines don't apply; with --digiroad (Finland), also official limits for the roads
-  OpenStreetMap has none for, see digiroad.py, and with --prefer digiroad, Digiroad's limit where
-  the two disagree.
+  which routing engines don't apply; with --digiroad (Finland), also the official limits, see
+  digiroad.py: by default they win where the two sources disagree, winter limits included, as
+  they're kept up to date by the road authorities; with --prefer osm, they only fill the roads
+  OpenStreetMap has no limit for.
 
 Map data © OpenStreetMap contributors, ODbL.
 """
@@ -258,8 +259,8 @@ def main():
     parser.add_argument("extract", help="OpenStreetMap extract (.osm.pbf) covering the region")
     parser.add_argument("output", help="directory for the packs")
     parser.add_argument("--digiroad", help="directory of Digiroad speed limit layers (Finland), see digiroad.py")
-    parser.add_argument("--prefer", choices=("osm", "digiroad"), default="osm",
-                        help="which source wins where both have a limit (default: osm, which routing uses too)")
+    parser.add_argument("--prefer", choices=("digiroad", "osm"), default="digiroad",
+                        help="which source wins where both have a limit (default: digiroad, the official one)")
     parser.add_argument("--season", type=parse_season, action="append", default=[],
                         help="when winter or summer is in this region, e.g. winter=10-15:04-30 (repeatable)")
     args = parser.parse_args()
@@ -298,7 +299,7 @@ def main():
     with_bearings = sum(1 for camera in camera_list if "bearings" in camera)
     print(f"{target}: {len(camera_list)} cameras, {with_bearings} with known directions")
 
-    # One entry per way: OpenStreetMap's conditional limits, then what Digiroad adds.
+    # One entry per way: OpenStreetMap's conditional limits, then what Digiroad adds or replaces.
     entries = {entry["way"]: entry for entry in limits.ways}
     fill = {}
     for way, found in digiroad_limits.items():
@@ -319,15 +320,21 @@ def main():
     winter = seasons.get("winter")
     if digiroad_winter and not winter:
         print(f"No winter dates for {region}: Digiroad's winter limits were left out. Pass --season.")
+    official_winter = {"from": winter[0], "to": winter[1], "season": "winter"} if winter else None
     for way, (limit, osm) in sorted(digiroad_winter.items()) if winter else []:
         entry = entries.get(way, {})
         other = entry.get("limit") or osm or fill.get(way)
-        if not other or limit >= other or entry.get("conditional"):
+        if not other or limit >= other:
+            continue
+        # OpenStreetMap's own winter limit for the way gives way to the official one, unless it's preferred.
+        own_winter = [rule for rule in entry.get("conditional", []) if rule.get("season") == "winter"]
+        if own_winter and args.prefer == "osm":
             continue
         entry = entries.setdefault(way, {"way": way})
         if osm is not None:
             entry["maxspeed"] = osm
-        entry["conditional"] = [{"maxspeed": limit, "from": winter[0], "to": winter[1], "season": "winter"}]
+        others = [rule for rule in entry.get("conditional", []) if rule.get("season") != "winter"]
+        entry["conditional"] = others + [{"maxspeed": limit, **official_winter}]
     ways = sorted(entries.values(), key=lambda entry: entry["way"])
     # Ways by limit, each list sorted and stored as differences from the previous ID: compact,
     # since there can be hundreds of thousands.

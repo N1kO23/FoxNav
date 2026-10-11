@@ -45,6 +45,10 @@ android/scripts/emulator-location.py set 60.1699 24.9384
 
 Use `--from LAT,LON --to LAT,LON` for a different route, or `--gpx track.gpx` for a recorded track. `--kmh` sets their cruising speed; each bot drifts a few percent around it, so the gaps between them change.
 
+## Roles and music
+
+`--roles` makes the bot in front the leader and the one at the back the sweeper, as drivers mark themselves in the app (LEAD and TAIL in the timing tower). `--music "Plastic Love/Mariya Takeuchi"` has the bot in front share that it's playing that song, for the convoy sheet's now-playing card and "Play along".
+
 ## What it prints
 
 - When each bot is in, and anything that happens in the convoy: quick messages, regroup points, people leaving.

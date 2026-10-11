@@ -49,6 +49,11 @@ import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationMapState
 import org.maplibre.spatialk.geojson.BoundingBox
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextOverflow
+import app.nullpointr.foxnav.shared.search.SavedPlace
+import app.nullpointr.foxnav.shared.search.SavedPlaces
 
 private sealed interface SettingsSheet {
     data object Car : SettingsSheet
@@ -185,6 +190,9 @@ fun DriveSettings(document: DiscoveryDocument, viewModel: DriveViewModel, naviga
             settings.japaneseAccents,
         ) { on -> store.update { it.copy(japaneseAccents = on) } }
 
+        Section("Places")
+        SavedPlacesSettings()
+
         Section("Your car")
         LinkRow(
             profile.name.ifBlank { "No name yet" },
@@ -285,6 +293,37 @@ private fun SettingsScope.OverLimitSoundRow(selected: OverLimitSound) {
     notice?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 }
 
+/** Home, work and favourites to remove, and the recent destinations to forget. All on this phone only. */
+@Composable
+private fun SettingsScope.SavedPlacesSettings() {
+    val store = LocalContext.current.appGraph.places
+    val places by store.places.collectAsState()
+    val colors = MaterialTheme.colorScheme
+    val saved = SavedPlaces.shortcuts(places)
+    if (saved.isEmpty()) {
+        Note("Save a place with the star in its route preview: home and work show under the search with their travel time, favourites beside them.")
+    }
+    saved.forEach { place ->
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(place.kind.icon, contentDescription = null, tint = colors.onSurfaceVariant)
+            Column(Modifier.weight(1f)) {
+                Text(place.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val detail = listOf(place.place.title.takeIf { place.kind == SavedPlace.Kind.HOME || place.kind == SavedPlace.Kind.WORK }, place.place.detail).filterNotNull().filter { it.isNotBlank() }.joinToString(" · ")
+                if (detail.isNotEmpty()) Text(detail, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            TextButton(onClick = { store.remove(place) }) { Text("Remove", color = colors.error) }
+        }
+    }
+    val recent = SavedPlaces.recent(places).size
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Recent destinations", style = MaterialTheme.typography.titleMedium)
+            Text(if (recent == 0) "None" else "The last $recent, offered in the search", color = colors.onSurfaceVariant)
+        }
+        OutlinedButton(onClick = store::forgetRecent, enabled = recent > 0) { Text("Forget") }
+    }
+}
+
 /** Credits for the data behind limits, cameras and reports, as their licences ask. */
 @Composable
 private fun DataSources(viewModel: DriveViewModel) {
@@ -292,7 +331,7 @@ private fun DataSources(viewModel: DriveViewModel) {
     val reports by viewModel.reports.collectAsState()
     val credits = remember(packCredits, reports) {
         // The map line below credits OpenStreetMap already.
-        val fromPacks = packCredits.flatMap { it.split("; ") }.filterNot { "OpenStreetMap" in it }.map { it.replaceFirstChar(Char::uppercase) }
+        val fromPacks = packCredits.flatMap { it.split("; ") }.filterNot { "OpenStreetMap contributors" in it }.map { it.replaceFirstChar(Char::uppercase) }
         val fromReports = reports.mapNotNull { it.source }.map { source -> "Reports from ${source.name}" + (source.licence?.let { ", $it" } ?: "") }
         (listOf("Map © OpenStreetMap contributors, ODbL; tiles from Protomaps") + fromPacks + fromReports).distinct()
     }

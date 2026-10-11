@@ -78,6 +78,14 @@ import uniffi.ferrostar.Waypoint
 import uniffi.ferrostar.WaypointKind
 import java.time.LocalDate
 import kotlin.math.roundToInt
+import app.nullpointr.foxnav.data.PlaceStore
+import app.nullpointr.foxnav.data.TravelTimes
+import app.nullpointr.foxnav.shared.search.SavedPlace
+import app.nullpointr.foxnav.shared.search.SavedPlaces
+import kotlin.math.ceil
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.cancelChildren
 
 /** Routes to a picked place, with alternatives to choose from. */
 data class RoutePreview(
@@ -116,7 +124,32 @@ class DriveViewModel(
     private val reportWarnings: StateFlow<Boolean>,
     /** Says something with the guidance voice: a voice pack's phrases, or text-to-speech (and its mute). */
     private val say: (Utterance) -> Unit,
+    /** Home, work, favourites and recent destinations. */
+    private val places: PlaceStore,
+    /** For the shortcuts' travel times; null without Valhalla. */
+    private val travelTimes: TravelTimes?,
+    /** Turns true once a newer drive screen (another server's) takes over: this one then goes quiet. */
+    retired: Flow<Boolean>,
 ) : DefaultNavigationViewModel(core, valhallaExtendedOSRMAnnotationPublisher()) {
+
+    init {
+        viewModelScope.launch {
+            retired.first { it }
+            viewModelScope.coroutineContext.cancelChildren()
+        }
+    }
+
+    /** Home, work, favourites and recent destinations, for the shortcuts and the search. */
+    val savedPlaces: StateFlow<List<SavedPlace>> get() = places.places
+
+    private val _shortcutMinutes = MutableStateFlow<Map<Place, Int>>(emptyMap())
+
+    /** Minutes by car from here to each shortcut, where the server could say. */
+    val shortcutMinutes: StateFlow<Map<Place, Int>> = _shortcutMinutes.asStateFlow()
+
+    fun savePlace(place: Place, kind: SavedPlace.Kind) = places.save(place, kind)
+
+    fun removePlace(saved: SavedPlace) = places.remove(saved)
 
     private val hasLocationPermission = MutableStateFlow(false)
     private val freeDriveLocation = MutableStateFlow<UserLocation?>(null)
@@ -271,6 +304,7 @@ class DriveViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, SpeedReading())
 
     init {
+        viewModelScope.launch { refreshShortcutMinutes() }
         viewModelScope.launch {
             hasLocationPermission
                 .flatMapLatest { granted ->
@@ -367,6 +401,29 @@ class DriveViewModel(
     }
 
     /** Fetches routes from here to [place], including alternatives. */
+    /**
+     * Travel times to the shortcuts, while they're on screen: in free drive, again every few
+     * minutes and after moving a while. The server learns the saved places only then, as it
+     * would routing to them.
+     */
+    private suspend fun refreshShortcutMinutes() {
+        val times = travelTimes ?: return
+        val targets = places.places.map { saved -> SavedPlaces.shortcuts(saved).map { it.place } }.distinctUntilChanged()
+        val here = freeDriveLocation.filterNotNull()
+            .map { GeoPoint(it.coordinates.lat, it.coordinates.lng) }
+            .distinctUntilChanged { old, new -> old.distanceTo(new) < SHORTCUT_MOVE_M }
+        val navigating = navigationUiState.map { it.isNavigating() }.distinctUntilChanged()
+        combine(targets, here, navigating, ::Triple).collectLatest { (shortcuts, from, navigating) ->
+            if (navigating || shortcuts.isEmpty()) return@collectLatest
+            while (true) {
+                _shortcutMinutes.value = shortcuts.mapNotNull { place ->
+                    times.seconds(from, GeoPoint(place.latitude, place.longitude))?.let { place to ceil(it / 60).toInt().coerceAtLeast(1) }
+                }.toMap()
+                delay(SHORTCUT_REFRESH_MS)
+            }
+        }
+    }
+
     fun preview(place: Place) {
         _query.value = ""
         _results.value = emptyList()
@@ -410,6 +467,7 @@ class DriveViewModel(
         val route = preview.selectedRoute ?: return
         _preview.value = null
         destination = preview.destination
+        places.driveTo(preview.destination)
         arrivalJob?.cancel()
         _arrivedAt.value = null
         if (_simulate.value) locationProvider.enableSimulationOn(route)
@@ -552,6 +610,8 @@ private fun UserLocation.withCourseFrom(previous: UserLocation?): UserLocation {
 }
 
 private const val MIN_COURSE_MOVE_M = 3.0
+private const val SHORTCUT_MOVE_M = 500.0
+private const val SHORTCUT_REFRESH_MS = 5 * 60_000L
 private val COURSE_ACCURACY_DEG: UShort = 20u
 
 private fun today(): Day = LocalDate.now().let { Day(it.year, it.monthValue, it.dayOfMonth) }

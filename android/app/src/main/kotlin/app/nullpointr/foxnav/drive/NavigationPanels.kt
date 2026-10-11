@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,8 +49,13 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import app.nullpointr.foxnav.ui.PanelBounds
+import app.nullpointr.foxnav.ui.LocalCompact
+import app.nullpointr.foxnav.ui.WindowLayout
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.Dp
 import app.nullpointr.foxnav.ui.bottomPanelOf
-import app.nullpointr.foxnav.ui.components.DockedPanel
+import app.nullpointr.foxnav.ui.components.BottomPanel
 import app.nullpointr.foxnav.ui.components.JapaneseAccent
 import app.nullpointr.foxnav.ui.components.PanelAction
 import app.nullpointr.foxnav.ui.components.maneuverAccent
@@ -64,12 +70,13 @@ import java.util.Date
 
 /** The next maneuver, HUD style: icon, distance and road, then the maneuver after it. */
 @Composable
-fun ManeuverCard(uiState: NavigationUiState, modifier: Modifier = Modifier, warnings: @Composable () -> Unit = {}) {
+fun ManeuverCard(uiState: NavigationUiState, modifier: Modifier = Modifier, maxWidth: Dp = Dp.Unspecified, warnings: @Composable () -> Unit = {}) {
     val instruction = uiState.visualInstruction ?: return
     val colors = MaterialTheme.colorScheme
     val next = uiState.remainingSteps?.getOrNull(1)
+    val compact = LocalCompact.current
 
-    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.widthIn(max = maxWidth).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
@@ -77,24 +84,24 @@ fun ManeuverCard(uiState: NavigationUiState, modifier: Modifier = Modifier, warn
             border = BorderStroke(1.dp, colors.outline),
         ) {
             Column {
-                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(if (compact) 12.dp else 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        modifier = Modifier.size(72.dp).background(colors.secondary.copy(alpha = 0.14f), RoundedCornerShape(16.dp)),
+                        modifier = Modifier.size(if (compact) 56.dp else 72.dp).background(colors.secondary.copy(alpha = 0.14f), RoundedCornerShape(16.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        ManeuverGlyph(instruction.primaryContent, tint = colors.secondary, size = 52.dp)
+                        ManeuverGlyph(instruction.primaryContent, tint = colors.secondary, size = if (compact) 40.dp else 52.dp)
                     }
                     Column(Modifier.weight(1f)) {
                         val content = instruction.primaryContent
                         uiState.progress?.distanceToNextManeuver?.let { DistanceReadout(it, maneuverAccent(content.maneuverType, content.maneuverModifier)) }
-                        Text(content.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(content.text, fontSize = if (compact) 17.sp else 20.sp, fontWeight = FontWeight.SemiBold, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 val nextContent = next?.visualInstructions?.firstOrNull()?.primaryContent
                 if (next != null && nextContent != null) {
                     HorizontalDivider(color = colors.outline)
                     Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = if (compact) 6.dp else 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -171,9 +178,10 @@ fun RoadNamePill(roadName: String?, modifier: Modifier = Modifier) {
 @Composable
 private fun DistanceReadout(meters: Double, accent: String?) {
     val (number, unit) = distanceText(meters).split(' ', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
+    val compact = LocalCompact.current
     Row {
-        Text(number, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 44.sp, lineHeight = 44.sp)
-        Text(" $unit", Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(number, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = if (compact) 34.sp else 44.sp, lineHeight = if (compact) 34.sp else 44.sp)
+        Text(" $unit", Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = if (compact) 18.sp else 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         accent?.let { JapaneseAccent(it, Modifier.alignByBaseline().padding(start = 10.dp), fontSize = 14.sp) }
     }
 }
@@ -185,6 +193,7 @@ fun NavigationOverlay(
     speed: SpeedReading,
     navigationMapState: NavigationMapState,
     panels: PanelBounds,
+    layout: WindowLayout,
     mapCredits: List<MapCredit>,
     convoySize: Int?,
     onToggleMute: () -> Unit,
@@ -203,14 +212,22 @@ fun NavigationOverlay(
             onToggleMute = onToggleMute,
             onRouteOverview = {
                 uiState.routeGeometry?.boundingBox()?.let { bounds ->
-                    // Between the maneuver card and the panel, with room to spare.
-                    val top = with(density) { panels.top.toDp() } + 24.dp
-                    val bottom = (screenHeight - with(density) { panels.bottom.coerceAtMost(constraints.maxHeight.toFloat()).toDp() }) + 24.dp
-                    navigationMapState.showRouteOverview(bounds, PaddingValues(start = 48.dp, end = 72.dp, top = top, bottom = bottom))
+                    val padding = if (layout.side) {
+                        // Right of the side column.
+                        PaddingValues(start = layout.columnWidth + 36.dp, end = 72.dp, top = 48.dp, bottom = 48.dp)
+                    } else {
+                        // Between the maneuver card and the panel, with room to spare.
+                        val top = with(density) { panels.top.toDp() } + 24.dp
+                        val bottom = (screenHeight - with(density) { panels.bottom.coerceAtMost(constraints.maxHeight.toFloat()).toDp() }) + 24.dp
+                        PaddingValues(start = 48.dp, end = 72.dp, top = top, bottom = bottom)
+                    }
+                    navigationMapState.showRouteOverview(bounds, padding)
                 }
             },
             modifier = Modifier.align(Alignment.CenterEnd).windowInsetsPadding(sides).padding(end = 12.dp),
         )
+        // Below the maneuver card, however short the window: the panel scrolls rather than covering it.
+        val room = if (panels.top > 0f) screenHeight - with(density) { panels.top.toDp() } - 12.dp else Dp.Infinity
         DrivePanel(
             uiState,
             speed,
@@ -219,7 +236,19 @@ fun NavigationOverlay(
             onReport = onReport,
             onEnd = onEnd,
             mapCredits = mapCredits,
-            modifier = Modifier.align(Alignment.BottomCenter).bottomPanelOf(panels).onSizeChanged { onPanelHeight(it.height) },
+            docked = !layout.side,
+            modifier = if (layout.side) {
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+                    .padding(start = 12.dp, bottom = 12.dp)
+                    .width(layout.columnWidth)
+                    .heightIn(max = room)
+                    .bottomPanelOf(panels)
+                    .onSizeChanged { onPanelHeight(0) }
+            } else {
+                Modifier.align(Alignment.BottomCenter).heightIn(max = room).bottomPanelOf(panels).onSizeChanged { onPanelHeight(it.height) }
+            },
         )
     }
 }
@@ -236,6 +265,8 @@ fun DrivePanel(
     onEnd: () -> Unit,
     mapCredits: List<MapCredit>,
     modifier: Modifier = Modifier,
+    /** Along the screen's bottom edge, or floating in the side column. */
+    docked: Boolean = true,
 ) {
     val progress = uiState.progress ?: return
     val colors = MaterialTheme.colorScheme
@@ -245,22 +276,23 @@ fun DrivePanel(
     }
 
     Column(modifier) {
-        MapCreditTag(mapCredits, Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).padding(start = 12.dp))
-        DockedPanel {
+        MapCreditTag(mapCredits, if (docked) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).padding(start = 12.dp) else Modifier.padding(start = 4.dp))
+        BottomPanel(Modifier.weight(1f, fill = false), docked = docked) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SpeedCluster(speed)
                 Spacer(Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.End) {
                     Row {
                         JapaneseAccent("到着", Modifier.alignByBaseline().padding(end = 6.dp))
-                        Text(arrival, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 32.sp)
+                        Text(arrival, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = if (LocalCompact.current) 24.sp else 32.sp, maxLines = 1)
                     }
                     Text(
                         "${formatDuration(progress.durationRemaining)} · ${distanceText(progress.distanceRemaining)}",
                         fontFamily = ChakraPetch,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp,
+                        fontSize = if (LocalCompact.current) 14.sp else 16.sp,
                         color = colors.onSurfaceVariant,
+                        maxLines = 1,
                     )
                 }
             }

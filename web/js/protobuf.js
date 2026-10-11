@@ -264,6 +264,7 @@ export const MemberState = {
     1: ["display_name", STRING],
     2: ["car", { 1: ["make", STRING], 2: ["model", STRING], 3: ["color_rgb", U32], 4: ["body_style", ENUM] }],
     3: ["watching", BOOL],
+    4: ["role", ENUM], // 1 leads the way, 2 sweeps up at the back
   }],
   2: ["position", {
     1: ["lat_e7", S32],
@@ -274,6 +275,7 @@ export const MemberState = {
     6: ["fix_time_ms", I64],
   }],
   3: ["route", { 1: ["waypoints", repeated(Waypoint)] }],
+  4: ["now_playing", { 1: ["title", STRING], 2: ["artist", STRING], 3: ["app", STRING] }],
 };
 
 export const ConvoyPayload = {

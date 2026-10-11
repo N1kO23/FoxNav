@@ -290,8 +290,10 @@ function follow(invite, server, map, name, sharing) {
     for (const member of others) {
       const state = signal(member, now);
       const label = state === "waiting" ? (member.profile?.watching ? "watching" : "joining") : state === "lost" ? "LOST" : state === "stale" ? "stale" : "";
+      // The part they took on in the convoy, as the app's timing tower shows it.
+      const role = { 1: "LEAD", 2: "TAIL" }[member.profile?.role];
       const row = el("li", state,
-        el("span", "swatch"), el("span", "name", member.profile?.display_name || "Driver"),
+        el("span", "swatch"), el("span", "name", member.profile?.display_name || "Driver", ...(role ? [" ", el("span", `role ${role.toLowerCase()}`, role)] : [])),
         el("span", "state", label), el("span", "speed", member.fix && state !== "lost" ? String(Math.round(member.fix.speed * 3.6)) : "–"));
       row.firstChild.style.background = hexColor(member.profile?.car?.color_rgb ?? PALETTE[0]);
       rows.push(row);

@@ -50,6 +50,13 @@ object FoxIcons {
     val Qr = strokeIcon("Qr", "M4 4h6v6H4Z M14 4h6v6h-6Z M4 14h6v6H4Z M14 14h2v2h-2Z M18 18h2v2h-2Z M14 18h2 M18 14h2")
     val More = filledIcon("More", "M5 10.4a1.6 1.6 0 1 1 0 3.2a1.6 1.6 0 1 1 0-3.2Z M12 10.4a1.6 1.6 0 1 1 0 3.2a1.6 1.6 0 1 1 0-3.2Z M19 10.4a1.6 1.6 0 1 1 0 3.2a1.6 1.6 0 1 1 0-3.2Z")
     val Lock = strokeIcon("Lock", "M6 11h12v10H6Z M8.5 11V8a3.5 3.5 0 0 1 7 0v3")
+    val Music = strokeIcon("Music", "M9 18V5l11-2v13 M9 18a3 3 0 1 1-6 0a3 3 0 1 1 6 0 M20 16a3 3 0 1 1-6 0a3 3 0 1 1 6 0")
+
+    // Saved places.
+    val Home = strokeIcon("Home", "M4 11l8-7 8 7 M6 9.5V20h4.5v-5.5h3V20H18V9.5")
+    val Work = strokeIcon("Work", "M4 8h16v11H4Z M9 8V5.5h6V8 M4 13h16")
+    val Star = strokeIcon("Star", "M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9l-5.2 2.8 1-5.9-4.3-4.1 5.9-.8Z")
+    val Recent = strokeIcon("Recent", "M12 4a8 8 0 1 1 0 16a8 8 0 1 1 0-16 M12 8v4.5l3 2")
 
     // Quick messages (the convoy mockup's icons, plus slow down and all good).
     val Fuel = strokeIcon("Fuel", "M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16 M3 21h14 M5 10h10 M15 8l3 3v7a1.5 1.5 0 0 0 3 0V9l-2.5-2.5")
