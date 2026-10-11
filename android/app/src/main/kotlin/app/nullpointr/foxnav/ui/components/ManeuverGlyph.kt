@@ -10,13 +10,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import com.stadiamaps.ferrostar.ui.shared.icons.ManeuverIcon
+import uniffi.ferrostar.ManeuverModifier
+import uniffi.ferrostar.ManeuverType
 import uniffi.ferrostar.VisualInstructionContent
 
 /** Ferrostar's maneuver icon (turn arrows and so on) at any size. */
 @Composable
 fun ManeuverGlyph(content: VisualInstructionContent, tint: Color, size: Dp) {
-    val type = content.maneuverType ?: return
-    val modifier = content.maneuverModifier ?: return
+    ManeuverGlyph(content.maneuverType ?: return, content.maneuverModifier ?: return, tint, size)
+}
+
+@Composable
+fun ManeuverGlyph(type: ManeuverType, modifier: ManeuverModifier, tint: Color, size: Dp) {
     val context = LocalContext.current
     val resource = remember(type, modifier) { ManeuverIcon(context, type, modifier).resourceId } ?: return
     Icon(painterResource(resource), contentDescription = null, tint = tint, modifier = Modifier.size(size))

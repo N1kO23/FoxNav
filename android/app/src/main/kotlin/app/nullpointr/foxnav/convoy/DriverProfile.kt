@@ -17,12 +17,28 @@ data class DriverProfile(
     val carMake: String = "",
     val carModel: String = "",
     val colorRgb: Int = ConvoyPalette.first(),
+    /** The car's shape on the map, yours and the others'. */
+    val bodyStyle: Car.BodyStyle = Car.BodyStyle.BODY_STYLE_UNSPECIFIED,
 ) {
     fun toProtocol() = Profile(
         display_name = name.trim(),
-        car = Car(make = carMake.trim(), model = carModel.trim(), color_rgb = colorRgb),
+        car = Car(make = carMake.trim(), model = carModel.trim(), color_rgb = colorRgb, body_style = bodyStyle),
     )
 }
+
+val Car.BodyStyle.label: String
+    get() = when (this) {
+        Car.BodyStyle.BODY_STYLE_COUPE -> "Coupé"
+        Car.BodyStyle.BODY_STYLE_HATCHBACK -> "Hatchback"
+        Car.BodyStyle.BODY_STYLE_SEDAN -> "Sedan"
+        Car.BodyStyle.BODY_STYLE_WAGON -> "Wagon"
+        Car.BodyStyle.BODY_STYLE_CONVERTIBLE -> "Convertible"
+        Car.BodyStyle.BODY_STYLE_KEI -> "Kei car"
+        Car.BodyStyle.BODY_STYLE_SUV -> "SUV"
+        Car.BodyStyle.BODY_STYLE_VAN -> "Van"
+        Car.BodyStyle.BODY_STYLE_PICKUP -> "Pickup"
+        Car.BodyStyle.BODY_STYLE_UNSPECIFIED -> ""
+    }
 
 class ProfileStore(context: Context) {
     private val preferences = context.getSharedPreferences("profile", Context.MODE_PRIVATE)
@@ -36,6 +52,7 @@ class ProfileStore(context: Context) {
             putString(KEY_CAR_MAKE, profile.carMake.trim())
             putString(KEY_CAR_MODEL, profile.carModel.trim())
             putInt(KEY_COLOR, profile.colorRgb)
+            putString(KEY_BODY_STYLE, profile.bodyStyle.name)
         }
         _profile.value = profile
     }
@@ -52,6 +69,9 @@ class ProfileStore(context: Context) {
             carMake = preferences.getString(KEY_CAR_MAKE, null).orEmpty(),
             carModel = preferences.getString(KEY_CAR_MODEL, null).orEmpty(),
             colorRgb = color,
+            bodyStyle = preferences.getString(KEY_BODY_STYLE, null)
+                ?.let { name -> Car.BodyStyle.entries.firstOrNull { it.name == name } }
+                ?: Car.BodyStyle.BODY_STYLE_UNSPECIFIED,
         )
     }
 
@@ -60,5 +80,6 @@ class ProfileStore(context: Context) {
         const val KEY_CAR_MAKE = "car_make"
         const val KEY_CAR_MODEL = "car_model"
         const val KEY_COLOR = "color_rgb"
+        const val KEY_BODY_STYLE = "body_style"
     }
 }

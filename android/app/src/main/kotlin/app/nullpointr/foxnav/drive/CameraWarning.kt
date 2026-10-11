@@ -1,5 +1,8 @@
 package app.nullpointr.foxnav.drive
 
+import app.nullpointr.foxnav.shared.format.limitIn
+import app.nullpointr.foxnav.ui.format.LocalUnits
+import app.nullpointr.foxnav.ui.format.distanceText
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -62,13 +65,13 @@ fun CameraWarning(ahead: CameraAhead?, modifier: Modifier = Modifier) {
                         color = colors.onTertiaryContainer,
                     )
                     Text(
-                        formatDistance(warning.distanceM, DecimalFormatSymbols.getInstance().decimalSeparator),
+                        distanceText(warning.distanceM),
                         fontFamily = ChakraPetch,
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp,
                         color = colors.onTertiaryContainer,
                     )
-                    warning.camera.maxspeed?.let { SpeedLimitSign(it, size = 30.dp) }
+                    warning.camera.maxspeed?.let { SpeedLimitSign(limitIn(it, LocalUnits.current), size = 30.dp) }
                 }
             }
         }

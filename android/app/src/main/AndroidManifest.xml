@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Scanning convoy invite QR codes; asked for only when you scan. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Recording your own voice pack, only when you do. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- Android 17+: needed to reach servers on the local network (home servers, the emulator host). -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />

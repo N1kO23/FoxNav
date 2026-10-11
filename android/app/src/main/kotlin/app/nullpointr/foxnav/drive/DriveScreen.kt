@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -19,12 +18,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import app.nullpointr.foxnav.appGraph
 import app.nullpointr.foxnav.convoy.ConvoyLayers
+import app.nullpointr.foxnav.convoy.MyCarLayer
 import app.nullpointr.foxnav.convoy.ConvoyOverlay
 import app.nullpointr.foxnav.convoy.ConvoySheet
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
@@ -42,10 +41,11 @@ import com.stadiamaps.ferrostar.composeui.config.withRoadNameView
 import com.stadiamaps.ferrostar.composeui.runtime.KeepScreenOnDisposableEffect
 import com.stadiamaps.ferrostar.core.boundingBox
 import com.stadiamaps.ferrostar.maplibreui.NavigationMapClickResult
-import com.stadiamaps.ferrostar.maplibreui.NavigationMapPuckStyle
-import com.stadiamaps.ferrostar.maplibreui.routeline.BorderedPolyline
 import com.stadiamaps.ferrostar.maplibreui.routeline.RouteOverlayBuilder
+import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationCameraMode
 import com.stadiamaps.ferrostar.maplibreui.runtime.navigationCameraOptions
+import app.nullpointr.foxnav.settings.MapOrientation
+import androidx.compose.runtime.snapshotFlow
 import com.stadiamaps.ferrostar.maplibreui.runtime.rememberNavigationMapState
 import com.stadiamaps.ferrostar.maplibreui.views.DynamicallyOrientingNavigationView
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,7 +59,6 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
     KeepScreenOnDisposableEffect()
     RequestLocationPermission(onResult = viewModel::onLocationPermission)
 
-    val colors = MaterialTheme.colorScheme
     val navigationMapState = rememberNavigationMapState()
     val preview by viewModel.preview.collectAsState()
     val graph = LocalContext.current.appGraph
@@ -73,6 +72,16 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
     var showReport by rememberSaveable { mutableStateOf(false) }
     val panels = remember { ScreenPanels() }
     val query by viewModel.query.collectAsState()
+    val settings by graph.settings.settings.collectAsState()
+    val profile by graph.profiles.profile.collectAsState()
+
+    // Heading up or north up, whenever the camera follows us (navigating or not).
+    LaunchedEffect(navigationMapState, settings.orientation) {
+        snapshotFlow { navigationMapState.cameraMode }.collect { mode ->
+            val wanted = if (settings.orientation == MapOrientation.NORTH_UP) NavigationCameraMode.FOLLOW_USER else NavigationCameraMode.FOLLOW_USER_WITH_BEARING
+            if (mode.tracksLocation() && mode != wanted) navigationMapState.cameraMode = wanted
+        }
+    }
 
     // Frame the selected route while previewing.
     LaunchedEffect(preview?.selectedRoute) {
@@ -86,18 +95,14 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         baseStyle = BaseStyle.Uri(styleUrl),
         navigationMapState = navigationMapState,
         // A little further out than Ferrostar's default while browsing, so free drive shows the road ahead.
-        navigationCameraOptions = navigationCameraOptions().copy(browsingZoom = 15.0),
-        viewModel = viewModel,
-        locationPuckStyle = NavigationMapPuckStyle(
-            dotFillColorCurrentLocation = colors.primary,
-            dotFillColorOldLocation = colors.primary.copy(alpha = 0.6f),
-            dotStrokeColor = Color.White,
-            accuracyStrokeColor = colors.primary,
-            accuracyFillColor = colors.primary.copy(alpha = 0.12f),
-            bearingColor = colors.primary,
-        ),
+        navigationCameraOptions = navigationCameraOptions().let { defaults ->
+            defaults.copy(browsingZoom = 15.0, navigationTilt = if (settings.tilt) defaults.navigationTilt else 0.0)
+        },
+        viewModel = rememberGlidingViewModel(viewModel),
+        // Our own car (MyCarLayer) instead of Ferrostar's puck.
+        showDefaultPuck = false,
         // Speed, limit and mute live in our panels.
-        config = VisualNavigationViewConfig(showMute = false, showZoom = false, showRecenter = true),
+        config = VisualNavigationViewConfig(showMute = false, showZoom = settings.zoomButtons, showRecenter = true),
         views = NavigationViewComponentBuilder.Default()
             .withInstructionsView { modifier, uiState -> ManeuverCard(uiState, modifier.topPanelOf(panels.navigation)) }
             .withProgressView { modifier, uiState, onTapExit ->
@@ -107,6 +112,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
                     speed,
                     onToggleMute = viewModel::toggleMute,
                     onConvoy = { showConvoy = true },
+                    convoySize = activeConvoy?.let { convoyMembers.size + 1 },
                     onReport = if (viewModel.canReport) ({ showReport = true }) else null,
                     onEnd = onTapExit,
                     modifier = modifier.bottomPanelOf(panels.navigation),
@@ -143,11 +149,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
                 )
             },
         routeOverlayBuilder = RouteOverlayBuilder(
-            navigationPath = { uiState ->
-                uiState.routeGeometry?.let { geometry ->
-                    BorderedPolyline(points = geometry, color = colors.secondary, borderColor = colors.background, lineWidth = 9f, borderWidth = 3f)
-                }
-            },
+            navigationPath = { uiState -> uiState.routeGeometry?.let { NavigationRoute(it) } },
         ),
         onTapExit = { viewModel.stopNavigation() },
         onMapLongClick = { position, _ ->
@@ -160,6 +162,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         ReportLayers(reports)
         CameraLayers(cameras)
         ConvoyLayers(convoyMembers, regroupPoint)
+        MyCarLayer(rememberShownLocation(uiState), profile.colorRgb, profile.bodyStyle)
     }
 
     if (showReport) {

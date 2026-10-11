@@ -74,7 +74,9 @@ import app.nullpointr.foxnav.shared.convoy.Signal
 import app.nullpointr.foxnav.shared.convoy.roadGap
 import app.nullpointr.foxnav.shared.convoy.signal
 import app.nullpointr.foxnav.shared.format.formatDistance
-import app.nullpointr.foxnav.shared.format.kilometersPerHour
+import app.nullpointr.foxnav.shared.format.UnitSystem
+import app.nullpointr.foxnav.shared.format.speedIn
+import app.nullpointr.foxnav.ui.format.LocalUnits
 import app.nullpointr.foxnav.shared.geo.GeoPoint
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 import kotlinx.coroutines.delay
@@ -203,7 +205,8 @@ private data class TowerRow(
     val colorRgb: Int,
     /** Metres ahead of us (negative: behind); null when unknown. */
     val offsetM: Double?,
-    val speedKmh: Int?,
+    /** In the user's units. */
+    val speed: Int?,
     val signal: Signal,
     val isMe: Boolean = false,
     /** Follows from a browser without sharing a position. */
@@ -235,8 +238,9 @@ private fun TimingTower(
         }
     }
 
+    val units = LocalUnits.current
     val rows = buildList {
-        add(TowerRow(key = -1, name = "You", colorRgb = myColorRgb, offsetM = 0.0, speedKmh = me?.let { kilometersPerHour(it.speedMps) }, signal = Signal.LIVE, isMe = true))
+        add(TowerRow(key = -1, name = "You", colorRgb = myColorRgb, offsetM = 0.0, speed = me?.let { speedIn(it.speedMps, units) }, signal = Signal.LIVE, isMe = true))
         for (member in members.values) {
             val fix = member.fix
             add(
@@ -245,7 +249,7 @@ private fun TimingTower(
                     name = member.profile?.display_name?.ifBlank { null } ?: "Driver",
                     colorRgb = member.profile?.car?.color_rgb ?: ConvoyPalette.first(),
                     offsetM = if (me != null && fix != null) roadGap(me, fix.point, route) else null,
-                    speedKmh = fix?.let { kilometersPerHour(it.speedMps) },
+                    speed = fix?.let { speedIn(it.speedMps, units) },
                     signal = member.signal(now),
                     watching = member.profile?.watching == true && fix == null,
                 ),
@@ -324,14 +328,14 @@ private fun TowerRowView(row: TowerRow) {
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            gapText(row),
+            gapText(row, LocalUnits.current),
             fontFamily = ChakraPetch,
             fontWeight = FontWeight.SemiBold,
             fontSize = 12.sp,
             color = if (row.signal == Signal.LOST) colors.error else colors.onSurfaceVariant,
         )
         Text(
-            row.speedKmh?.takeIf { row.signal != Signal.LOST }?.toString() ?: "–",
+            row.speed?.takeIf { row.signal != Signal.LOST }?.toString() ?: "–",
             Modifier.width(30.dp),
             fontFamily = ChakraPetch,
             fontWeight = FontWeight.Bold,
@@ -341,14 +345,14 @@ private fun TowerRowView(row: TowerRow) {
     }
 }
 
-private fun gapText(row: TowerRow): String {
+private fun gapText(row: TowerRow, units: UnitSystem): String {
     if (row.isMe) return ""
     return when (row.signal) {
         Signal.WAITING -> if (row.watching) "watching" else "joining"
         Signal.LOST -> "LOST"
         else -> {
             val offset = row.offsetM ?: return ""
-            val distance = formatDistance(abs(offset), DecimalFormatSymbols.getInstance().decimalSeparator)
+            val distance = formatDistance(abs(offset), DecimalFormatSymbols.getInstance().decimalSeparator, units)
             if (offset >= 0) "+$distance" else "−$distance"
         }
     }

@@ -1,5 +1,6 @@
 package app.nullpointr.foxnav.drive
 
+import app.nullpointr.foxnav.ui.format.distanceText
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -136,7 +137,7 @@ fun ReportWarning(ahead: ReportAhead?, modifier: Modifier = Modifier) {
                         }
                     }
                     Text(
-                        formatDistance(warning.distanceM, DecimalFormatSymbols.getInstance().decimalSeparator),
+                        distanceText(warning.distanceM),
                         fontFamily = ChakraPetch,
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp,

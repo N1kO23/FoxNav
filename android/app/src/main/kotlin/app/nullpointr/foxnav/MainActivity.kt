@@ -1,5 +1,9 @@
 package app.nullpointr.foxnav
 
+import android.graphics.Color as AndroidColor
+import androidx.activity.SystemBarStyle
+import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
 import android.content.Intent
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
@@ -9,6 +13,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import app.nullpointr.foxnav.convoy.JoinInviteDialog
@@ -16,10 +22,12 @@ import app.nullpointr.foxnav.drive.DriveRoute
 import app.nullpointr.foxnav.shared.convoy.Invite
 import app.nullpointr.foxnav.ui.ServerGate
 import app.nullpointr.foxnav.ui.theme.FoxNavTheme
-import app.nullpointr.foxnav.voice.guidanceLanguage
+import app.nullpointr.foxnav.ui.format.LocalSpeedometerStyle
+import app.nullpointr.foxnav.ui.format.LocalUnits
+import app.nullpointr.foxnav.ui.theme.rememberNight
+import app.nullpointr.foxnav.voice.applyVoiceSettings
 import com.stadiamaps.ferrostar.core.AndroidTtsStatusListener
 import kotlinx.coroutines.flow.MutableStateFlow
-import java.util.Locale
 
 /** An invite link the app was opened with; [invite] is null when the link is broken. */
 private class OpenedInvite(val invite: Invite?)
@@ -32,13 +40,28 @@ class MainActivity : ComponentActivity(), AndroidTtsStatusListener {
         enableEdgeToEdge()
         appGraph.voice.statusObserver = this
         if (savedInstanceState == null) handleIntent(intent)
+        // The chosen voice, language and speed, whenever they change.
+        lifecycleScope.launch {
+            appGraph.settings.settings.collect { settings ->
+                appGraph.voice.tts?.takeIf { appGraph.voice.isInitializedSuccessfully }?.let { applyVoiceSettings(it, settings) }
+            }
+        }
 
         setContent {
-            FoxNavTheme {
+            val settings by appGraph.settings.settings.collectAsState()
+            val night = rememberNight(settings.theme)
+            // Status and navigation bar icons follow our colours, which can differ from the phone's.
+            LaunchedEffect(night) {
+                val bars = if (night) SystemBarStyle.dark(AndroidColor.TRANSPARENT) else SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+            }
+            FoxNavTheme(night = night, accent = settings.accent) {
+                CompositionLocalProvider(LocalUnits provides settings.units, LocalSpeedometerStyle provides settings.speedometer) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     ServerGate(appGraph.serverSettings) { document -> DriveRoute(document) }
                     val opened by openedInvite.collectAsState()
                     opened?.let { JoinInviteDialog(it.invite, onDone = { openedInvite.value = null }) }
+                }
                 }
             }
         }
@@ -66,8 +89,8 @@ class MainActivity : ComponentActivity(), AndroidTtsStatusListener {
     }
 
     override fun onTtsInitialized(tts: TextToSpeech?, status: Int) {
-        val result = tts?.setLanguage(Locale.forLanguageTag(guidanceLanguage()))
-        Log.i(TAG, "Text-to-speech ready (status $status, language result $result)")
+        tts?.let { applyVoiceSettings(it, appGraph.settings.settings.value) }
+        Log.i(TAG, "Text-to-speech ready (status $status)")
     }
 
     override fun onTtsSpeakError(utteranceId: String, status: Int) {

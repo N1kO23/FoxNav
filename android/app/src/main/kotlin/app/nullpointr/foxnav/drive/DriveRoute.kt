@@ -1,6 +1,5 @@
 package app.nullpointr.foxnav.drive
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -18,7 +17,8 @@ import app.nullpointr.foxnav.appGraph
 import app.nullpointr.foxnav.data.ReportsClient
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.discovery.Feature
-import app.nullpointr.foxnav.voice.guidanceLanguage
+import app.nullpointr.foxnav.shared.geo.GeoPoint
+import app.nullpointr.foxnav.ui.theme.LocalNight
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
@@ -38,18 +38,20 @@ fun DriveRoute(document: DiscoveryDocument) {
     val search = document.search?.takeIf { it.type == "photon" }
     val viewModel: DriveViewModel = viewModel(key = "drive:${routing.url}:${search?.url}") {
         DriveViewModel(
-            core = graph.ferrostarCore(routing, guidanceLanguage()),
+            core = graph.ferrostarCore(routing),
             locationProvider = graph.locationProvider,
             placeSearch = search?.let(graph::placeSearch),
             roadLookup = graph.roadLookup(routing),
             convoy = graph.convoy,
-            playOverLimitChime = graph.chime::playKinKon,
+            settings = graph.settings.settings,
+            playOverLimit = graph.chime::playOverLimit,
+            playAlert = graph.chime::playAlert,
             loadCameras = { graph.dataPacks.cameras(document) },
             loadSpeedLimits = { graph.dataPacks.speedLimits(document) },
             cameraWarnings = graph.alertSettings.cameraWarnings,
             reportsClient = document.reports?.takeIf { Feature.REPORTS in document.features }?.let { ReportsClient(graph.httpClient, it) },
             reportWarnings = graph.alertSettings.reportWarnings,
-            announce = graph::speak,
+            say = graph.guidanceVoice::say,
         )
     }
     LaunchedEffect(Unit) {
@@ -59,8 +61,12 @@ fun DriveRoute(document: DiscoveryDocument) {
         withTimeoutOrNull(5.seconds) { snapshotFlow { offline.areas }.first { it.isNotEmpty() } }
         offline.resumeUnfinished()
     }
-    // Follows the system theme for now; later at sunrise/sunset and in tunnels.
-    val theme = if (isSystemInDarkTheme()) "night" else "day"
+    // Where we are, roughly, for sunrise and sunset.
+    LaunchedEffect(viewModel) {
+        viewModel.location.collect { location -> location?.let { graph.lastArea.update(GeoPoint(it.coordinates.lat, it.coordinates.lng)) } }
+    }
+    // The map's day or night style follows the app's colours (settings: by the sun, the system, or fixed).
+    val theme = if (LocalNight.current) "night" else "day"
     val styleUrl = document.styles[theme] ?: document.styles.values.first()
     DriveScreen(viewModel, document, styleUrl)
 }

@@ -1,5 +1,6 @@
 package app.nullpointr.foxnav.convoy
 
+import app.nullpointr.foxnav.protocol.convoy.v0.Car
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,9 +17,12 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.nullpointr.foxnav.shared.convoy.ConvoyMember
 import app.nullpointr.foxnav.shared.convoy.MotionTrack
+import androidx.compose.ui.graphics.Color
 import app.nullpointr.foxnav.shared.convoy.Signal
 import app.nullpointr.foxnav.shared.convoy.signal
+import app.nullpointr.foxnav.drive.ShownLocation
 import app.nullpointr.foxnav.ui.icons.FoxIcons
+import app.nullpointr.foxnav.ui.theme.LocalNight
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -27,12 +31,20 @@ import org.maplibre.compose.expressions.dsl.asString
 import org.maplibre.compose.expressions.dsl.const
 import org.maplibre.compose.expressions.dsl.convertToColor
 import org.maplibre.compose.expressions.dsl.feature
+import org.maplibre.compose.expressions.ast.Expression
+import org.maplibre.compose.expressions.dsl.case
 import org.maplibre.compose.expressions.dsl.image
+import org.maplibre.compose.expressions.dsl.switch
+import org.maplibre.compose.expressions.value.ImageValue
 import org.maplibre.compose.expressions.dsl.offset
+import org.maplibre.compose.expressions.value.CirclePitchAlignment
+import org.maplibre.compose.expressions.value.IconPitchAlignment
 import org.maplibre.compose.expressions.value.IconRotationAlignment
 import org.maplibre.compose.expressions.value.SymbolAnchor
+import org.maplibre.compose.layers.CircleLayer
 import org.maplibre.compose.layers.SymbolLayer
 import org.maplibre.compose.sources.GeoJsonData
+import org.maplibre.compose.sources.GeoJsonOptions
 import org.maplibre.compose.sources.rememberGeoJsonSource
 import org.maplibre.compose.util.MaplibreComposable
 import org.maplibre.spatialk.geojson.Feature
@@ -71,6 +83,7 @@ fun ConvoyLayers(members: Map<Long, ConvoyMember>, regroup: RegroupPoint?) {
                             mapOf(
                                 "name" to JsonPrimitive(member.profile?.display_name.orEmpty()),
                                 "color" to JsonPrimitive(member.colorHex()),
+                                "body" to JsonPrimitive((member.profile?.car?.body_style ?: Car.BodyStyle.BODY_STYLE_UNSPECIFIED).name),
                                 "heading" to JsonPrimitive(fix.headingDeg),
                                 "opacity" to JsonPrimitive(
                                     when (member.signal(now)) {
@@ -92,7 +105,7 @@ fun ConvoyLayers(members: Map<Long, ConvoyMember>, regroup: RegroupPoint?) {
     SymbolLayer(
         id = "foxnav-convoy-cars",
         source = carSource,
-        iconImage = image(rememberVectorPainter(FoxIcons.CarMarker), size = DpSize(28.dp, 28.dp), drawAsSdf = true),
+        iconImage = carImages(),
         iconColor = feature["color"].convertToColor(),
         iconHaloColor = const(colors.background),
         iconHaloWidth = const(2.dp),
@@ -153,3 +166,70 @@ fun ConvoyMember.colorHex(): String = "#%06X".format((profile?.car?.color_rgb ?:
 // The FoxNav map styles' label font (infra/styles); other servers' styles may lack it, and then names don't show.
 private const val LABEL_FONT = "Noto Sans Medium"
 private const val FRAME_INTERVAL_MS = 33L
+
+/** Each body style's silhouette as an SDF image, picked per car by its "body" property. */
+@Composable
+fun carImages(size: DpSize = DpSize(28.dp, 28.dp)): Expression<ImageValue> {
+    val images = Car.BodyStyle.entries.associateWith { style -> image(rememberVectorPainter(style.icon), size = size, drawAsSdf = true) }
+    return switch(
+        feature["body"].asString(),
+        *images.map { (style, image) -> case(style.name, image) }.toTypedArray(),
+        fallback = images.getValue(Car.BodyStyle.BODY_STYLE_UNSPECIFIED),
+    )
+}
+
+/**
+ * Our own car, in our colour and shape, where the map shows us (see [ShownLocation]): exactly
+ * under Ferrostar's camera, updated on the same frame.
+ */
+@Composable
+@MaplibreComposable
+fun MyCarLayer(shown: ShownLocation?, colorRgb: Int, bodyStyle: Car.BodyStyle) {
+    // A car keeps pointing where it last went when the location has no course. Not state: only this composition reads it.
+    val lastBearing = remember { doubleArrayOf(0.0) }
+    shown?.bearing?.let { lastBearing[0] = it }
+    val color = "#%06X".format(colorRgb and 0xFFFFFF)
+    val car = shown?.let {
+        FeatureCollection(
+            listOf(
+                Feature(
+                    geometry = Point(it.position),
+                    properties = JsonObject(
+                        mapOf(
+                            "color" to JsonPrimitive(color),
+                            "body" to JsonPrimitive(bodyStyle.name),
+                            "heading" to JsonPrimitive(it.bearing ?: lastBearing[0]),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    } ?: FeatureCollection<Point, JsonObject>(emptyList())
+    // Synchronous, like the camera: an asynchronous update lands a frame or two late, and the car shivers.
+    val source = rememberGeoJsonSource(GeoJsonData.Features(car), GeoJsonOptions(synchronousUpdate = true))
+    if (LocalNight.current) {
+        // Underglow, in the car's colour: the night look's one glow besides the route.
+        CircleLayer(
+            id = "foxnav-my-car-glow",
+            source = source,
+            color = feature["color"].convertToColor(),
+            radius = const(30.dp),
+            blur = const(0.8f),
+            opacity = const(0.55f),
+            pitchAlignment = const(CirclePitchAlignment.Map),
+        )
+    }
+    SymbolLayer(
+        id = "foxnav-my-car",
+        source = source,
+        iconImage = carImages(DpSize(34.dp, 34.dp)),
+        iconColor = feature["color"].convertToColor(),
+        iconHaloColor = const(Color.White),
+        iconHaloWidth = const(2.dp),
+        iconRotate = feature["heading"].asNumber(),
+        iconRotationAlignment = const(IconRotationAlignment.Map),
+        iconPitchAlignment = const(IconPitchAlignment.Map),
+        iconAllowOverlap = const(true),
+        iconIgnorePlacement = const(true),
+    )
+}

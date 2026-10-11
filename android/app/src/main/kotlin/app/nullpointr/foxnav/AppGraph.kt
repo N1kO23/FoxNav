@@ -9,11 +9,20 @@ import app.nullpointr.foxnav.data.DataPacks
 import app.nullpointr.foxnav.data.DiscoveryCache
 import app.nullpointr.foxnav.data.OfflineMaps
 import app.nullpointr.foxnav.data.PlaceSearch
+import app.nullpointr.foxnav.data.ValhallaRoutes
+import app.nullpointr.foxnav.shared.format.UnitSystem
+import app.nullpointr.foxnav.voice.effectiveLanguage
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.location.liveLocationProvider
 import app.nullpointr.foxnav.settings.AlertSettings
 import app.nullpointr.foxnav.settings.ServerSettings
+import app.nullpointr.foxnav.settings.UserSettings
+import app.nullpointr.foxnav.ui.theme.LastArea
 import app.nullpointr.foxnav.voice.Chime
+import app.nullpointr.foxnav.voice.ClipPlayer
+import app.nullpointr.foxnav.voice.GuidanceVoice
+import app.nullpointr.foxnav.voice.VoicePacks
+import uniffi.ferrostar.TripState
 import app.nullpointr.foxnav.shared.discovery.ServiceEndpoint
 import com.stadiamaps.ferrostar.composeui.notification.DefaultForegroundNotificationBuilder
 import com.stadiamaps.ferrostar.core.AndroidTtsObserver
@@ -22,14 +31,12 @@ import com.stadiamaps.ferrostar.core.http.OkHttpClientProvider.Companion.toOkHtt
 import com.stadiamaps.ferrostar.core.location.NavigationLocationProvider
 import com.stadiamaps.ferrostar.core.location.SimulatedLocationProvider
 import com.stadiamaps.ferrostar.core.service.FerrostarForegroundServiceManager
-import com.stadiamaps.ferrostar.core.withJsonOptions
 import okhttp3.OkHttpClient
 import uniffi.ferrostar.CourseFiltering
 import uniffi.ferrostar.NavigationControllerConfig
 import uniffi.ferrostar.RouteDeviationTracking
 import uniffi.ferrostar.SpokenInstruction
 import uniffi.ferrostar.WaypointAdvanceMode
-import uniffi.ferrostar.WellKnownRouteProvider
 import uniffi.ferrostar.stepAdvanceDistanceEntryAndExit
 import uniffi.ferrostar.stepAdvanceDistanceToEndOfStep
 import java.time.Duration
@@ -63,6 +70,11 @@ class AppGraph(private val context: Context) {
 
     val alertSettings = AlertSettings(context)
 
+    /** How the user wants FoxNav to look, sound and behave. */
+    val settings = UserSettings(context)
+
+    val lastArea = LastArea(context)
+
     val dataPacks = DataPacks(context, httpClient)
 
     val connectivity = Connectivity(context)
@@ -71,6 +83,13 @@ class AppGraph(private val context: Context) {
 
     /** Map areas downloaded for driving without a connection. */
     val offlineMaps by lazy { OfflineMaps(context) }
+
+    val voicePacks = VoicePacks(context)
+
+    val clipPlayer by lazy { ClipPlayer(context) }
+
+    /** The voice for guidance and warnings: the chosen voice pack where it can, text-to-speech otherwise. */
+    val guidanceVoice by lazy { GuidanceVoice(voice, voicePacks, clipPlayer, settings.settings) }
 
     /** Says [text] with the guidance voice, which ducks music and respects mute. */
     fun speak(text: String) {
@@ -86,12 +105,21 @@ class AppGraph(private val context: Context) {
 
     fun roadLookup(routing: ServiceEndpoint) = RoadLookup(httpClient, routing)
 
-    /** A navigation core that routes with the server's Valhalla, with guidance in [language]. */
-    fun ferrostarCore(routing: ServiceEndpoint, language: String): FerrostarCore {
-        val provider = WellKnownRouteProvider.Valhalla(endpointUrl = routing.url.trimEnd('/') + "/route", profile = "auto")
-            .withJsonOptions(mapOf("language" to language, "units" to "kilometers", "alternates" to 2))
+    /**
+     * A navigation core that routes with the server's Valhalla, in the guidance language and
+     * units of the settings at the time of each route.
+     */
+    fun ferrostarCore(routing: ServiceEndpoint): FerrostarCore {
+        val routes = ValhallaRoutes(httpClient, routing.url.trimEnd('/') + "/route") {
+            val current = settings.settings.value
+            mapOf(
+                "language" to current.effectiveLanguage(),
+                "units" to if (current.units == UnitSystem.IMPERIAL) "miles" else "kilometers",
+                "alternates" to 2,
+            )
+        }
         return FerrostarCore(
-            provider,
+            routes,
             httpClient = httpClient.toOkHttpClientProvider(),
             locationProvider = locationProvider,
             foregroundServiceManager = foregroundServiceManager,
@@ -102,6 +130,14 @@ class AppGraph(private val context: Context) {
                 RouteDeviationTracking.StaticThreshold(15u, 50.0),
                 CourseFiltering.SNAP_TO_ROUTE,
             ),
-        ).apply { spokenInstructionObserver = voice }
+        ).also { core ->
+            core.spokenInstructionObserver = guidanceVoice
+            // What the instruction being spoken is about, for voice packs: the current step's manoeuvre.
+            guidanceVoice.currentManeuver = {
+                val navigating = core.state.value.tripState as? TripState.Navigating
+                navigating?.remainingSteps?.firstOrNull()?.visualInstructions?.firstOrNull()?.primaryContent
+                    ?.let { content -> content.maneuverType?.name?.let { it to content.maneuverModifier?.name } }
+            }
+        }
     }
 }

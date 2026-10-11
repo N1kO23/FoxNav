@@ -5,6 +5,8 @@ Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras
 > **Status:** early development. Against the local backend, the Android app does:
 > - free drive with speed limits, including winter limits, and official limits from Digiroad where OpenStreetMap has none;
 > - offline map areas, and starting without a connection;
+> - settings for units, warnings, the over-limit sound, voice, map behaviour and looks, and your car's shape on the map;
+> - voice packs: recorded in the app or made from audio files, shared as zip files;
 > - search and route alternatives;
 > - turn-by-turn with voice;
 > - convoys: live cars and speeds, invite links and QR codes, quick messages and a shared destination, and following a convoy from any browser;

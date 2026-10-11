@@ -68,6 +68,8 @@ import androidx.compose.ui.unit.sp
 import app.nullpointr.foxnav.shared.convoy.ConvoyMember
 import app.nullpointr.foxnav.shared.convoy.ConvoyStatus
 import app.nullpointr.foxnav.shared.convoy.Invite
+import app.nullpointr.foxnav.appGraph
+import app.nullpointr.foxnav.protocol.convoy.v0.Car
 import app.nullpointr.foxnav.shared.convoy.toGeoPoint
 import app.nullpointr.foxnav.shared.geo.GeoPoint
 import app.nullpointr.foxnav.ui.icons.FoxIcons
@@ -402,6 +404,43 @@ fun ProfileEditor(profile: DriverProfile, onChange: (DriverProfile) -> Unit) {
                         .clickable { onChange(profile.copy(colorRgb = rgb)) },
                 )
             }
+        }
+        Text("Its shape on the map", color = colors.onSurfaceVariant)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val tint = Color(0xFF000000.toInt() or profile.colorRgb)
+            Car.BodyStyle.entries.forEach { style ->
+                val selected = style == profile.bodyStyle
+                Surface(
+                    onClick = { onChange(profile.copy(bodyStyle = style)) },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (selected) colors.primary.copy(alpha = 0.16f) else colors.surfaceVariant,
+                    border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) colors.primary else colors.outline),
+                    modifier = Modifier.size(width = 76.dp, height = 72.dp),
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Icon(style.icon, contentDescription = null, tint = tint, modifier = Modifier.size(30.dp))
+                        Text(style.label.ifEmpty { "Arrow" }, fontSize = 12.sp, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Your name and car, as the convoy sees them; from the settings. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CarProfileSheet(onDismiss: () -> Unit) {
+    val profiles = LocalContext.current.appGraph.profiles
+    val profile by profiles.profile.collectAsState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Your car", style = MaterialTheme.typography.titleLarge)
+            Text("This is how you show up in convoys, and your car on your own map.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ProfileEditor(profile, onChange = profiles::save)
         }
     }
 }

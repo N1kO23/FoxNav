@@ -7,7 +7,15 @@ import app.nullpointr.foxnav.convoy.ConvoyController
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.ReportsClient
 import app.nullpointr.foxnav.data.RoadLookup
-import app.nullpointr.foxnav.shared.format.kilometersPerHour
+import app.nullpointr.foxnav.settings.Announcements
+import app.nullpointr.foxnav.settings.OverLimitSound
+import app.nullpointr.foxnav.settings.Settings
+import app.nullpointr.foxnav.shared.voice.Phrases
+import app.nullpointr.foxnav.voice.Utterance
+import app.nullpointr.foxnav.shared.format.UnitSystem
+import app.nullpointr.foxnav.shared.format.limitIn
+import app.nullpointr.foxnav.shared.format.speedIn
+import app.nullpointr.foxnav.shared.format.spokenDistance
 import app.nullpointr.foxnav.shared.convoy.Fix
 import app.nullpointr.foxnav.shared.convoy.fixOf
 import app.nullpointr.foxnav.shared.geo.GeoPoint
@@ -60,6 +68,7 @@ import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import uniffi.ferrostar.CourseOverGround
 import uniffi.ferrostar.GeographicCoordinate
 import uniffi.ferrostar.Route
 import uniffi.ferrostar.Speed
@@ -92,7 +101,11 @@ class DriveViewModel(
     private val placeSearch: PlaceSearch?,
     private val roadLookup: RoadLookup,
     private val convoy: ConvoyController,
-    private val playOverLimitChime: () -> Unit,
+    /** What the user chose: units, warnings, sounds. */
+    private val settings: StateFlow<Settings>,
+    private val playOverLimit: (OverLimitSound) -> Unit,
+    /** The warning tone, for warnings set to a tone rather than words. */
+    private val playAlert: () -> Unit,
     /** The server's speed cameras (an empty list without data packs). */
     private val loadCameras: suspend () -> List<Camera>,
     /** The server's speed limit packs: winter limits, and limits for roads the map has none for. */
@@ -101,8 +114,8 @@ class DriveViewModel(
     /** The server's reports; null if it has none. */
     private val reportsClient: ReportsClient?,
     private val reportWarnings: StateFlow<Boolean>,
-    /** Says something out loud with the guidance voice (and its mute). */
-    private val announce: (String) -> Unit,
+    /** Says something with the guidance voice: a voice pack's phrases, or text-to-speech (and its mute). */
+    private val say: (Utterance) -> Unit,
 ) : DefaultNavigationViewModel(core, valhallaExtendedOSRMAnnotationPublisher()) {
 
     private val hasLocationPermission = MutableStateFlow(false)
@@ -142,15 +155,15 @@ class DriveViewModel(
             if (uiState.isNavigating()) uiState else uiState.copy(location = location)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), NavigationUiState.empty())
 
-    // Current speed in km/h, derived from consecutive locations where the source reports none
-    // (Ferrostar's simulation, the emulator).
-    private val speedKmh =
+    // Current speed in metres per second, derived from consecutive locations where the source
+    // reports none (Ferrostar's simulation, the emulator).
+    private val speedMps =
         navigationUiState
             .map { it.location }
             // UI state also changes without a new fix (progress, annotations); only new fixes count.
             .distinctUntilChanged()
-            .runningFold(null as UserLocation? to null as Int?) { (previous, _), location ->
-                location to location?.withSpeedFrom(previous)?.speed?.value?.let(::kilometersPerHour)
+            .runningFold(null as UserLocation? to null as Double?) { (previous, _), location ->
+                location to location?.withSpeedFrom(previous)?.speed?.value
             }
             .map { (_, speed) -> speed }
             // No new fix for a while (a tunnel, a GPS gone quiet): the last speed isn't true any more.
@@ -246,8 +259,15 @@ class DriveViewModel(
 
     /** Speed, the limit where we are, and whether to warn. */
     val speed: StateFlow<SpeedReading> =
-        combine(speedKmh, limit) { speed, limit -> speed to limit }
-            .runningFold(SpeedReading()) { reading, (speed, limit) -> reading.next(speed, limit?.kmh, limitSeason = limit?.season) }
+        combine(speedMps, limit, settings) { speed, limit, settings -> Triple(speed, limit, settings) }
+            .runningFold(SpeedReading()) { reading, (speed, limit, settings) ->
+                reading.next(
+                    speed = speed?.let { speedIn(it, settings.units) },
+                    limit = limit?.kmh?.let { limitIn(it, settings.units) },
+                    margin = settings.overLimitMargin,
+                    limitSeason = limit?.season,
+                )
+            }
             .stateIn(viewModelScope, SharingStarted.Eagerly, SpeedReading())
 
     init {
@@ -256,14 +276,18 @@ class DriveViewModel(
                 .flatMapLatest { granted ->
                     if (granted) locationProvider.locationUpdates(1000L).map { it.toUserLocation() } else emptyFlow()
                 }
-                .collect { location -> freeDriveLocation.value = location }
+                // Heading-up needs a course, which some sources (and the emulator) leave out.
+                .collect { location -> freeDriveLocation.value = location.withCourseFrom(freeDriveLocation.value) }
         }
         viewModelScope.launch { trackRoad() }
         viewModelScope.launch { _cameras.value = runCatching { loadCameras() }.getOrDefault(emptyList()) }
         viewModelScope.launch(Dispatchers.Default) { speedLimits.value = SpeedLimits(runCatching { loadSpeedLimits() }.getOrDefault(emptyList())) }
         viewModelScope.launch {
             // Once per camera, as it comes into range.
-            cameraAhead.distinctUntilChangedBy { it?.camera?.id }.filterNotNull().collect { announce(it.spoken()) }
+            cameraAhead.distinctUntilChangedBy { it?.camera?.id }.filterNotNull().collect { ahead ->
+                val kind = if (ahead.camera.kind == Camera.RED_LIGHT) "red_light_camera" else "speed_camera"
+                warn(kind, ahead.distanceM, ahead.spoken(settings.value.units), ahead.short())
+            }
         }
         if (reportsClient != null) {
             viewModelScope.launch {
@@ -276,7 +300,7 @@ class DriveViewModel(
                 // Once per report, as it comes into range. Roadworks are on the map, not worth a voice.
                 reportAhead.distinctUntilChangedBy { it?.report?.id }.filterNotNull()
                     .filter { it.report.type != ReportType.ROADWORKS && reportWarnings.value }
-                    .collect { announce(it.spoken()) }
+                    .collect { warn(it.report.type, it.distanceM, it.spoken(settings.value.units), ReportLabels.label(it.report.type)) }
             }
             viewModelScope.launch {
                 combine(ourFix.filterNotNull(), reportAhead) { fix, ahead -> fix to ahead }
@@ -296,7 +320,7 @@ class DriveViewModel(
         }
         viewModelScope.launch {
             speed.map { it.overLimit }.distinctUntilChanged().filter { it }.collect {
-                if (core.spokenInstructionObserver?.isMuted != true) playOverLimitChime()
+                if (core.spokenInstructionObserver?.isMuted != true) playOverLimit(settings.value.overLimitSound)
             }
         }
         viewModelScope.launch {
@@ -412,6 +436,21 @@ class DriveViewModel(
         }
     }
 
+    /**
+     * A camera or report ahead ([kind] as in [Phrases.warning]), said as the settings say: the
+     * full sentence, the short one, a tone, or nothing.
+     */
+    private fun warn(kind: String, distanceM: Double, full: String, short: String) {
+        if (core.spokenInstructionObserver?.isMuted == true) return
+        val units = settings.value.units
+        when (settings.value.announcements) {
+            Announcements.FULL -> say(Utterance(Phrases.warning(kind, distanceM, units, short = false), full))
+            Announcements.SHORT -> say(Utterance(Phrases.warning(kind, distanceM, units, short = true), short))
+            Announcements.TONE -> playAlert()
+            Announcements.OFF -> Unit
+        }
+    }
+
     /** Reports [type] where we are, for the direction we're heading. */
     fun report(type: String) {
         val client = reportsClient ?: return
@@ -500,14 +539,28 @@ private fun UserLocation.withSpeedFrom(previous: UserLocation?): UserLocation {
 
 private const val MAX_PLAUSIBLE_SPEED_MPS = 100.0
 
+/**
+ * The course from the previous fix where the source reports none. Below a few metres of movement
+ * the direction is GPS noise, so the previous course carries on (or none, standing still from the start).
+ */
+private fun UserLocation.withCourseFrom(previous: UserLocation?): UserLocation {
+    if (courseOverGround != null || previous == null) return this
+    val from = GeoPoint(previous.coordinates.lat, previous.coordinates.lng)
+    val to = GeoPoint(coordinates.lat, coordinates.lng)
+    if (from.distanceTo(to) < MIN_COURSE_MOVE_M) return copy(courseOverGround = previous.courseOverGround)
+    return copy(courseOverGround = CourseOverGround(from.bearingTo(to).roundToInt().mod(360).toUShort(), COURSE_ACCURACY_DEG))
+}
+
+private const val MIN_COURSE_MOVE_M = 3.0
+private val COURSE_ACCURACY_DEG: UShort = 20u
+
 private fun today(): Day = LocalDate.now().let { Day(it.year, it.monthValue, it.dayOfMonth) }
 
 /** "Accident in 600 metres". */
-private fun ReportAhead.spoken(): String = "${ReportLabels.label(report.type)} in ${(distanceM / 100).roundToInt().coerceAtLeast(1) * 100} metres"
+private fun ReportAhead.spoken(units: UnitSystem): String = "${ReportLabels.label(report.type)} in ${spokenDistance(distanceM, units)}"
 
 /** "Speed camera in 400 metres, limit 80". */
-private fun CameraAhead.spoken(): String {
-    val what = if (camera.kind == Camera.RED_LIGHT) "Red light camera" else "Speed camera"
-    val metres = (distanceM / 100).roundToInt().coerceAtLeast(1) * 100
-    return "$what in $metres metres" + (camera.maxspeed?.let { ", limit $it" } ?: "")
-}
+private fun CameraAhead.spoken(units: UnitSystem): String =
+    "${short()} in ${spokenDistance(distanceM, units)}" + (camera.maxspeed?.let { ", limit ${limitIn(it, units)}" } ?: "")
+
+private fun CameraAhead.short(): String = if (camera.kind == Camera.RED_LIGHT) "Red light camera" else "Speed camera"

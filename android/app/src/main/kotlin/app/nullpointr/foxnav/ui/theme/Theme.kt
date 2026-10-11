@@ -6,6 +6,8 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -13,6 +15,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import app.nullpointr.foxnav.R
+import app.nullpointr.foxnav.settings.Accent
 
 // "Tokyo night drive". The base colours mirror design/tokens.json (the source of truth); the
 // container and surface variants are derived from them. Every Material role is set so no
@@ -132,7 +135,29 @@ private val FoxNavTypography = Typography().run {
     )
 }
 
+/** Whether the app is in its night colours: the map follows it. */
+val LocalNight = compositionLocalOf { true }
+
 @Composable
-fun FoxNavTheme(night: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (night) NightColors else DayColors, typography = FoxNavTypography, content = content)
+fun FoxNavTheme(night: Boolean = isSystemInDarkTheme(), accent: Accent = Accent.VERMILION, content: @Composable () -> Unit) {
+    val base = if (night) NightColors else DayColors
+    val (color, onColor) = accentColors(accent, night)
+    val colors = base.copy(primary = color, onPrimary = onColor, inversePrimary = color)
+    CompositionLocalProvider(LocalNight provides night) {
+        MaterialTheme(colorScheme = colors, typography = FoxNavTypography, content = content)
+    }
+}
+
+/** The accent and the text on it, night and day: night ones glow, day ones hold up in sunlight. */
+fun accentColors(accent: Accent, night: Boolean): Pair<Color, Color> {
+    val white = Color(0xFFFFFFFF)
+    val ink = Color(0xFF0B0D12)
+    return when (accent) {
+        Accent.VERMILION -> (if (night) Color(0xFFE5462E) else Color(0xFFD93A22)) to white
+        Accent.SAKURA -> (if (night) Color(0xFFFF6FA5) else Color(0xFFD23C78)) to (if (night) ink else white)
+        Accent.OCEAN -> (if (night) Color(0xFF4C8DFF) else Color(0xFF2563D9)) to white
+        Accent.LIME -> (if (night) Color(0xFF9BD84A) else Color(0xFF4E8A12)) to (if (night) ink else white)
+        Accent.VIOLET -> (if (night) Color(0xFFB79BFF) else Color(0xFF6C4BD6)) to (if (night) ink else white)
+        Accent.MONO -> (if (night) Color(0xFFE8EAF0) else Color(0xFF16171A)) to (if (night) ink else white)
+    }
 }

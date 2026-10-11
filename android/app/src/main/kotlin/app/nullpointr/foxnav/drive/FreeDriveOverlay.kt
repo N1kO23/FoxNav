@@ -1,5 +1,6 @@
 package app.nullpointr.foxnav.drive
 
+import app.nullpointr.foxnav.ui.format.distanceText
 import android.text.format.Formatter
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -80,7 +81,6 @@ fun BoxScope.FreeDriveOverlay(
     val preview by viewModel.preview.collectAsState()
     val query by viewModel.query.collectAsState()
     var showSettings by rememberSaveable { mutableStateOf(false) }
-    var offlineArea by remember { mutableStateOf<OfflineSheetRequest?>(null) }
     val online by LocalContext.current.appGraph.connectivity.online.collectAsState()
 
     Column(
@@ -97,7 +97,7 @@ fun BoxScope.FreeDriveOverlay(
                 PanelButton(onClick = onOpenConvoy) {
                     Icon(FoxIcons.Convoy, contentDescription = "Convoy", tint = if (inConvoy) MaterialTheme.colorScheme.secondary else LocalContentColor.current)
                 }
-                PanelButton(onClick = { showSettings = true }) { Icon(FoxIcons.Settings, contentDescription = "Server settings") }
+                PanelButton(onClick = { showSettings = true }) { Icon(FoxIcons.Settings, contentDescription = "Settings") }
             }
             if (!online) OfflineChip()
         }
@@ -107,8 +107,14 @@ fun BoxScope.FreeDriveOverlay(
                 if (preview == null && viewModel.canReport) {
                     ReportButton(onClick = onOpenReport, modifier = Modifier.align(Alignment.BottomStart))
                 }
-                PanelButton(onClick = { navigationMapState.recenter(isNavigating = false) }, modifier = Modifier.align(Alignment.BottomEnd)) {
-                    Icon(FoxIcons.Locate, contentDescription = "Center on my location")
+                Column(Modifier.align(Alignment.BottomEnd), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (LocalContext.current.appGraph.settings.settings.collectAsState().value.zoomButtons) {
+                        PanelButton(onClick = { navigationMapState.zoomIn() }) { Icon(FoxIcons.Plus, contentDescription = "Zoom in") }
+                        PanelButton(onClick = { navigationMapState.zoomOut() }) { Icon(FoxIcons.Minus, contentDescription = "Zoom out") }
+                    }
+                    PanelButton(onClick = { navigationMapState.recenter(isNavigating = false) }) {
+                        Icon(FoxIcons.Locate, contentDescription = "Center on my location")
+                    }
                 }
             }
             if (preview == null) {
@@ -123,45 +129,9 @@ fun BoxScope.FreeDriveOverlay(
     }
 
     if (showSettings) {
-        val settings = LocalContext.current.appGraph.serverSettings
-        val serverUrl by settings.serverUrl.collectAsState()
-        val overrides by settings.overrides.collectAsState()
-        ServerSettingsSheet(
-            header = {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    CameraWarningsSetting()
-                    ReportWarningsSetting()
-                    OfflineMapsSetting(onManage = {
-                        showSettings = false
-                        offlineArea = OfflineSheetRequest(navigationMapState.cameraState.projection?.queryVisibleBoundingBox())
-                    })
-                    DataSources(viewModel)
-                }
-            },
-            current = document,
-            serverUrl = serverUrl,
-            overrides = overrides,
-            onSave = { url, newOverrides ->
-                showSettings = false
-                settings.save(url, newOverrides)
-            },
-            onDismiss = { showSettings = false },
-        )
-    }
-
-    offlineArea?.let { request ->
-        val graph = LocalContext.current.appGraph
-        OfflineMapsSheet(
-            visible = request.visible,
-            styleUrls = document.styles.values,
-            placeSearch = remember(document.search) { document.search?.takeIf { it.type == "photon" }?.let(graph::placeSearch) },
-            onDismiss = { offlineArea = null },
-        )
+        DriveSettings(document, viewModel, navigationMapState, onClose = { showSettings = false })
     }
 }
-
-/** Opening the offline maps sheet, with what the map showed then. */
-private class OfflineSheetRequest(val visible: BoundingBox?)
 
 /** Without a connection: what still works. */
 @Composable
@@ -177,24 +147,6 @@ private fun OfflineChip() {
             letterSpacing = 1.sp,
             color = colors.tertiary,
         )
-    }
-}
-
-/** Offline maps: how many areas, and the way to the sheet. */
-@Composable
-private fun OfflineMapsSetting(onManage: () -> Unit) {
-    val context = LocalContext.current
-    val areas = context.appGraph.offlineMaps.areas
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text("Offline maps", style = MaterialTheme.typography.titleMedium)
-            Text(
-                if (areas.isEmpty()) "Download areas to keep the map without signal."
-                else "${areas.size} ${if (areas.size == 1) "area" else "areas"} · ${Formatter.formatShortFileSize(context, areas.sumOf { it.bytes })}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        OutlinedButton(onClick = onManage) { Text("Manage") }
     }
 }
 
@@ -309,7 +261,7 @@ private fun RoutePreviewPanel(preview: RoutePreview, viewModel: DriveViewModel) 
                     ) {
                         Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(formatDuration(route.steps.sumOf { it.duration }), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                            Text(formatDistance(route.distance, separator), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = colors.onSurfaceVariant)
+                            Text(distanceText(route.distance), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = colors.onSurfaceVariant)
                         }
                     }
                 }
@@ -342,53 +294,3 @@ private fun PanelButton(onClick: () -> Unit, modifier: Modifier = Modifier, cont
     }
 }
 
-/** The speed camera warnings switch, at the top of the settings. */
-@Composable
-private fun CameraWarningsSetting() {
-    val settings = LocalContext.current.appGraph.alertSettings
-    val on by settings.cameraWarnings.collectAsState()
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text("Speed camera warnings", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Always off in Germany, Switzerland and France, which forbid them.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = on, onCheckedChange = settings::setCameraWarnings)
-    }
-}
-
-/** The report warnings switch, under the camera one. */
-@Composable
-private fun ReportWarningsSetting() {
-    val settings = LocalContext.current.appGraph.alertSettings
-    val on by settings.reportWarnings.collectAsState()
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text("Spoken report warnings", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Police, accidents and the like ahead, and asking whether they're still there. Reports stay on the map either way.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = on, onCheckedChange = settings::setReportWarnings)
-    }
-}
-
-/** Credits for the data behind limits, cameras and reports, as their licences ask. */
-@Composable
-private fun DataSources(viewModel: DriveViewModel) {
-    val packCredits by LocalContext.current.appGraph.dataPacks.attributions.collectAsState()
-    val reports by viewModel.reports.collectAsState()
-    val credits = remember(packCredits, reports) {
-        val fromPacks = packCredits.flatMap { it.split("; ") }.map { it.replaceFirstChar(Char::uppercase) }
-        val fromReports = reports.mapNotNull { it.source }.map { source -> "Reports from ${source.name}" + (source.licence?.let { ", $it" } ?: "") }
-        (fromPacks + fromReports).distinct()
-    }
-    if (credits.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text("Data", style = MaterialTheme.typography.titleMedium)
-        credits.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-    }
-}

@@ -1,6 +1,7 @@
 package app.nullpointr.foxnav.data
 
 import android.content.Context
+import androidx.core.content.edit
 import org.json.JSONObject
 import org.maplibre.compose.offline.DownloadProgress
 import org.maplibre.compose.offline.DownloadStatus
@@ -73,7 +74,7 @@ class OfflineMaps(context: Context) {
 
     private var pausedIds: Set<String>
         get() = preferences.getStringSet(KEY_PAUSED, emptySet()).orEmpty()
-        set(value) = preferences.edit().putStringSet(KEY_PAUSED, value).apply()
+        set(value) = preferences.edit { putStringSet(KEY_PAUSED, value) }
 
     /** Also keeps more of what's been seen recently: the drive home works even outside downloaded areas. */
     suspend fun configure() {

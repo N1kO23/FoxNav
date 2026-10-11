@@ -38,6 +38,63 @@ object FoxIcons {
     /** The regroup point on the map (filled). */
     val FlagMarker = filledIcon("FlagMarker", "M5 22V3h2v1h12l-3 5 3 5H7v8Z")
 
+    val Back = strokeIcon("Back", "M15 5l-7 7 7 7")
+    val Plus = strokeIcon("Plus", "M12 5v14 M5 12h14")
+    val Minus = strokeIcon("Minus", "M5 12h14")
+
+    // Sound: playing, recording and files (voice packs, the over-limit sound).
+    val Play = strokeIcon("Play", "M8 5.5v13l10.5-6.5Z")
+    val Stop = strokeIcon("Stop", "M7 7h10v10H7Z")
+    val Mic = strokeIcon("Mic", "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3 M5.5 11a6.5 6.5 0 0 0 13 0 M12 17.5V21")
+    val Folder = strokeIcon("Folder", "M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4.5l2 2H19a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5Z")
+
+    // Cars from above, nose up, by body style: windows cut out, so the shape reads at 28 dp in any colour.
+    val CarSedan = carIcon(
+        "CarSedan",
+        "M9 2.5h6c1.4 0 2.5 1.1 2.5 2.5v14c0 1.4-1.1 2.5-2.5 2.5H9c-1.4 0-2.5-1.1-2.5-2.5V5c0-1.4 1.1-2.5 2.5-2.5Z",
+        "M8.3 8.5h7.4l-1 2.6H9.3Z M9.3 16h5.4l1 2.2H8.3Z",
+    )
+    val CarCoupe = carIcon(
+        "CarCoupe",
+        "M9 2.5h6c1.4 0 2.5 1.1 2.5 2.5v14c0 1.4-1.1 2.5-2.5 2.5H9c-1.4 0-2.5-1.1-2.5-2.5V5c0-1.4 1.1-2.5 2.5-2.5Z",
+        "M8.3 9.5h7.4l-1 2.8H9.3Z M9.3 14.6h5.4l1 2.6H8.3Z",
+    )
+    val CarHatchback = carIcon(
+        "CarHatchback",
+        "M9 3.5h6c1.4 0 2.5 1.1 2.5 2.5v12c0 1.4-1.1 2.5-2.5 2.5H9c-1.4 0-2.5-1.1-2.5-2.5V6c0-1.4 1.1-2.5 2.5-2.5Z",
+        "M8.3 8.5h7.4l-1 2.6H9.3Z M9 17h6l.6 1.8H8.4Z",
+    )
+    val CarWagon = carIcon(
+        "CarWagon",
+        "M9 2.5h6c1.4 0 2.5 1.1 2.5 2.5v14c0 1.4-1.1 2.5-2.5 2.5H9c-1.4 0-2.5-1.1-2.5-2.5V5c0-1.4 1.1-2.5 2.5-2.5Z",
+        "M8.3 8.5h7.4l-1 2.6H9.3Z M9 18.6h6l.4 1.5H8.6Z",
+    )
+    val CarConvertible = carIcon(
+        "CarConvertible",
+        "M9 2.5h6c1.4 0 2.5 1.1 2.5 2.5v14c0 1.4-1.1 2.5-2.5 2.5H9c-1.4 0-2.5-1.1-2.5-2.5V5c0-1.4 1.1-2.5 2.5-2.5Z",
+        "M8.3 8.5h7.4l-.6 1.6H8.9Z M8.8 11h6.4v5.6H8.8Z",
+    )
+    val CarKei = carIcon(
+        "CarKei",
+        "M8.6 4h6.8c.9 0 1.6.7 1.6 1.6v13.8c0 .9-.7 1.6-1.6 1.6H8.6c-.9 0-1.6-.7-1.6-1.6V5.6C7 4.7 7.7 4 8.6 4Z",
+        "M8.2 6.5h7.6l-.8 2.4H9Z M8.8 18h6.4v1.4H8.8Z",
+    )
+    val CarSuv = carIcon(
+        "CarSuv",
+        "M8.5 2.5h7c1.7 0 3 1.3 3 3v13c0 1.7-1.3 3-3 3h-7c-1.7 0-3-1.3-3-3v-13c0-1.7 1.3-3 3-3Z",
+        "M7.4 8h9.2l-1.2 2.8H8.6Z M8.4 18h7.2v1.6H8.4Z",
+    )
+    val CarVan = carIcon(
+        "CarVan",
+        "M8.5 2h7c1.4 0 2.5 1.1 2.5 2.5v15c0 1.4-1.1 2.5-2.5 2.5h-7C7.1 22 6 20.9 6 19.5v-15C6 3.1 7.1 2 8.5 2Z",
+        "M7.2 5.5h9.6l-1.2 2.6H8.4Z",
+    )
+    val CarPickup = carIcon(
+        "CarPickup",
+        "M8.5 2.5h7c1.4 0 2.5 1.1 2.5 2.5v14c0 1.4-1.1 2.5-2.5 2.5h-7C7.1 21.5 6 20.4 6 19V5c0-1.4 1.1-2.5 2.5-2.5Z",
+        "M7.3 7.5h9.4l-1.1 2.6H8.4Z M8.4 11.6h7.2v.9H8.4Z M8 13.8h8v6H8Z",
+    )
+
     val Snowflake = strokeIcon("Snowflake", "M12 3v18 M4.2 7.5l15.6 9 M4.2 16.5l15.6-9 M9.5 4.5L12 6.5l2.5-2 M9.5 19.5L12 17.5l2.5 2")
 
     /** Report something: a warning triangle. */
@@ -59,6 +116,8 @@ object FoxIcons {
             "M13.7 6.1a1.5 1.5 0 1 1 0 3a1.5 1.5 0 1 1 0-3Z M16.4 9.1a1.5 1.5 0 1 1 0 3a1.5 1.5 0 1 1 0-3Z",
     )
     val ReportRoadClosed = reportMarker("ReportRoadClosed", "M6 10.5h12v3H6Z")
+
+    private fun carIcon(name: String, body: String, windows: String) = filledIcon(name, "$body $windows", evenOdd = true)
 
     private fun reportMarker(name: String, glyph: String) = filledIcon(name, "M12 1a11 11 0 1 1 0 22a11 11 0 1 1 0-22Z $glyph", evenOdd = true)
 

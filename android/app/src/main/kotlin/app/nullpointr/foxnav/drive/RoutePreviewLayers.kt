@@ -37,22 +37,7 @@ fun RoutePreviewLayers(preview: RoutePreview?) {
         cap = const(LineCap.Round),
         join = const(LineJoin.Round),
     )
-    LineLayer(
-        id = "foxnav-preview-casing",
-        source = selectedSource,
-        color = const(colors.background),
-        width = const(11.dp),
-        cap = const(LineCap.Round),
-        join = const(LineJoin.Round),
-    )
-    LineLayer(
-        id = "foxnav-preview-route",
-        source = selectedSource,
-        color = const(colors.secondary),
-        width = const(7.dp),
-        cap = const(LineCap.Round),
-        join = const(LineJoin.Round),
-    )
+    RouteLine("foxnav-preview", selectedSource)
 }
 
 private fun Route.toFeature() = Feature(

@@ -63,15 +63,16 @@ All are open-licensed (SIL OFL) and can be bundled with the app.
 
 ## Sound
 
-The over-limit warning is an original take on the kin-kon chime (速度警告音) that Japanese-market cars rang above 105 km/h until 1986: two bell strikes, high then low. The mockup synthesizes it in the browser; the app will ship a recorded or synthesized sample of its own.
+The over-limit warning is an original take on the kin-kon chime (速度警告音) that Japanese-market cars rang above 105 km/h until 1986: two bell strikes, high then low. The mockup synthesizes it in the browser; the app ships a sample synthesized the same way (`sounds/kinkon.py`).
 
 ## In the app
 
 - **Theme:** the Android theme and both map styles use these values. The map styles are generated from `tokens.json` by `infra/scripts/styles/generate.mjs`.
-- **Fonts:** Chakra Petch and IBM Plex Sans are bundled. IBM Plex Sans JP isn't, until the Japanese accents ship.
+- **Fonts:** Chakra Petch, IBM Plex Sans and DSEG7 Classic (the 7-segment speedometer; by keshikan, SIL Open Font License 1.1) are bundled. IBM Plex Sans JP isn't, until the Japanese accents ship.
 - **Japanese accents:** they stay out of the app until a native speaker has checked them.
 - **Points of interest:** the map shows only landmarks you navigate by, such as stations, airports, ferries, parks, peaks and attractions. Fuel stations need their own icon and data.
-- **The chime:** `sounds/kinkon.py` generates the over-limit chime the app plays.
+- **Sounds:** scripts in `sounds/` generate the WAV files the app plays. The over-limit choices are the kin-kon (`kinkon.py`), a single strike of its bell (`ding.py`) and three even beeps (`beep.py`); drivers can also use a sound of their own. The camera and report warning is two rising pips (`alert.py`), so it never sounds like a speeding warning.
+- **Glow:** the night route line is the one glowing thing on the map, a soft bloom, a glow and a bright core like the mockup's blurred line, plus a faint underglow in your car's colour under your own car. By day there's no glow.
 
 ## Japanese strings to check
 

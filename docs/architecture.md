@@ -61,7 +61,7 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
 
   The colours and fonts come from the design tokens.
 - **Arriving ends the trip**, also when parking up to 30 m short of the destination (Ferrostar alone needs a few metres). The route line clears and the panel says where you arrived.
-- **Over the limit** (3 km/h of tolerance), the speedometer turns red and the kin-kon chime plays once. It re-arms only after you're back at the limit.
+- **Over the limit** (3 km/h of tolerance), the speedometer turns red and the over-limit sound (the kin-kon unless chosen otherwise) plays once. It re-arms only after you're back at the limit.
 - **Free drive is a first-class mode.** Without a destination, the app still follows you on the map and shows:
   - the road you're on and its speed limit;
   - cameras and reports ahead;
@@ -172,8 +172,16 @@ Data sources per country are in [data-sources.md](data-sources.md).
 
 - **v1:** Ferrostar's spoken instructions go through Android's built-in text-to-speech.
   - They play as navigation-guidance audio, which lowers other audio while they play, so music gets quieter and guidance goes to the car speakers.
-- **Custom voices later:** guidance stays _structured_ (maneuver type, distance, exit, road name) all the way to a `VoiceRenderer` interface. Voice packs, recorded voices and on-device neural TTS then plug in without touching navigation.
-- Community voice packs need consent: no cloned voices of real people without their permission.
+  - Drivers choose the guidance language (Finnish, Swedish, Norwegian, Danish, English, or the phone's), one of the phone's offline voices for it, and the speaking speed. Routes are requested with the language and units of that moment, so a change applies from the next route without restarting anything.
+  - Camera and report warnings are spoken in full ("Speed camera in 400 metres, limit 80"), briefly ("Speed camera"), as a tone (two rising pips, `design/sounds/alert.py`), or not at all.
+- **Voice packs** (`android/…/voice/`): guidance and warnings in a recorded voice. A pack is about 50 phrases, one WAV clip each: distances ("In 300 metres", "In half a mile"), manoeuvres ("turn left", "keep right", "enter the roundabout", "your destination is ahead"), and warnings ("speed camera", "police", "animal on the road"). The phrase rules are in `shared/…/voice/Phrases.kt`.
+  - The voice between Ferrostar and the speaker (`GuidanceVoice`) builds each instruction from the step's structured manoeuvre and its trigger distance, rounded to the nearest recorded distance: "In 300 metres" + "turn left". Clips play joined, as one navigation-guidance sound that lowers music like the speech does.
+  - Whatever a pack can't say (street names, departures, a phrase not recorded yet) falls back to the phone's speech, sentence by sentence, so guidance never goes missing.
+  - Drivers record their own in the app, phrase by phrase, or choose an audio file for a phrase, or add many files at once, matched to phrases by name (`turn_left.mp3`). Either way the clip has the silence before and after trimmed, so the joins sound natural, and its volume evened out with the rest. The app asks for the microphone only when recording, and uses it for nothing else.
+  - Files in any format the phone plays (MP3, AAC, Ogg Vorbis and Opus, FLAC, WAV) are decoded with Android's own codecs (`AudioDecoder`), mixed down to mono and resampled to 22.05 kHz with a windowed-sinc filter (`Pcm`), so packs stay small and simple to join.
+  - Packs travel as zip files, exported from and imported into the app: [voice-packs.md](voice-packs.md) has the format and every phrase's file name.
+- **Over-limit sound:** the kin-kon, a single bell strike ("Ding"), three even beeps (`design/sounds/`), the driver's own sound from an audio file (its first 4 seconds, leading silence cut so it plays the moment it's due), or none. It plays on the navigation-guidance stream too.
+- **Later:** community packs (with consent: no cloned voices of real people without their permission), a Japanese car-navi style pack, and on-device neural speech (e.g. Piper voices) behind the same voice.
 
 ## Android Auto and CarPlay
 
@@ -186,7 +194,17 @@ On the car screen only the map is ours, so the app's look has to live in the map
 
 ## Look and feel
 
-"Tokyo night drive": a dark, high-tech car-navigation feel with Japanese accents. That means a kitsune (fox) mark, vermilion and electric cyan on near-black, digital instrument typography, and a day mode for sunlight. The design direction, mockups and design tokens live in [`design/`](../design/). Colours come from the tokens, one set per theme, so user-customizable palettes later are just more themes.
+"Tokyo night drive": a dark, high-tech car-navigation feel with Japanese accents. That means a kitsune (fox) mark, vermilion and electric cyan on near-black, digital instrument typography, and a day mode for sunlight. The design direction, mockups and design tokens live in [`design/`](../design/). Colours come from the tokens, one set per theme.
+
+What drivers can change, on one settings page:
+
+- **Driving:** km/h or mph (speeds, limits, distances, Valhalla's guidance and the spoken warnings all follow); how far over the limit before the warning (0, 3, 5 or 10); the over-limit sound (see Voice); a modern or a 7-segment speedometer (DSEG7, with the unlit segments showing, like an 80s digital dash).
+- **Map:** day and night by sunrise and sunset where you are (a solar-elevation calculation, so midnight sun and kaamos work in Lapland), like the phone, or fixed; heading-up or north-up; 3D tilt while navigating; zoom buttons.
+- **Look:** an accent colour (vermilion, sakura, ocean, lime, violet or monochrome). Warnings keep amber and red, and the route keeps cyan, so they always read as what they are.
+  - At night the route line glows like neon (a soft bloom, a glow and a bright core over the cyan line), as in the mockups; by day it's the plain line. The next maneuver's lanes show under the maneuver card where the map has them, the ones to take lit.
+- **Your car:** name, make, model, colour and body style. Your own car on the map is its top-down silhouette (coupé, hatchback, sedan, wagon, convertible, kei car, SUV, van, pickup) in your colour, with an underglow at night; the convoy's cars show their own shapes.
+  - The car sits exactly where the camera points, so it never drifts from the screen centre. Navigating, Ferrostar slides the camera along the route line to each fix over a second; `ShownLocation` repeats that calculation for the car, and both update on the same frame. In free drive the app eases the location itself from fix to fix before Ferrostar sees it, so the map glides instead of stepping once a second.
+- **Voice and warnings:** see Voice.
 
 ## Roadmap
 
