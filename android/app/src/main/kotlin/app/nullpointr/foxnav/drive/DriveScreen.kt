@@ -176,6 +176,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         ConvoySheet(
             convoy = convoy,
             serverUrl = graph.serverSettings.serverUrl.collectAsState().value,
+            invitePage = document.invites,
             onNavigateTo = viewModel::previewConvoyPlace,
             onDismiss = { showConvoy = false },
         )

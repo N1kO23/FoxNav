@@ -8,6 +8,7 @@ Everything the app needs from a backend, running on your machine behind one orig
 | `/styles/{night,day}.json`         | FoxNav server                                    | MapLibre styles, filled in with the address the client used |
 | `/v1/ws`                           | FoxNav server                                    | Convoy relay (WebSocket), forwarding encrypted positions    |
 | `/v1/reports`                      | FoxNav server                                    | Reports: police, accidents, roadworks… and "still there?"   |
+| `/join`, `/web/*`                  | FoxNav server                                    | Convoy page: invite links open here, in any browser         |
 | `/datapacks/FI/cameras.json`       | Caddy (static)                                   | Speed cameras for the app to match on the phone             |
 | `/datapacks/FI/speedlimits.json`   | Caddy (static)                                   | Winter limits, and official limits where OSM has none       |
 | `/tiles/region.pmtiles`            | Caddy (static)                                   | Vector map data for the region                              |

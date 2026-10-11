@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0B0D12">
+  <title>FoxNav convoy</title>
+  <link rel="stylesheet" href="web/vendor/maplibre-gl.css">
+  <link rel="stylesheet" href="web/join.css">
+  <script src="web/vendor/pmtiles.js"></script>
+  <script type="module" src="web/js/join.js"></script>
+</head>
+<body>
+  <div id="map" aria-label="Map of the convoy"></div>
+
+  <!-- Before joining: who you are and how to join. -->
+  <section id="start" class="sheet" hidden>
+    <p class="eyebrow">FoxNav convoy</p>
+    <h1>Join the convoy</h1>
+    <p class="muted" id="start-server"></p>
+    <a id="open-app" class="button secondary">Open in the FoxNav app</a>
+    <div class="divider"><span>or follow it here</span></div>
+    <label class="field">
+      <span>Your name</span>
+      <input id="name" maxlength="32" autocomplete="nickname" placeholder="Guest">
+    </label>
+    <label class="check">
+      <input id="share" type="checkbox">
+      <span>
+        Share my location while this page is open
+        <small class="muted" id="share-note">The others see you on their map. It's end-to-end encrypted: not even the server sees where you are.</small>
+      </span>
+    </label>
+    <button id="join" class="button primary">Follow the convoy</button>
+    <p class="muted small">Your browser connects to the convoy's server. Nothing about you is stored there.</p>
+  </section>
+
+  <!-- While in the convoy. -->
+  <aside id="tower" class="panel" hidden>
+    <header>
+      <span class="eyebrow">Convoy</span>
+      <span id="status" class="pill">Connecting</span>
+    </header>
+    <ol id="members"></ol>
+  </aside>
+
+  <div id="controls" hidden>
+    <button id="recenter" class="round" title="Follow everyone" aria-label="Follow everyone">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M12 8a4 4 0 1 1 0 8a4 4 0 1 1 0-8"/></svg>
+    </button>
+    <div class="bar panel">
+      <label class="check inline">
+        <input id="share-live" type="checkbox">
+        <span>Share my location</span>
+      </label>
+      <button id="leave" class="button ghost">Leave</button>
+    </div>
+  </div>
+
+  <!-- Messages that replace the page: a bad link, the end of the convoy. -->
+  <section id="message" class="sheet" hidden>
+    <p class="eyebrow">FoxNav convoy</p>
+    <h1 id="message-title"></h1>
+    <p class="muted" id="message-text"></p>
+    <button id="message-action" class="button primary" hidden></button>
+  </section>
+
+  <div id="toasts" aria-live="polite"></div>
+  <noscript><p class="sheet">FoxNav's convoy page needs JavaScript.</p></noscript>
+</body>
+</html>

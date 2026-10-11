@@ -31,6 +31,7 @@ If the user typed a bare domain (`maps.example.org`), clients use `https://`.
 | `realtime` | URL | no | WebSocket endpoint (§2). Absent if the server has no realtime features. |
 | `datapacks` | URL | no | Where the data packs are (§3). Absent if the server has none. |
 | `reports` | URL | no | The reports API (§4). Absent if the server has none. |
+| `invites` | URL | no | The convoy page invite links point to (§2.5). Absent if the server has none. |
 | `styles` | object | no | MapLibre style URLs keyed by theme. Known themes: `night`, `day`. |
 | `routing` | endpoint | no | Routing service, see below. |
 | `search` | endpoint | no | Search service, see below. |
@@ -67,6 +68,7 @@ What the local stack in `infra/` returns:
   "search": { "type": "photon", "url": "/photon" },
   "datapacks": "/datapacks",
   "reports": "/v1/reports",
+  "invites": "/join",
   "features": ["convoy", "reports", "datapacks"],
   "regions": ["FI"]
 }
@@ -151,7 +153,7 @@ See [`docs/threat-model.md`](../docs/threat-model.md) for what this protects aga
 Defined in the `.proto` file.
 
 - **`STATE`** carries a `MemberState`, everything the others need about a member in one message, because the server keeps only the latest one:
-  - `Profile`: display name and car (make, model, colour, body style);
+  - `Profile`: display name and car (make, model, colour, body style), and `watching` for a member who follows without sharing a position (say, from a browser). Clients show such a member as watching rather than joining;
   - `Position`: location, speed, heading, accuracy and fix time. It is absent until the first GPS fix;
   - `RouteShare`: a shared destination and via points, with the destination last.
 - **`EVENT`** carries a `QuickMessage` or a `RegroupPin`.
@@ -159,11 +161,24 @@ Defined in the `.proto` file.
 
 Receivers ignore a `STATE` whose position is older than the one they already have (a replay).
 
-### 2.5 Not yet specified
+### 2.5 Convoy page
+
+A server may serve a web page at its discovery document's `invites` URL that takes the same fragment as the app's invite links (§2.2): `https://maps.example.org/join#v=0&s=…&c=…&t=…&k=…`. Apps then share that link instead of `foxnav://join#…`, because every chat app and camera opens it. The page:
+
+- offers to open the convoy in the app (the `foxnav://` link with the same fragment);
+- or joins the convoy itself, over the same realtime protocol and with the same end-to-end encryption (WebCrypto's AES-GCM), and shows everyone on a map with a timing tower;
+- shares the browser's position if the person chooses to, while the page is open; otherwise its `Profile` says `watching`.
+
+The fragment never reaches the server. The page holds the convoy's key, so servers should send it with a strict content security policy: scripts only from the server itself, no inline scripts, and nothing from other members inserted as HTML. The reference implementation is [`web/`](../web/): plain JavaScript modules with no build step, served by the reference server at `/join`.
+
+The page fetches the discovery document and styles of the invite's server, which may be a different origin than the page's: servers send `Access-Control-Allow-Origin: *` on both. Sharing a position needs a secure context (https, or `localhost`).
+
+### 2.6 Not yet specified
 
 These arrive in a later version of this document:
 
 - new reports pushed over this connection, instead of clients polling the feed (§4);
+- quick messages and regroup points sent from the convoy page;
 - more data packs (speed-limit fixes, average-speed sections);
 - a `NowPlaying` payload for the convoy soundtrack: track metadata, service IDs and ISRC, playback position and state.
 
@@ -284,7 +299,7 @@ Every current report. Clients poll it about once a minute while driving, with `I
 | `source` | Only for official reports: `name`, `licence` and `url` of where it comes from. Clients show this attribution with the report. |
 | `text` | Only for official reports: the source's description, in the source's language. |
 
-One feed for the whole server works for the Nordics: hundreds of reports, tens of kilobytes compressed. A later version may add area queries or push (§2.5).
+One feed for the whole server works for the Nordics: hundreds of reports, tens of kilobytes compressed. A later version may add area queries or push (§2.6).
 
 ### 4.2 Reporting
 

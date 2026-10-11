@@ -28,7 +28,10 @@ class Invite(
     override fun toString(): String = "Invite(server=$server)" // never log the key
 
     companion object {
-        /** Until FoxNav has a domain for App Links, invites use the app's own scheme. */
+        /**
+         * The app's own scheme. Servers with a convoy page (discovery `invites`, spec §2.5) get web
+         * links instead, which open in any browser; the page offers the app.
+         */
         const val DEFAULT_BASE = "foxnav://join"
         private const val VERSION = "0"
 

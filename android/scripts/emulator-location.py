@@ -4,8 +4,9 @@
     android/scripts/emulator-location.py set 60.1699 24.9384        # stand still in Helsinki
     android/scripts/emulator-location.py replay track.gpx [--speedup 2]   # drive a recorded track
 
-Newer emulator images ignore `adb emu geo fix`, so this uses a shell test provider for GPS
-(the emulator's shell user gets the mock-location permission; nothing changes on real phones).
+Newer emulator images ignore `adb emu geo fix`, so this uses shell test providers (the emulator's
+shell user gets the mock-location permission; nothing changes on real phones): GPS for FoxNav,
+and fused and network for apps that ask Play services, like Chrome for the web convoy page.
 Speed isn't reported this way; FoxNav derives it from consecutive fixes.
 """
 import argparse
@@ -19,14 +20,19 @@ def adb(*args: str) -> str:
     return subprocess.run(["adb", "shell", *args], check=True, capture_output=True, text=True).stdout
 
 
+PROVIDERS = ("gps", "fused", "network")
+
+
 def prepare() -> None:
     adb("appops", "set", "com.android.shell", "android:mock_location", "allow")
-    adb("cmd", "location", "providers", "add-test-provider", "gps")
-    adb("cmd", "location", "providers", "set-test-provider-enabled", "gps", "true")
+    for provider in PROVIDERS:
+        adb("cmd", "location", "providers", "add-test-provider", provider)
+        adb("cmd", "location", "providers", "set-test-provider-enabled", provider, "true")
 
 
 def send(latitude: float, longitude: float) -> None:
-    adb("cmd", "location", "providers", "set-test-provider-location", "gps", "--location", f"{latitude},{longitude}", "--accuracy", "5")
+    for provider in PROVIDERS:
+        adb("cmd", "location", "providers", "set-test-provider-location", provider, "--location", f"{latitude},{longitude}", "--accuracy", "5")
 
 
 def track_points(path: str) -> list[tuple[float, float, datetime.datetime | None]]:

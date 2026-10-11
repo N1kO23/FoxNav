@@ -206,6 +206,8 @@ private data class TowerRow(
     val speedKmh: Int?,
     val signal: Signal,
     val isMe: Boolean = false,
+    /** Follows from a browser without sharing a position. */
+    val watching: Boolean = false,
 )
 
 /**
@@ -245,6 +247,7 @@ private fun TimingTower(
                     offsetM = if (me != null && fix != null) roadGap(me, fix.point, route) else null,
                     speedKmh = fix?.let { kilometersPerHour(it.speedMps) },
                     signal = member.signal(now),
+                    watching = member.profile?.watching == true && fix == null,
                 ),
             )
         }
@@ -341,7 +344,7 @@ private fun TowerRowView(row: TowerRow) {
 private fun gapText(row: TowerRow): String {
     if (row.isMe) return ""
     return when (row.signal) {
-        Signal.WAITING -> "joining"
+        Signal.WAITING -> if (row.watching) "watching" else "joining"
         Signal.LOST -> "LOST"
         else -> {
             val offset = row.offsetM ?: return ""

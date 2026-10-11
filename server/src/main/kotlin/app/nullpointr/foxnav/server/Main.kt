@@ -11,6 +11,7 @@ import app.nullpointr.foxnav.shared.FoxNavJson
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.discovery.Feature
 import app.nullpointr.foxnav.shared.discovery.ServiceEndpoint
+import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -19,6 +20,7 @@ import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
@@ -75,6 +77,8 @@ fun Application.foxNavModule(
         get("/healthz") { call.respondText("ok") }
 
         get(DiscoveryDocument.PATH) {
+            // Public, and read by the convoy page from whichever server hosts it.
+            call.response.header(HttpHeaders.AccessControlAllowOrigin, "*")
             call.respond(
                 DiscoveryDocument(
                     version = DiscoveryDocument.CURRENT_VERSION,
@@ -83,6 +87,7 @@ fun Application.foxNavModule(
                     realtime = REALTIME_PATH,
                     datapacks = config.datapacksUrl,
                     reports = REPORTS_PATH,
+                    invites = INVITE_PATH,
                     styles = config.styleNames().associateWith { "/styles/$it.json" },
                     routing = ServiceEndpoint(type = "valhalla", url = config.routingUrl),
                     search = ServiceEndpoint(type = "photon", url = config.searchUrl),
@@ -95,5 +100,6 @@ fun Application.foxNavModule(
         styleRoutes(config)
         convoyRoutes(relay)
         reportRoutes(reports)
+        webRoutes()
     }
 }

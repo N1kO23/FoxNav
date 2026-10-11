@@ -127,6 +127,7 @@ Details are in the [protocol spec](../protocol/SPEC.md#2-realtime-draft); this i
   - LoRa carries about 1 kbit/s in packets of about 230 bytes, and EU rules limit how often a radio may send. Off-grid convoys need a compact position format sent every 10–30 s, with motion prediction filling the gaps. Quick messages and regroup pins are tiny and fit as they are.
   - Map tiles, search and routes are far too big for LoRa. Driving without internet needs offline map regions and on-device routing instead.
   - Short-range links between nearby cars (Wi-Fi Direct or Wi-Fi Aware, Bluetooth) carry much more, and could pass full updates from car to car.
+- **Following from a browser.** Invite links point at the server's convoy page (`/join`, spec §2.5) when it has one, so they open anywhere: the page offers the app, or follows the convoy itself, with a map, the timing tower and optional location sharing while the page is open. Friends without the app, iPhones included, can drive along until the iOS app exists. It's plain JavaScript modules in [`web/`](../web/), with no build step and no dependencies besides MapLibre GL JS and PMTiles, which the server build fetches pinned and hash-checked; its encoding and encryption are tested against vectors from the app's own code. A browser member who doesn't share a position shows as "watching".
 - **Testing with bots.** [`tools/convoy-sim`](../tools/convoy-sim/) puts bot cars in a convoy, driving one behind the other along a real route, so one developer can test a full convoy.
 - **Convoy soundtrack (later).** Members can opt in to share what they're playing. Title and artist go out as an encrypted `STATE` payload, and others can listen along.
   - Every member plays the track from their own music service. Audio is never streamed between phones, which would need music licences.
@@ -204,7 +205,7 @@ On the car screen only the map is ours, so the app's look has to live in the map
    - camera packs and warnings, from OpenStreetMap and national data;
    - national speed-limit data including winter limits;
    - crowd reports, seeded from national traffic feeds.
-5. **Car integration and reach:** Android Auto, offline map regions, a web convoy viewer, Play Store and F-Droid releases, then iOS and CarPlay.
+5. **Car integration and reach:** _(in progress: the web convoy page works)_ Android Auto, offline map regions, a web convoy page, Play Store and F-Droid releases, then iOS and CarPlay.
 6. **Enthusiast features:**
    - custom voices, push-to-talk convoy radio and the convoy soundtrack;
    - off-grid convoys over LoRa (Meshtastic) and car-to-car links, with gateway cars;

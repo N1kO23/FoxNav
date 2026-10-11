@@ -94,6 +94,8 @@ fun sharedDestination(members: Map<Long, ConvoyMember>, ownerId: Long?): SharedD
 fun ConvoySheet(
     convoy: ConvoyController,
     serverUrl: String,
+    /** The server's convoy page for invite links (its discovery `invites`), if it has one. */
+    invitePage: String?,
     onNavigateTo: (point: GeoPoint, name: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -110,7 +112,14 @@ fun ConvoySheet(
         ) {
             when (val current = active) {
                 null -> StartOrJoin(convoy, serverUrl)
-                else -> InConvoy(convoy, current, onNavigateTo = { point, name -> onNavigateTo(point, name); onDismiss() }, onLeft = onDismiss)
+                else -> InConvoy(
+                    convoy,
+                    current,
+                    // Only our own server's page knows our convoys' server: others' convoys keep the app link.
+                    linkBase = { invite -> invitePage?.takeIf { sameServer(invite.server, serverUrl) } ?: Invite.DEFAULT_BASE },
+                    onNavigateTo = { point, name -> onNavigateTo(point, name); onDismiss() },
+                    onLeft = onDismiss,
+                )
             }
         }
     }
@@ -183,6 +192,7 @@ private fun StartOrJoin(convoy: ConvoyController, serverUrl: String) {
 private fun InConvoy(
     convoy: ConvoyController,
     active: ActiveConvoy,
+    linkBase: (Invite) -> String,
     onNavigateTo: (GeoPoint, String) -> Unit,
     onLeft: () -> Unit,
 ) {
@@ -259,7 +269,7 @@ private fun InConvoy(
     }
 
     HorizontalDivider(color = colors.outline)
-    invite?.let { InviteSection(it) } ?: Text("Getting the invite ready…", color = colors.onSurfaceVariant)
+    invite?.let { InviteSection(it, linkBase(it)) } ?: Text("Getting the invite ready…", color = colors.onSurfaceVariant)
 
     HorizontalDivider(color = colors.outline)
     Text("In the convoy", style = MaterialTheme.typography.titleMedium)
@@ -308,10 +318,11 @@ private fun InConvoy(
 }
 
 @Composable
-private fun InviteSection(invite: Invite) {
+private fun InviteSection(invite: Invite, base: String) {
     val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
-    val link = remember(invite) { invite.toLink() }
+    // A web link opens in any browser: the page there offers the app, or follows the convoy itself.
+    val link = remember(invite, base) { invite.toLink(base) }
     val qr = remember(link) { qrCode(link) }
 
     Text("Invite", style = MaterialTheme.typography.titleMedium)
@@ -429,3 +440,9 @@ private fun copyInvite(context: Context, link: String) {
 }
 
 private const val MAX_FIELD_LENGTH = 32
+
+/** Whether two server addresses, as typed, are the same server. */
+private fun sameServer(a: String, b: String): Boolean {
+    fun normal(address: String) = address.trim().trimEnd('/').lowercase().let { if ("://" in it) it else "https://$it" }
+    return normal(a) == normal(b)
+}

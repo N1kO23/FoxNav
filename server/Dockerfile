@@ -6,6 +6,7 @@ COPY gradle gradle
 COPY protocol protocol
 COPY shared shared
 COPY server server
+COPY web web
 RUN ./gradlew --no-daemon :server:installDist
 
 FROM eclipse-temurin:21-jre

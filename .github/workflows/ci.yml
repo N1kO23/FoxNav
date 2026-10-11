@@ -21,6 +21,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - run: ./gradlew :shared:allTests :server:test :tools:convoy-sim:test
 
+  web:
+    name: Web convoy page
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # No dependencies: Node's own test runner, against vectors from the app's code.
+      - run: npm test
+        working-directory: web
+
   android:
     name: Android app
     runs-on: ubuntu-latest

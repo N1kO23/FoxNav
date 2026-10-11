@@ -15,7 +15,7 @@ What convoy encryption ([ADR 0003](adr/0003-convoy-encryption.md), [spec §2.3](
 |---|---|---|
 | Server operator | No. Payloads are encrypted with a key the server never sees. | Metadata (see below). Dropping or delaying messages. |
 | Someone on the network (Wi-Fi, ISP) | No. Everything goes over TLS. | That you talk to a FoxNav server, and how much. |
-| Operator of the invite-link domain | No for the app. Links open in the app, and the fragment holding the key is never sent to any server. | A web page served from that domain *can* read the fragment, so web joiners trust the link domain, like any end-to-end encrypted web app. |
+| Operator of the invite-link domain | No for the app. Links open in the app, and the fragment holding the key is never sent to any server. | Invite links point at the convoy page of the convoy's own server (spec §2.5). That page *can* read the fragment: whoever follows in a browser trusts the server that serves the page, like any end-to-end encrypted web app. App users don't. |
 | Anyone the invite link is forwarded to | Yes. The link is the key. | Everything a member can see, until the owner removes them. |
 | Current members | Yes, by design. | |
 | Removed members | Not after the removal, as long as the server is honest: it stops relaying to them, changes the join token so their invite stops working, and the owner rotates the key. | With a malicious server's help: the rotated key, because it's sent under the old key, and a way back in despite the new token. |
@@ -47,6 +47,15 @@ Possible later mitigations: sending at a constant rate, padding payloads, and co
 - The key exists only in memory while you're in the convoy, and inside the invite link.
 - The app never logs invite links. `Invite.toString()` leaves the key out.
 - A copied invite is marked sensitive, so Android leaves it out of the clipboard preview.
+
+## The convoy page
+
+Following a convoy in a browser ([`web/`](../web/), spec §2.5) uses the same protocol and encryption as the app; the key never leaves the browser. What changes is whom you trust:
+
+- **The page comes from the convoy's server.** An honest server's page can't read anything the app couldn't, but a malicious operator could serve a page that sends the key elsewhere. People who follow in a browser therefore trust the server operator with their convoy; people in the app don't. Running your own server, or using one you trust, settles it.
+- **Cross-site scripting would leak the key**, so the reference server sends a strict content security policy (scripts only from itself, nothing inline), and the page puts other people's names and messages in only as text.
+- **The page shares a position only when the person ticks the box**, only while it's open, and only with a secure connection.
+- **Nothing is stored on the server**, as with the app. The browser remembers the name, colour and the sharing choice; the invite stays in the address bar, as it would in the app's link.
 
 ## Advice for users
 

@@ -42,6 +42,7 @@ fun Route.styleRoutes(config: ServerConfig) {
         val body = StyleTemplates.render(template.readText(), "${origin.scheme}://${origin.serverHost}$port")
         // Map apps cache styles; revalidating keeps style updates from getting stuck behind old copies.
         call.response.header(HttpHeaders.CacheControl, "no-cache")
+        call.response.header(HttpHeaders.AccessControlAllowOrigin, "*")
         call.respondText(body, ContentType.Application.Json)
     }
 }

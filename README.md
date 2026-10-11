@@ -6,7 +6,7 @@ Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras
 > - free drive with speed limits, including winter limits, and official limits from Digiroad where OpenStreetMap has none;
 > - search and route alternatives;
 > - turn-by-turn with voice;
-> - convoys: live cars and speeds, invite links and QR codes, quick messages and a shared destination;
+> - convoys: live cars and speeds, invite links and QR codes, quick messages and a shared destination, and following a convoy from any browser;
 > - speed camera warnings, from OpenStreetMap;
 > - reports (police, accidents, roadworks, moose…) with spoken warnings and "still there?" votes, seeded from Fintraffic in Finland.
 >

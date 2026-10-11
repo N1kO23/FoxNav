@@ -1,0 +1,9 @@
+{
+  "name": "foxnav-web",
+  "private": true,
+  "type": "module",
+  "description": "FoxNav's web convoy page. No dependencies or build step; tests run with Node 22's built-in runner.",
+  "scripts": {
+    "test": "node --test 'test/*.test.js'"
+  }
+}
