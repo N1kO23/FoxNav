@@ -11,6 +11,7 @@ Everything the app needs from a backend, running on your machine behind one orig
 | `/join`, `/web/*`                  | FoxNav server                                    | Convoy page: invite links open here, in any browser         |
 | `/datapacks/FI/cameras.json`       | Caddy (static)                                   | Speed cameras for the app to match on the phone             |
 | `/datapacks/FI/speedlimits.json`   | Caddy (static)                                   | Winter limits, and official limits where OSM has none       |
+| `/routing-tiles/*`                 | Caddy (static)                                   | Valhalla's graph as tiles, for routing on the phone offline |
 | `/tiles/region/{z}/{x}/{y}.mvt`    | [go-pmtiles](https://github.com/protomaps/go-pmtiles) | Map tiles from the archive: cacheable, and downloadable for offline use |
 | `/tiles/region.pmtiles`            | Caddy (static)                                   | The vector map archive itself, for `pmtiles://` clients     |
 | `/assets/fonts`, `/assets/sprites` | Caddy (static)                                   | Label fonts and map icons                                   |
@@ -41,15 +42,31 @@ The first start takes a while because two services build their data:
 
 Until they finish, their paths answer with `502`. Later starts take seconds.
 
+Once Valhalla has built its graph, publish it for routing on the phone ([spec §3.3](../protocol/SPEC.md#33-routing-tiles)). This gzips every tile into `data/routing-tiles/`, about a minute and 330 MB for Finland:
+
+```sh
+docker compose -f infra/compose.yaml run --rm routing-tiles
+```
+
+Until then, `/routing-tiles/manifest.json` answers `404` and the app routes only through the server. Later runs of `fetch-data.sh` publish the graph themselves.
+
 ## Use it from the app
 
 Debug builds of the Android app point at `http://10.0.2.2:8080`, which is how the emulator reaches your machine's `localhost`. For a phone on the same network, use `http://<your computer's LAN IP>:8080`. Debug builds allow plain HTTP; release builds don't. On Android 17 and newer, the app first asks for the *Nearby devices* permission, because Android counts LAN addresses (and the emulator's 10.0.2.2) as the local network.
+
+## HTTPS on your network
+
+Browsers follow convoys only on https pages, or on `localhost`: the convoy page decrypts with WebCrypto, which browsers keep to secure contexts. For other devices on your network, the gateway also serves everything over HTTPS on port 8443, with certificates from Caddy's own local CA:
+
+1. Put your computer's name on the network in `infra/.env`, e.g. `FOXNAV_LAN_HOST=mybox.lan`. Use a name the other devices resolve, such as the one your router's DNS gives it. Then run `docker compose -f infra/compose.yaml up -d gateway`.
+2. On each device, download `http://<that name>:8080/local-ca.crt` and install it as a CA certificate. On Android, search Settings for *CA certificate*. On iOS, install the profile, then turn on full trust under *Settings → General → About → Certificate Trust Settings*. The CA is kept in the `caddy` volume, so each device needs this only once.
+3. Point the app at `https://<that name>:8443`. Invite links carry the app's server address, so the convoy page then opens over HTTPS too. Debug builds trust user-installed CAs; release builds don't.
 
 ## Update the data
 
 OpenStreetMap changes daily; refresh whenever you like:
 
-- **Routing:** delete `data/valhalla/` and re-run `fetch-data.sh`. The next start rebuilds the graph.
+- **Routing:** delete `data/valhalla/` and re-run `fetch-data.sh`. The next start rebuilds the graph; then publish it again with `docker compose -f infra/compose.yaml run --rm routing-tiles`. The previous build stays published for phones still downloading it, and older ones are removed.
 - **Search:** delete `data/photon/` and re-run `fetch-data.sh`. The next start re-imports.
 - **Map tiles:** delete `data/tiles/region.pmtiles` and re-run `fetch-data.sh`.
 - **Speed cameras and speed limits:** after new routing data, rebuild the data packs with `docker compose -f infra/compose.yaml run --rm datapacks`. For Finland that includes matching Digiroad's official limits to the map, about 7 minutes; where OpenStreetMap and Digiroad disagree, Digiroad wins, winter limits included, unless you set `FOXNAV_SPEED_LIMITS_PREFER=osm`. Fintraffic publishes Digiroad (now Digitraffic Road Network) a few times a year: re-running `fetch-data.sh` fetches a newer release when there is one, and rebuilds the packs from it. When the road agency announces the winter dates, pass them, e.g. `… run --rm datapacks --region FI --digiroad /digiroad --season winter=10-27:04-12 --season summer=04-13:10-26 /osm/finland-latest.osm.pbf /out`.
@@ -68,7 +85,7 @@ These are starting points. The FoxNav look gets applied once the design is settl
 
 The same stack works on a server:
 
-1. Replace `:8080` in the `Caddyfile` with your domain. Caddy then gets TLS certificates automatically; also publish ports 80 and 443 instead of 8080.
+1. In the `Caddyfile`, replace the HTTPS site's address (`{$FOXNAV_LAN_HOST:localhost}:8443`) with your domain, and remove its `tls internal` and the global `auto_https` option. Caddy then gets TLS certificates from Let's Encrypt automatically, and redirects plain HTTP to HTTPS. Publish ports 80 and 443 instead of 8080 and 8443.
 2. Set `FOXNAV_NAME` and `FOXNAV_PRIVACY_URL` for the `server` service in `compose.yaml`. Drivers' reports are kept in the `reports` volume (`FOXNAV_REPORTS_FILE`); `FOXNAV_FINTRAFFIC=true` adds Fintraffic's traffic messages for Finland, fetched every 5 minutes. Turn it off for a server outside Finland.
 3. Users type your domain into the app, and the app reads `https://your.domain/.well-known/foxnav`.
 

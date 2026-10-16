@@ -21,6 +21,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // `foss` stays free of Google Play Services so it can ship on F-Droid; `play` is for the Play Store.
@@ -109,10 +110,15 @@ dependencies {
     implementation(libs.ferrostar.ui.maplibre)
     implementation(libs.ferrostar.ui.shared)
     implementation(libs.maplibre.compose)
+    implementation(libs.valhalla.mobile)
+    implementation(libs.valhalla.models.config)
     // Only the Play Store build may use Google Play Services (fused location).
     "playImplementation"(libs.ferrostar.google.play.services)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(kotlin("test-junit", libs.versions.kotlin.get()))
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(kotlin("test-junit", libs.versions.kotlin.get()))
 }

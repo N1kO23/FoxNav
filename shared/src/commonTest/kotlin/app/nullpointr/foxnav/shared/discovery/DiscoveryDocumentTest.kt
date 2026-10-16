@@ -50,6 +50,15 @@ class DiscoveryDocumentTest {
     }
 
     @Test
+    fun routingTilesAreResolvedAndSurviveARoutingOverride() {
+        val document = DiscoveryDocument.parse("""{"foxnav": 1, "name": "x", "routing": {"type": "valhalla", "url": "/valhalla", "tiles": "/routing-tiles"}}""")
+            .resolved("https://maps.example.org/.well-known/foxnav")
+
+        assertEquals("https://maps.example.org/routing-tiles", document.routing?.tiles)
+        assertEquals("https://maps.example.org/routing-tiles", document.withOverrides(routing = "https://route.example.org").routing?.tiles)
+    }
+
+    @Test
     fun overridesReplaceSingleServices() {
         val document = DiscoveryDocument.parse(sample).withOverrides(routing = "https://route.example.org", search = " ", style = "https://tiles.example.org/s.json")
 

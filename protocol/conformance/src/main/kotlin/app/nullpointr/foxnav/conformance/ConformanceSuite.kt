@@ -19,6 +19,7 @@ import app.nullpointr.foxnav.shared.discovery.Feature
 import app.nullpointr.foxnav.shared.geo.GeoPoint
 import app.nullpointr.foxnav.shared.reports.ReportCreated
 import app.nullpointr.foxnav.shared.reports.ReportFeed
+import app.nullpointr.foxnav.shared.routing.RoutingTileManifest
 import app.nullpointr.foxnav.shared.safety.CameraPack
 import app.nullpointr.foxnav.shared.speed.SpeedLimitPack
 import io.ktor.client.HttpClient
@@ -26,6 +27,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -44,6 +46,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import okio.ByteString
 import okio.ByteString.Companion.encodeUtf8
 import okio.ByteString.Companion.toByteString
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.zip.GZIPInputStream
 import kotlin.time.Duration.Companion.seconds
 import app.nullpointr.foxnav.protocol.convoy.v0.Error as ProtocolError
 
@@ -171,6 +176,34 @@ class ConformanceSuite(
                 found++
             }
             if (found == 0) throw Skipped("no region has one")
+        }
+        check(Group.MAP_SERVICES, "serves routing tiles for the phone") {
+            val base = document.routing?.takeIf { it.type == "valhalla" }?.tiles ?: throw Skipped("no routing tiles listed")
+            val url = base.trimEnd('/') + "/" + RoutingTileManifest.MANIFEST
+            val response = http.get(url)
+            if (response.status == HttpStatusCode.NotFound) throw Skipped("none published at $url yet")
+            expect(response.status.isSuccess()) { "$url answered HTTP ${response.status.value}" }
+            val manifest = runCatching { RoutingTileManifest.parse(response.bodyAsText()) }.getOrElse { fail("$url isn't a valid manifest: ${it.message}") }
+            expect(manifest.format == RoutingTileManifest.FORMAT && manifest.engine == "valhalla") { "$url is format ${manifest.format} for ${manifest.engine}" }
+            expect(BUILD.matches(manifest.build)) { "$url has build \"${manifest.build}\", which can't be a path segment" }
+            expect(manifest.tiles.values.all { entries -> entries.all { it.size == 3 && it.all { n -> n >= 0 } } && entries.zipWithNext().all { (a, b) -> a[0] < b[0] } }) {
+                "$url lists tiles that aren't [ID, bytes, download bytes] by ID"
+            }
+            // One local-road tile where the test trip starts: listed, downloadable, and the tile it says it is.
+            val (from, _) = TEST_TRIPS[region]?.route ?: throw Skipped("no test trip for regions ${document.regions}")
+            val local = manifest.levels.maxOf { it.level }
+            val tile = manifest.tilesIn(from, from).firstOrNull { it.level == local } ?: fail("the tiles don't cover $from")
+            val tileUrl = manifest.urlOf(base, tile)
+            val download = http.get(tileUrl)
+            expect(download.status.isSuccess()) { "$tileUrl answered HTTP ${download.status.value}" }
+            val packed = download.bodyAsBytes()
+            val bytes = runCatching { GZIPInputStream(packed.inputStream()).readBytes() }.getOrElse { fail("$tileUrl isn't gzipped") }
+            val size = manifest.sizeOf(tile)!!
+            expect(packed.size.toLong() == size.download && bytes.size.toLong() == size.bytes) {
+                "$tileUrl is ${packed.size} bytes, ${bytes.size} unpacked; the manifest says ${size.download} and ${size.bytes}"
+            }
+            val graphId = ByteBuffer.wrap(bytes, 0, 8).order(ByteOrder.LITTLE_ENDIAN).long and ((1L shl 46) - 1)
+            expect((graphId and 7L) == tile.level.toLong() && ((graphId shr 3) and ((1L shl 22) - 1)) == tile.id) { "$tileUrl holds another tile" }
         }
         check(Group.MAP_SERVICES, "searches with Photon") {
             val search = document.search?.takeIf { it.type == "photon" } ?: throw Skipped("no Photon search listed")
@@ -422,6 +455,8 @@ class ConformanceSuite(
 
     private companion object {
         val CHECK_TIMEOUT = 20.seconds
+        // A build names a directory of tiles (spec §3.3).
+        val BUILD = Regex("^[A-Za-z0-9._-]+$")
         val DAY = Regex("""^(\d{4}-)?(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$""")
         val OPAQUE_NONCE: ByteString = ByteString.of(*ByteArray(12) { it.toByte() })
 

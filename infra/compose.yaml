@@ -1,4 +1,5 @@
-# Local FoxNav map stack. Everything sits behind one origin, http://localhost:8080:
+# Local FoxNav map stack. Everything sits behind one origin, http://localhost:8080, and over HTTPS at
+# https://<FOXNAV_LAN_HOST>:8443 for other devices on your network (see infra/README.md):
 #   /.well-known/foxnav, /styles/*   FoxNav server (discovery document, map styles)
 #   /v1/ws, /v1/reports              FoxNav server (convoys, reports)
 #   /valhalla/*                      Valhalla (routing)
@@ -6,6 +7,7 @@
 #   /tiles/region/{z}/{x}/{y}.mvt    map tiles, from the PMTiles archive (tiles service)
 #   /tiles/*.pmtiles, /assets/*      static files (the archive itself, fonts, sprites)
 #   /datapacks/*                     static files (speed cameras, winter limits; built by the datapacks service)
+#   /routing-tiles/*                 static files (the routing graph's tiles, for routing on the phone; routing-tiles service)
 #
 # Fetch the data first with infra/scripts/fetch-data.sh, then: docker compose up -d
 # The first start builds the routing graph and search index; see infra/README.md.
@@ -20,11 +22,18 @@ services:
     image: caddy:2.11
     ports:
       - "8080:8080"
+      - "8443:8443"
+    environment:
+      # This machine's name on your network, for the HTTPS site. Set it in infra/.env.
+      FOXNAV_LAN_HOST: ${FOXNAV_LAN_HOST:-localhost}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/tiles:/srv/tiles:ro
       - ./data/assets:/srv/assets:ro
       - ./data/datapacks:/srv/datapacks:ro
+      - ./data/routing-tiles:/srv/routing-tiles:ro
+      # Caddy's local CA: kept, so devices that trust it keep trusting it.
+      - caddy:/data
     depends_on: [server, tiles, valhalla, photon]
     restart: unless-stopped
 
@@ -45,6 +54,7 @@ services:
       FOXNAV_REGIONS: FI
       FOXNAV_STYLES_DIR: /srv/styles
       FOXNAV_DATAPACKS_URL: /datapacks
+      FOXNAV_ROUTING_TILES_URL: /routing-tiles
       # Drivers' reports survive restarts; Fintraffic's traffic messages seed them (Finland).
       FOXNAV_REPORTS_FILE: /var/lib/foxnav/reports.json
       FOXNAV_FINTRAFFIC: "true"
@@ -93,5 +103,20 @@ services:
       - ./data/datapacks:/out
     command: ["--region", "${FOXNAV_REGION_CODE:-FI}", "--digiroad", "/digiroad", "--prefer", "${FOXNAV_SPEED_LIMITS_PREFER:-digiroad}", "/osm/${FOXNAV_REGION:-finland}-latest.osm.pbf", "/out"]
 
+  # Publishes Valhalla's graph as tiles for routing on the phone without a connection (protocol/SPEC.md
+  # §3.3). Not a long-running service either: run it whenever Valhalla has built a new graph, e.g.
+  #   docker compose -f infra/compose.yaml run --rm routing-tiles
+  # Publishing the same graph again changes nothing; a new one keeps the previous build next to it.
+  routing-tiles:
+    build: ./datapacks
+    <<: *host-user
+    profiles: [tools]
+    entrypoint: ["python3", "/opt/datapacks/routing_tiles.py"]
+    volumes:
+      - ./data/valhalla:/valhalla:ro
+      - ./data/routing-tiles:/out
+    command: ["/valhalla/valhalla_tiles", "/out"]
+
 volumes:
   reports:
+  caddy:

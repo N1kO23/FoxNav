@@ -49,6 +49,14 @@ class ServerTest {
         assertEquals("/photon", document.search?.url)
         assertEquals(listOf("FI"), document.regions)
         assertEquals(null, document.datapacks)
+        assertEquals(null, document.routing?.tiles)
+    }
+
+    @Test
+    fun routingTilesAreListedWhenConfigured() = testApplication {
+        application { foxNavModule(config.copy(routingTilesUrl = "/routing-tiles")) }
+        val document = DiscoveryDocument.parse(client.get("/.well-known/foxnav").bodyAsText())
+        assertEquals("/routing-tiles", document.routing?.tiles)
     }
 
     @Test

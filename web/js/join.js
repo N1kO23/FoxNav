@@ -85,6 +85,13 @@ addEventListener("hashchange", () => {
 
 if (!invite) {
   showMessage("This isn't a convoy invite", "The link is incomplete. Ask whoever shared it to send it again, and open it whole.");
+} else if (!globalThis.crypto?.subtle) {
+  // Browsers offer WebCrypto only to secure contexts: https pages, and localhost.
+  showMessage(
+    "This page needs https",
+    "The convoy is end-to-end encrypted, and browsers only decrypt on secure (https) pages. Open the invite in the FoxNav app, or over https.",
+    { label: "Open in FoxNav", run: () => { location.href = `foxnav://join#${inviteFragment(invite)}`; } },
+  );
 } else {
   start(invite).catch((error) => showMessage("Couldn't reach the convoy's server", `${error.message}. Check your connection and reload the page.`));
 }
@@ -100,10 +107,10 @@ async function start(invite) {
   $("start-server").textContent = `On ${server.name}. Your position stays end-to-end encrypted.`;
   $("open-app").href = `foxnav://join#${inviteFragment(invite)}`;
   $("name").value = store.get("name") ?? "";
-  const canShare = "geolocation" in navigator && window.isSecureContext;
+  const canShare = "geolocation" in navigator;
   if (!canShare) {
     $("share").disabled = true;
-    $("share-note").textContent = "Sharing your location needs a secure (https) connection to this page.";
+    $("share-note").textContent = "This browser can't share its location.";
   }
   $("share").checked = canShare && store.get("share") === "true";
   $("start").hidden = false;
@@ -274,7 +281,7 @@ function follow(invite, server, map, name, sharing) {
 
   if (sharing) startSharing();
   else publish();
-  session.start();
+  session.start().catch((error) => showMessage("Couldn't join the convoy", `${error.message}.`, { label: "Reload", run: () => location.reload() }));
   requestAnimationFrame(draw);
 
   function renderTower() {

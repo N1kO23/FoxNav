@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds talk to a local map stack (infra/): over plain HTTP on port 8080, or over HTTPS on
+     port 8443 with a certificate from Caddy's local CA, which you install on the phone as a user CA. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

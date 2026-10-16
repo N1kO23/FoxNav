@@ -40,7 +40,7 @@ If the user typed a bare domain (`maps.example.org`), clients use `https://`.
 
 An *endpoint* is `{ "type": "<flavour>", "url": "<URL>" }`. Known flavours:
 
-- routing `valhalla`: the [Valhalla](https://valhalla.github.io/valhalla/api/) HTTP API. Clients call `POST {url}/route` and request OSRM-format responses with banner and voice instructions, which is what the [Ferrostar](https://github.com/stadiamaps/ferrostar) navigation SDK consumes.
+- routing `valhalla`: the [Valhalla](https://valhalla.github.io/valhalla/api/) HTTP API. Clients call `POST {url}/route` and request OSRM-format responses with banner and voice instructions, which is what the [Ferrostar](https://github.com/stadiamaps/ferrostar) navigation SDK consumes. It may also have `tiles`: where its graph's tiles are, for routing on the phone (§3.3).
 - search `photon`: the [Photon](https://github.com/komoot/photon) API, `GET {url}/api?q=…` and `GET {url}/reverse?lat=…&lon=…`.
 
 ### URLs
@@ -64,7 +64,7 @@ What the local stack in `infra/` returns:
   "name": "FoxNav (local)",
   "realtime": "/v1/ws",
   "styles": { "day": "/styles/day.json", "night": "/styles/night.json" },
-  "routing": { "type": "valhalla", "url": "/valhalla" },
+  "routing": { "type": "valhalla", "url": "/valhalla", "tiles": "/routing-tiles" },
   "search": { "type": "photon", "url": "/photon" },
   "datapacks": "/datapacks",
   "reports": "/v1/reports",
@@ -185,7 +185,7 @@ These arrive in a later version of this document:
 
 ## 3. Data packs (draft)
 
-Data the app downloads per region and matches on the phone, so the server never learns where anyone drives. A server that has them lists the `datapacks` feature and a `datapacks` URL in its discovery document. Packs are plain files: clients revalidate them with `If-None-Match`, and servers should send them compressed. A server needn't have every kind of pack; one it lacks answers `404`, and clients do without.
+Data the app downloads per region and matches on the phone, so the server never learns where anyone drives. A server that has them lists the `datapacks` feature and a `datapacks` URL in its discovery document. Routing tiles (§3.3) come from the routing endpoint instead. Packs are plain files: clients revalidate them with `If-None-Match`, and servers should send them compressed. A server needn't have every kind of pack; one it lacks answers `404`, and clients do without.
 
 ### 3.1 Speed cameras
 
@@ -259,6 +259,50 @@ What the routing engine's map gets wrong or doesn't know about speed limits, key
 OpenStreetMap often says only "winter", whose dates vary by year and region. The reference builder (`infra/datapacks/`) turns it into dates per region, erring towards a long winter: a winter limit shown a little early means a slower drive, a summer limit shown too long means a fine. Server operators can set the dates with `--season`. Conditions other than dates (times of day, weekdays, wet roads) are left out for now, as are limits for one direction of a way.
 
 For Finland, the reference builder takes the official limits from [Digiroad](https://www.fintraffic.fi/fi/digitrafficroadnetwork) (Fintraffic's Digitraffic Road Network since 2026, CC BY 4.0), which has a limit for nearly every public road and street. It matches Digiroad's segments to OpenStreetMap ways by position and direction: a way gets its most common limit, and stretches of 60 m or more with another one become sections. Where both sources have a limit, they agree on about 90 % of road length. By default Digiroad wins where they differ, being kept up to date by the road authorities, with `limit` and `sections` on those ways, and its winter limits replace OpenStreetMap's; `--prefer osm` keeps OpenStreetMap's and uses Digiroad only where OpenStreetMap has nothing. Legal default limits ("50 in built-up areas, 80 outside") are deliberately not used: in Finland most streets are in 30 or 40 zones, so the default would usually be wrong.
+
+### 3.3 Routing tiles
+
+```
+GET {tiles}/manifest.json
+GET {tiles}/{build}/{tile path}.gz
+```
+
+`{tiles}` is the routing endpoint's `tiles` URL (§1). These are the server's own routing graph, cut into tiles, for clients that route and look up roads on the phone when there's no connection. With the same engine as the server, routes, guidance and way IDs (which §3.2 is keyed by) then match the server's. Only Valhalla's graph is described so far.
+
+```json
+{
+  "format": 1,
+  "engine": "valhalla",
+  "version": "3.9.1",
+  "build": "758e170c8b3cf751",
+  "generated": "2026-10-09T23:57:26Z",
+  "attribution": "© OpenStreetMap contributors, ODbL",
+  "levels": [{ "level": 0, "size": 4 }, { "level": 1, "size": 1 }, { "level": 2, "size": 0.25 }],
+  "tiles": {
+    "0": [[3381, 4886520, 1869545]],
+    "1": [[54204, 9032168, 3312542]],
+    "2": [[864819, 35743800, 12125246], [864820, 16303200, 5617922]]
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `format` | `1`. A client that doesn't know a manifest's format doesn't use the tiles. |
+| `engine` | `valhalla`. |
+| `version` | The engine version that built the tiles. Clients use them only with an engine that reads that version's tiles. |
+| `build` | Names this set of tiles: letters, digits, `.`, `_` and `-`. Tiles from different builds don't fit together, so clients keep one build's tiles and replace them all when the build changes. |
+| `levels` | The graph's hierarchy: each level and the size of its tiles in degrees. Valhalla's are 0 for motorways and trunk roads, 1 for arterials and 2 for local roads. |
+| `tiles` | The tiles of each level that exist (a tile without roads doesn't): `[tile ID, bytes, download bytes]`, by ID. The sizes let clients say what an area costs before downloading it. |
+| `attribution` | Credits for the data, which clients show. |
+
+**Tiles.** A tile's ID is `row × columns + column`, counting rows of `size` degrees from 90° south and columns from 180° west (`columns` = 360 / `size`). Its path is Valhalla's: the level, then the ID padded with zeros to as many digits as the level's largest ID has, rounded up to a multiple of three, in groups of three, plus `.gph`. Level 2's tile 864819 (60°–60.25° N, 24.75°–25° E) is `2/000/864/819.gph`, and `{tiles}/{build}/2/000/864/819.gph.gz` is that tile, gzipped. That's also what Valhalla fetches itself with `mjolnir.tile_url` set to `{tiles}/{build}/{tilePath}` and `tile_url_gz` on.
+
+**Which tiles.** An area needs its tiles on every level. Looking up the road under the car needs level 2 there, even on a motorway, because Valhalla finds the roads near a position through level 2's spatial index. A route needs level 2 at both ends and the levels above it in between. Clients that also want road lookups along the way, for §3.2's limits, take level 2 along the whole route.
+
+**Updates.** Tiles never change within a build, so servers can send them with `Cache-Control: immutable`; clients revalidate the manifest with its `ETag`. A tile of a build the server no longer has answers `404`: clients then fetch the manifest again and start over with the new build. Servers should keep the previous build for at least a day after publishing a new one, so clients can finish downloading it. A server that lists `tiles` but hasn't published any answers `404` for the manifest, and clients do without.
+
+The reference stack publishes the graph its Valhalla built with `infra/datapacks/routing_tiles.py`. The build is a hash of the tiles, so publishing an unchanged graph changes nothing. Finland's graph is 1,421 tiles, 841 MB, or 332 MB to download.
 
 ## 4. Reports (draft)
 

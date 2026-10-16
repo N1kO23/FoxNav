@@ -49,16 +49,18 @@ data class DiscoveryDocument(
         reports = reports?.let { resolveUrl(documentUrl, it) },
         invites = invites?.let { resolveUrl(documentUrl, it) },
         styles = styles.mapValues { (_, url) -> resolveUrl(documentUrl, url) },
-        routing = routing?.let { it.copy(url = resolveUrl(documentUrl, it.url)) },
+        routing = routing?.let { it.copy(url = resolveUrl(documentUrl, it.url), tiles = it.tiles?.let { tiles -> resolveUrl(documentUrl, tiles) }) },
         search = search?.let { it.copy(url = resolveUrl(documentUrl, it.url)) },
     )
 
     /**
      * Replaces single services with the user's own: a Valhalla [routing] URL, a Photon [search]
      * URL, or one MapLibre [style] used for both night and day. Blank values keep the server's.
+     * The server's routing tiles stay: they're for routing on the phone, whichever Valhalla the
+     * app asks online.
      */
     fun withOverrides(routing: String? = null, search: String? = null, style: String? = null): DiscoveryDocument = copy(
-        routing = routing?.takeIf { it.isNotBlank() }?.let { ServiceEndpoint("valhalla", it.trim()) } ?: this.routing,
+        routing = routing?.takeIf { it.isNotBlank() }?.let { ServiceEndpoint("valhalla", it.trim(), tiles = this.routing?.tiles) } ?: this.routing,
         search = search?.takeIf { it.isNotBlank() }?.let { ServiceEndpoint("photon", it.trim()) } ?: this.search,
         styles = style?.takeIf { it.isNotBlank() }?.trim()?.let { mapOf("night" to it, "day" to it) } ?: styles,
     )
@@ -81,6 +83,8 @@ data class ServiceEndpoint(
     /** API flavour, e.g. `valhalla` for routing or `photon` for search. */
     val type: String,
     val url: String,
+    /** Routing only: where the routing graph's tiles are, for routing on the phone (spec §3.3). */
+    val tiles: String? = null,
 )
 
 /** Values for [DiscoveryDocument.features]. */

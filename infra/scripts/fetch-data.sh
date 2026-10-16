@@ -31,7 +31,7 @@ PMTILES_VERSION=1.31.2
 FONTSTACKS=("Noto Sans Regular" "Noto Sans Medium" "Noto Sans Italic")
 
 DATA=$(cd "$(dirname "$0")/.." && pwd)/data
-mkdir -p "$DATA"/{valhalla,photon,tiles,assets,bin}
+mkdir -p "$DATA"/{valhalla,photon,tiles,assets,bin,routing-tiles}
 
 download() { # url destination
     if [ -f "$2" ]; then
@@ -128,6 +128,14 @@ else
     mkdir -p "$DATA/datapacks"
     FOXNAV_REGION=$REGION FOXNAV_REGION_CODE=$COUNTRY \
         docker compose -f "$(dirname "$0")/../compose.yaml" run --rm --build datapacks
+fi
+
+# The routing graph's tiles for routing on the phone (protocol/SPEC.md §3.3). Valhalla builds the graph
+# on its first start, so on a first run there's nothing to publish yet: run the routing-tiles service
+# once it has (see infra/README.md). Publishing an unchanged graph is a no-op.
+if [ -d "$DATA/valhalla/valhalla_tiles/0" ]; then
+    echo "⚙ routing tiles"
+    docker compose -f "$(dirname "$0")/../compose.yaml" run --rm --build routing-tiles
 fi
 
 echo "Done. Data is in $DATA ($(du -sh "$DATA" | cut -f1))."

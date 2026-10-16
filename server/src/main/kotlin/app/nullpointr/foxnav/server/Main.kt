@@ -89,7 +89,7 @@ fun Application.foxNavModule(
                     reports = REPORTS_PATH,
                     invites = INVITE_PATH,
                     styles = config.styleNames().associateWith { "/styles/$it.json" },
-                    routing = ServiceEndpoint(type = "valhalla", url = config.routingUrl),
+                    routing = ServiceEndpoint(type = "valhalla", url = config.routingUrl, tiles = config.routingTilesUrl),
                     search = ServiceEndpoint(type = "photon", url = config.searchUrl),
                     features = setOfNotNull(Feature.CONVOY, Feature.REPORTS, Feature.DATA_PACKS.takeIf { config.datapacksUrl != null }),
                     regions = config.regions,

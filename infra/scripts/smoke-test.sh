@@ -55,6 +55,7 @@ check "search: Tampere" json "$BASE/photon/api?q=Tampere&limit=1" 'd["features"]
 check "convoy realtime endpoint" realtime_upgrade
 check "camera pack: FI" json "$BASE/datapacks/FI/cameras.json" 'str(len(d["cameras"])) + " cameras"'
 check "speed limit pack: FI" json "$BASE/datapacks/FI/speedlimits.json" 'str(len(d["ways"])) + " ways with limits for part of the year"'
+check "routing tiles" json "$BASE/routing-tiles/manifest.json" '"build " + d["build"] + ", " + str(sum(len(t) for t in d["tiles"].values())) + " tiles"'
 check "reports" json "$BASE/v1/reports" 'str(len(d["reports"])) + " reports (" + str(sum(1 for r in d["reports"] if r.get("source"))) + " official)"'
 
 if [ "$failures" -gt 0 ]; then

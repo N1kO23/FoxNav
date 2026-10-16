@@ -17,6 +17,8 @@ data class ServerConfig(
     val privacyUrl: String? = null,
     /** Routing (Valhalla) URL as published in the discovery document; may be relative. */
     val routingUrl: String = "/valhalla",
+    /** Where the routing graph's tiles are published for routing on the phone (spec §3.3), e.g. `/routing-tiles`; none if null. */
+    val routingTilesUrl: String? = null,
     /** Search (Photon) URL as published in the discovery document; may be relative. */
     val searchUrl: String = "/photon",
     /** Directory of MapLibre style templates (`<theme>.json`), see [StyleTemplates]. */
@@ -50,6 +52,7 @@ data class ServerConfig(
                 name = env["FOXNAV_NAME"] ?: defaults.name,
                 privacyUrl = env["FOXNAV_PRIVACY_URL"],
                 routingUrl = env["FOXNAV_ROUTING_URL"] ?: defaults.routingUrl,
+                routingTilesUrl = env["FOXNAV_ROUTING_TILES_URL"]?.takeIf { it.isNotBlank() },
                 searchUrl = env["FOXNAV_SEARCH_URL"] ?: defaults.searchUrl,
                 stylesDir = env["FOXNAV_STYLES_DIR"]?.let { Path(it) },
                 regions = env["FOXNAV_REGIONS"]?.split(',')?.map { it.trim().uppercase() }?.filter { it.isNotEmpty() }
