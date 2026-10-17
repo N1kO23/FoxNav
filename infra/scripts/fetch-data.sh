@@ -130,6 +130,11 @@ else
         docker compose -f "$(dirname "$0")/../compose.yaml" run --rm --build datapacks
 fi
 
+# The search pack for searching on the phone (protocol/SPEC.md §3.4), from the Photon dump. Building
+# from an unchanged dump is a no-op.
+echo "⚙ search pack"
+FOXNAV_REGION_CODE=$COUNTRY docker compose -f "$(dirname "$0")/../compose.yaml" run --rm --build search-pack
+
 # The routing graph's tiles for routing on the phone (protocol/SPEC.md §3.3). Valhalla builds the graph
 # on its first start, so on a first run there's nothing to publish yet: run the routing-tiles service
 # once it has (see infra/README.md). Publishing an unchanged graph is a no-op.

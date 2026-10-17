@@ -214,7 +214,7 @@ fun DriveSettings(document: DiscoveryDocument, viewModel: DriveViewModel, naviga
         val roads by graph.roadData.state.collectAsState()
         LinkRow(
             "Road data",
-            if (roads.selections.isEmpty()) "Routes, guidance and speed limits without a connection."
+            if (roads.selections.isEmpty()) "Routes, guidance, speed limits and search without a connection."
             else "${roads.selections.size} ${if (roads.selections.size == 1) "download" else "downloads"} · ${Formatter.formatShortFileSize(context, roads.bytes)}",
             action = "Manage",
         ) { sheet = SettingsSheet.Roads(navigationMapState.cameraState.projection?.queryVisibleBoundingBox()) }

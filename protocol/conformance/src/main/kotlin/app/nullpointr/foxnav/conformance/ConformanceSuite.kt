@@ -20,6 +20,8 @@ import app.nullpointr.foxnav.shared.geo.GeoPoint
 import app.nullpointr.foxnav.shared.reports.ReportCreated
 import app.nullpointr.foxnav.shared.reports.ReportFeed
 import app.nullpointr.foxnav.shared.routing.RoutingTileManifest
+import app.nullpointr.foxnav.shared.search.SearchEntry
+import app.nullpointr.foxnav.shared.search.SearchPackManifest
 import app.nullpointr.foxnav.shared.safety.CameraPack
 import app.nullpointr.foxnav.shared.speed.SpeedLimitPack
 import io.ktor.client.HttpClient
@@ -204,6 +206,38 @@ class ConformanceSuite(
             }
             val graphId = ByteBuffer.wrap(bytes, 0, 8).order(ByteOrder.LITTLE_ENDIAN).long and ((1L shl 46) - 1)
             expect((graphId and 7L) == tile.level.toLong() && ((graphId shr 3) and ((1L shl 22) - 1)) == tile.id) { "$tileUrl holds another tile" }
+        }
+        check(Group.MAP_SERVICES, "serves search packs for searching offline") {
+            val datapacks = document.datapacks?.takeIf { Feature.DATA_PACKS in document.features } ?: throw Skipped("no data packs listed")
+            var found = 0
+            for (code in document.regions) {
+                val base = datapacks.trimEnd('/') + "/$code/search"
+                val url = "$base/${SearchPackManifest.MANIFEST}"
+                val response = http.get(url)
+                if (response.status == HttpStatusCode.NotFound) continue
+                expect(response.status.isSuccess()) { "$url answered HTTP ${response.status.value}" }
+                val pack = runCatching { SearchPackManifest.parse(response.bodyAsText()) }.getOrElse { fail("$url isn't a valid search pack manifest: ${it.message}") }
+                expect(pack.isUsable && pack.region == code) { "$url is format ${pack.format} with cells of ${pack.size}° for ${pack.region}" }
+                expect(BUILD.matches(pack.build)) { "$url has build \"${pack.build}\", which can't be a path segment" }
+                expect(pack.cells.all { it.size == 3 && it.all { n -> n >= 0 } } && pack.cells.zipWithNext().all { (a, b) -> a[0] < b[0] }) {
+                    "$url lists cells that aren't [cell, entries, download bytes] by cell"
+                }
+                // The cell where the region's test trip starts: downloadable, and the places it says it has.
+                TEST_TRIPS[code]?.route?.first?.let { from ->
+                    val cell = SearchPackManifest.cellAt(from)
+                    val listed = pack.cells.firstOrNull { it[0] == cell } ?: fail("$url has no cell at $from")
+                    val cellUrl = pack.urlOf(base, cell)
+                    val download = http.get(cellUrl)
+                    expect(download.status.isSuccess()) { "$cellUrl answered HTTP ${download.status.value}" }
+                    val packed = download.bodyAsBytes()
+                    expect(packed.size.toLong() == listed[2]) { "$cellUrl is ${packed.size} bytes; the manifest says ${listed[2]}" }
+                    val entries = runCatching { SearchEntry.parseCell(GZIPInputStream(packed.inputStream()).readBytes().decodeToString()) }.getOrElse { fail("$cellUrl isn't a gzipped cell") }
+                    expect(entries.size.toLong() == listed[1]) { "$cellUrl has ${entries.size} places it can read; the manifest says ${listed[1]}" }
+                    expect(entries.all { SearchPackManifest.cellAt(it.point) == cell }) { "$cellUrl has places outside its cell" }
+                }
+                found++
+            }
+            if (found == 0) throw Skipped("no region has one")
         }
         check(Group.MAP_SERVICES, "searches with Photon") {
             val search = document.search?.takeIf { it.type == "photon" } ?: throw Skipped("no Photon search listed")

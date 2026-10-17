@@ -36,8 +36,8 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Road data from the local stack (infra/, with its routing tiles published), downloaded and used
- * the way the app does: routes and road lookups without the server. Skipped when the stack isn't
+ * Road data from the local stack (infra/, with its routing tiles and search pack published),
+ * downloaded and used the way the app does: routes, road lookups and search without the server. Skipped when the stack isn't
  * reachable from the emulator.
  */
 @RunWith(AndroidJUnit4::class)
@@ -68,7 +68,8 @@ class RoadDataTest {
 
     @Test
     fun downloadsAnAreaThenRoutesAndFindsRoadsWithoutTheServer() = runBlocking {
-        val roadData = RoadData(root, client, online, scope)
+        val index = SearchIndex(File(root, "search.db"))
+        val roadData = RoadData(root, client, online, scope, index)
         roadData.use(document)
         val manifest = withTimeout(30.seconds) { roadData.state.mapNotNull { it.manifest }.first() }
         val tiles = manifest.tilesIn(ROVANIEMI_SOUTH_WEST, ROVANIEMI_NORTH_EAST)
@@ -76,6 +77,12 @@ class RoadDataTest {
         withTimeout(120.seconds) { roadData.state.first { it.coverage(tiles)?.complete == true } }
         assertTrue(roadData.covers(GeoPoint(ROVANIEMI_CENTRE.lat, ROVANIEMI_CENTRE.lng)))
         assertTrue(tiles.all { File(roadData.tilesDir, manifest.pathOf(it)).length() == manifest.sizeOf(it)?.bytes })
+
+        // Search data came with the roads: without a connection, the phone finds the street.
+        val search = PlaceSearch(client, document.search!!, index, online = { false })
+        val street = search.search("koskikatu", near = GeoPoint(ROVANIEMI_CENTRE.lat, ROVANIEMI_CENTRE.lng)).first()
+        assertEquals("Koskikatu" to "Rovaniemi", street.title to street.detail)
+        assertTrue(search.search("rovak", near = null).any { it.title == "Rovakatu" })
 
         online.value = false
         val onDevice = OnDeviceValhalla(context, roadData)
@@ -99,9 +106,11 @@ class RoadDataTest {
         assertNull(RoadLookup(client, document.routing!!, onDevice, online = { false }).currentRoad(listOf(HELSINKI, HELSINKI_NEXT)))
 
         roadData.remove("rovaniemi")
-        withTimeout(30.seconds) { roadData.state.first { it.current == null } }
+        withTimeout(30.seconds) { roadData.state.first { it.current == null && it.searchCells.values.all { cells -> cells.isEmpty() } } }
         assertNull(roadData.tilesDir)
         assertTrue(File(root, "builds").listFiles().isNullOrEmpty())
+        assertTrue(index.cells().isEmpty())
+        assertEquals(emptyList(), search.search("koskikatu", near = null))
     }
 
     private fun location(at: GeographicCoordinate) = UserLocation(at, 10.0, null, Instant.now(), null)

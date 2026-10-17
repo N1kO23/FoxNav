@@ -68,8 +68,8 @@ fun OfflineMapsSheet(visible: BoundingBox?, styleUrls: Collection<String>, place
         ) {
             Text("Offline maps", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Download areas to keep the map without signal. With their road data, routes, guidance and speed limits work there too, " +
-                    "and speed cameras work anywhere. Search, reports and convoys need a connection.",
+                "Download areas to keep the map without signal. With their road data, routes, guidance, speed limits and search work there too, " +
+                    "and speed cameras work anywhere. Reports and convoys need a connection.",
                 color = colors.onSurfaceVariant,
             )
             if (visible != null) NewArea(visible, styleUrls, placeSearch, online, offline)
@@ -118,8 +118,8 @@ private fun NewArea(visible: BoundingBox, styleUrls: Collection<String>, placeSe
                     Column(Modifier.weight(1f)) {
                         Text("With road data", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            if (roadCoverage.complete) "Routes and speed limits offline here: already on the phone."
-                            else "Routes and speed limits offline here too. About ${size(context, roadCoverage.missingDownload)} more.",
+                            if (roadCoverage.complete) "Routes, speed limits and search offline here: already on the phone."
+                            else "Routes, speed limits and search offline here too. About ${size(context, roadCoverage.missingDownload)} more.",
                             color = colors.onSurfaceVariant,
                         )
                     }

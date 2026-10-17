@@ -212,7 +212,7 @@ private fun OfflineChip() {
     val colors = MaterialTheme.colorScheme
     Surface(shape = RoundedCornerShape(16.dp), color = colors.surface, border = BorderStroke(1.dp, colors.tertiary)) {
         Text(
-            "OFFLINE · map from downloaded areas",
+            "OFFLINE · downloaded maps and road data",
             Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             fontFamily = ChakraPetch,
             fontWeight = FontWeight.SemiBold,

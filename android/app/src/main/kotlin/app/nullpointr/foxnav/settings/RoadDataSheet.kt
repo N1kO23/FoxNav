@@ -75,7 +75,7 @@ fun RoadDataSheet(visible: BoundingBox?, regions: List<String>, placeSearch: Pla
         ) {
             Text("Road data", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Routes, guidance and speed limits without a connection, worked out on your phone from the server's road network. " +
+                "Routes, guidance, speed limits and search without a connection, worked out on your phone from the server's road network. " +
                     "Offline map areas and trips made available offline bring their own; here you can add more.",
                 color = colors.onSurfaceVariant,
             )
@@ -107,7 +107,8 @@ private fun WholeRegions(regions: List<String>, state: RoadData.State, online: B
         Text("All of ${names.joinToString(", ")}", style = MaterialTheme.typography.titleMedium)
         listOf(
             Triple(RoadSelectionKind.ALL, "All roads", "Everything, as map areas bring it."),
-            Triple(RoadSelectionKind.MAIN_ROADS, "Main roads only", "Routes anywhere, along motorways and main roads. Away from your other road data, speed limits come from the route alone."),
+            // Valhalla finds where a route starts and ends through the local roads' tiles: main roads alone route nowhere.
+            Triple(RoadSelectionKind.MAIN_ROADS, "Main roads, to join up the rest", "Routes between your map areas and trips along motorways and main roads, without the local roads in between. Routes still start and end only where you have other road data."),
         ).forEach { (kind, title, detail) ->
             val id = kind.name.lowercase()
             val tiles = remember(manifest) { RoadSelection(id, kind, title, 0L).tilesIn(manifest) }

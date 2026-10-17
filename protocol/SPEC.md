@@ -185,7 +185,7 @@ These arrive in a later version of this document:
 
 ## 3. Data packs (draft)
 
-Data the app downloads per region and matches on the phone, so the server never learns where anyone drives. A server that has them lists the `datapacks` feature and a `datapacks` URL in its discovery document. Routing tiles (§3.3) come from the routing endpoint instead. Packs are plain files: clients revalidate them with `If-None-Match`, and servers should send them compressed. A server needn't have every kind of pack; one it lacks answers `404`, and clients do without.
+Data the app downloads per region and matches on the phone, so the server never learns where anyone drives. A server that has them lists the `datapacks` feature and a `datapacks` URL in its discovery document. Routing tiles (§3.3) come from the routing endpoint instead; search packs (§3.4) are data packs, too. Packs are plain files: clients revalidate them with `If-None-Match`, and servers should send them compressed. A server needn't have every kind of pack; one it lacks answers `404`, and clients do without.
 
 ### 3.1 Speed cameras
 
@@ -303,6 +303,63 @@ GET {tiles}/{build}/{tile path}.gz
 **Updates.** Tiles never change within a build, so servers can send them with `Cache-Control: immutable`; clients revalidate the manifest with its `ETag`. A tile of a build the server no longer has answers `404`: clients then fetch the manifest again and start over with the new build. Servers should keep the previous build for at least a day after publishing a new one, so clients can finish downloading it. A server that lists `tiles` but hasn't published any answers `404` for the manifest, and clients do without.
 
 The reference stack publishes the graph its Valhalla built with `infra/datapacks/routing_tiles.py`. The build is a hash of the tiles, so publishing an unchanged graph changes nothing. Finland's graph is 1,421 tiles, 841 MB, or 332 MB to download.
+
+### 3.4 Search packs
+
+```
+GET {datapacks}/{region}/search/manifest.json
+GET {datapacks}/{region}/search/{build}/{cell}.json.gz
+```
+
+A region's places, streets, addresses and points of interest, for searching on the phone when there's no connection. They come in cells of 0.25°, numbered like Valhalla's local-road tiles (§3.3): `row × 1440 + column`, counting from 90° S and 180° W. So a client that keeps a local-road tile can take the same cell's search data, and search works wherever routes do.
+
+```json
+{
+  "format": 1,
+  "region": "FI",
+  "build": "9e48d299fc92c27e",
+  "generated": "2026-10-03T23:01:00Z",
+  "attribution": "© OpenStreetMap contributors, ODbL",
+  "size": 0.25,
+  "cells": [[864819, 48408, 923414], [902262, 1783, 23661]]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `format` | `1`. A client that doesn't know a manifest's format doesn't use the pack. |
+| `build` | Names this set of cells, like a routing build. Cells change only with the build. |
+| `generated` | When the data was taken from OpenStreetMap. |
+| `size` | The cells' size in degrees: `0.25`. |
+| `cells` | The cells that have anything: `[cell, entries, download bytes]`, by cell. |
+
+A cell is a gzipped JSON file:
+
+```json
+{
+  "format": 1,
+  "entries": [
+    ["street", "Mannerheimintie", "Helsinki", 60.18008, 24.92847, 0.1],
+    ["address", "Mannerheimintie 5", "Helsinki", 60.1696, 24.9405, 0, ["Mannerheimvägen 5"]],
+    ["place", "Kamppi", "Helsinki", 60.1683, 24.9306, 0.25, ["Kampen"]],
+    ["poi", "Kampin keskus", "Urho Kekkosen katu 1, Helsinki", 60.169, 24.933, 0.2]
+  ]
+}
+```
+
+Each entry is `[kind, title, detail, lat, lon, weight, names]`:
+
+| Item | Meaning |
+|---|---|
+| `kind` | `place` (a town, a district, a square), `street`, `address` or `poi` (a named point of interest). Clients skip kinds they don't know. |
+| `title`, `detail` | A search result's two lines, as shown. |
+| `lat`, `lon` | Where it is, in degrees: in the cell. |
+| `weight` | How notable it is, 0–1, for ranking: towns and landmarks above street addresses. |
+| `names` | Optional: other names it's found by, such as the Swedish ones in Finland's bilingual towns. |
+
+Cells never change within a build, so servers can send them with `Cache-Control: immutable`; clients revalidate the manifest with its `ETag`. A cell of a build the server no longer has answers `404`: clients then fetch the manifest again. A region without a search pack answers `404` for the manifest, and clients search only online.
+
+The reference builder (`infra/datapacks/search_pack.py`) takes the pack from the Photon dump the local stack imports. It keeps places, streets once per name and town in a cell, addresses and named points of interest, and leaves out water, landforms and boundaries. Finland's pack is 1.29 million entries in 1,166 cells, 18 MB to download; central Helsinki's cell is the largest, at 0.9 MB.
 
 ## 4. Reports (draft)
 

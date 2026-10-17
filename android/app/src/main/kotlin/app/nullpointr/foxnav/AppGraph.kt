@@ -17,6 +17,7 @@ import app.nullpointr.foxnav.voice.effectiveLanguage
 import app.nullpointr.foxnav.data.PlaceStore
 import app.nullpointr.foxnav.data.RoadData
 import app.nullpointr.foxnav.data.RoadLookup
+import app.nullpointr.foxnav.data.SearchIndex
 import app.nullpointr.foxnav.data.TravelTimes
 import app.nullpointr.foxnav.location.liveLocationProvider
 import app.nullpointr.foxnav.settings.AlertSettings
@@ -102,8 +103,11 @@ class AppGraph(private val context: Context) {
     /** App-wide work that outlives any screen: road data downloads. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    /** The routing graph's tiles on the phone: for map areas, trips and the road data chosen in settings. */
-    val roadData by lazy { RoadData(File(context.filesDir, "roaddata"), httpClient, connectivity.online, scope) }
+    /** Places to search without a connection, where there's road data. */
+    private val searchIndex by lazy { SearchIndex(File(context.filesDir, "roaddata/search.db")) }
+
+    /** The routing graph's tiles on the phone, with search data: for map areas, trips and the road data chosen in settings. */
+    val roadData by lazy { RoadData(File(context.filesDir, "roaddata"), httpClient, connectivity.online, scope, searchIndex) }
 
     /** Valhalla on the phone, for routes and road lookups from [roadData] (ADR 0005). */
     private val onDeviceValhalla by lazy { OnDeviceValhalla(context, roadData) }
@@ -125,7 +129,7 @@ class AppGraph(private val context: Context) {
         FerrostarForegroundServiceManager(context, DefaultForegroundNotificationBuilder(context))
     }
 
-    fun placeSearch(endpoint: ServiceEndpoint) = PlaceSearch(httpClient, endpoint)
+    fun placeSearch(endpoint: ServiceEndpoint) = PlaceSearch(httpClient, endpoint, searchIndex, online = { connectivity.online.value })
 
     fun roadLookup(routing: ServiceEndpoint) = RoadLookup(httpClient, routing, onDeviceValhalla, online = { connectivity.online.value })
 

@@ -9,3 +9,4 @@ Short records of decisions that shape FoxNav, so nobody has to rediscover why. E
 | [0003](0003-convoy-encryption.md) | Convoy payloads are end-to-end encrypted |
 | [0004](0004-licensing.md) | GPL apps, AGPL server, Apache-2.0 protocol |
 | [0005](0005-offline-routing.md) | Routing and road lookups also run on the phone, on the server's own graph |
+| [0006](0006-offline-search.md) | Search works offline from search packs that come with road data |

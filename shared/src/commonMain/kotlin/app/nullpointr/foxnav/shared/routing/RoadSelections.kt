@@ -19,7 +19,10 @@ enum class RoadSelectionKind {
     /** All of the server's roads. */
     @SerialName("all") ALL,
 
-    /** The server's motorways and arterials: routes between areas, but road lookups only where local roads are too. */
+    /**
+     * The server's motorways and arterials: routes between other road data. Not on their own: a
+     * route's ends, and road lookups, need the local roads there.
+     */
     @SerialName("main_roads") MAIN_ROADS,
 }
 

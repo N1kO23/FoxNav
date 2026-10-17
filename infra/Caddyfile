@@ -31,10 +31,13 @@
 		}
 	}
 
-	# Data packs: small JSON files the app downloads and revalidates (ETag).
+	# Data packs: small JSON files the app downloads and revalidates (ETag). A search pack's cells are
+	# gzipped already, and fixed within a build, whose ID is in their path.
 	handle_path /datapacks/* {
 		root * /srv/datapacks
 		header Access-Control-Allow-Origin *
+		@cells path_regexp \.json\.gz$
+		header @cells Cache-Control "public, max-age=31536000, immutable"
 		encode gzip
 		file_server
 	}

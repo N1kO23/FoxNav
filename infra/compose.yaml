@@ -6,7 +6,8 @@
 #   /photon/*                        Photon (search)
 #   /tiles/region/{z}/{x}/{y}.mvt    map tiles, from the PMTiles archive (tiles service)
 #   /tiles/*.pmtiles, /assets/*      static files (the archive itself, fonts, sprites)
-#   /datapacks/*                     static files (speed cameras, winter limits; built by the datapacks service)
+#   /datapacks/*                     static files (speed cameras, winter limits; built by the datapacks service;
+#                                    search packs for searching offline; search-pack service)
 #   /routing-tiles/*                 static files (the routing graph's tiles, for routing on the phone; routing-tiles service)
 #
 # Fetch the data first with infra/scripts/fetch-data.sh, then: docker compose up -d
@@ -116,6 +117,20 @@ services:
       - ./data/valhalla:/valhalla:ro
       - ./data/routing-tiles:/out
     command: ["/valhalla/valhalla_tiles", "/out"]
+
+  # Builds the search pack from Photon's dump, for searching on the phone without a connection
+  # (protocol/SPEC.md §3.4). Run it after fetching a new dump (fetch-data.sh does):
+  #   docker compose -f infra/compose.yaml run --rm search-pack
+  # Building from the same dump again changes nothing; a new pack keeps the previous build next to it.
+  search-pack:
+    build: ./datapacks
+    <<: *host-user
+    profiles: [tools]
+    entrypoint: ["python3", "/opt/datapacks/search_pack.py"]
+    volumes:
+      - ./data/photon:/photon:ro
+      - ./data/datapacks:/out
+    command: ["--region", "${FOXNAV_REGION_CODE:-FI}", "/photon/import.jsonl.zst", "/out"]
 
 volumes:
   reports:

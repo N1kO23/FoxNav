@@ -11,12 +11,31 @@ import okhttp3.Request
 import java.io.IOException
 import java.util.Locale
 
-/** Searches places with the server's Photon instance. */
-class PlaceSearch(private val client: OkHttpClient, private val endpoint: ServiceEndpoint) {
+/**
+ * Searches places with the server's Photon instance. Without a connection, or when the server
+ * can't be reached, the search data on the phone answers instead: wherever there's road data.
+ */
+class PlaceSearch(
+    private val client: OkHttpClient,
+    private val endpoint: ServiceEndpoint,
+    private val offline: SearchIndex? = null,
+    private val online: () -> Boolean = { true },
+) {
     /** Results for [query], biased towards [near] when given. */
     suspend fun search(query: String, near: GeoPoint?): List<Place> = withContext(Dispatchers.IO) {
+        if (online()) {
+            try {
+                return@withContext fromPhoton(query, near)
+            } catch (error: IOException) {
+                if (offline == null) throw error
+            }
+        }
+        offline?.search(query, near)?.map { it.toPlace() }.orEmpty()
+    }
+
+    private fun fromPhoton(query: String, near: GeoPoint?): List<Place> {
         val url = endpoint.url.trimEnd('/') + Photon.searchPath(query, near, language = language())
-        client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+        return client.newCall(Request.Builder().url(url).build()).execute().use { response ->
             if (!response.isSuccessful) throw IOException("Search failed: HTTP ${response.code}")
             Photon.parse(response.body.string())
         }

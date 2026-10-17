@@ -11,6 +11,7 @@ Everything the app needs from a backend, running on your machine behind one orig
 | `/join`, `/web/*`                  | FoxNav server                                    | Convoy page: invite links open here, in any browser         |
 | `/datapacks/FI/cameras.json`       | Caddy (static)                                   | Speed cameras for the app to match on the phone             |
 | `/datapacks/FI/speedlimits.json`   | Caddy (static)                                   | Winter limits, and official limits where OSM has none       |
+| `/datapacks/FI/search/*`           | Caddy (static)                                   | Search pack: places and addresses, for searching offline    |
 | `/routing-tiles/*`                 | Caddy (static)                                   | Valhalla's graph as tiles, for routing on the phone offline |
 | `/tiles/region/{z}/{x}/{y}.mvt`    | [go-pmtiles](https://github.com/protomaps/go-pmtiles) | Map tiles from the archive: cacheable, and downloadable for offline use |
 | `/tiles/region.pmtiles`            | Caddy (static)                                   | The vector map archive itself, for `pmtiles://` clients     |
@@ -50,6 +51,12 @@ docker compose -f infra/compose.yaml run --rm routing-tiles
 
 Until then, `/routing-tiles/manifest.json` answers `404` and the app routes only through the server. Later runs of `fetch-data.sh` publish the graph themselves.
 
+`fetch-data.sh` also builds the search pack for searching on the phone ([spec §3.4](../protocol/SPEC.md#34-search-packs)) from Photon's dump, about two minutes and 18 MB for Finland. To rebuild it after a new dump:
+
+```sh
+docker compose -f infra/compose.yaml run --rm search-pack
+```
+
 ## Use it from the app
 
 Debug builds of the Android app point at `http://10.0.2.2:8080`, which is how the emulator reaches your machine's `localhost`. For a phone on the same network, use `http://<your computer's LAN IP>:8080`. Debug builds allow plain HTTP; release builds don't. On Android 17 and newer, the app first asks for the *Nearby devices* permission, because Android counts LAN addresses (and the emulator's 10.0.2.2) as the local network.
@@ -67,7 +74,7 @@ Browsers follow convoys only on https pages, or on `localhost`: the convoy page 
 OpenStreetMap changes daily; refresh whenever you like:
 
 - **Routing:** delete `data/valhalla/` and re-run `fetch-data.sh`. The next start rebuilds the graph; then publish it again with `docker compose -f infra/compose.yaml run --rm routing-tiles`. The previous build stays published for phones still downloading it, and older ones are removed.
-- **Search:** delete `data/photon/` and re-run `fetch-data.sh`. The next start re-imports.
+- **Search:** delete `data/photon/` and re-run `fetch-data.sh`. The next start re-imports, and the search pack is rebuilt from the new dump.
 - **Map tiles:** delete `data/tiles/region.pmtiles` and re-run `fetch-data.sh`.
 - **Speed cameras and speed limits:** after new routing data, rebuild the data packs with `docker compose -f infra/compose.yaml run --rm datapacks`. For Finland that includes matching Digiroad's official limits to the map, about 7 minutes; where OpenStreetMap and Digiroad disagree, Digiroad wins, winter limits included, unless you set `FOXNAV_SPEED_LIMITS_PREFER=osm`. Fintraffic publishes Digiroad (now Digitraffic Road Network) a few times a year: re-running `fetch-data.sh` fetches a newer release when there is one, and rebuilds the packs from it. When the road agency announces the winter dates, pass them, e.g. `… run --rm datapacks --region FI --digiroad /digiroad --season winter=10-27:04-12 --season summer=04-13:10-26 /osm/finland-latest.osm.pbf /out`.
 
