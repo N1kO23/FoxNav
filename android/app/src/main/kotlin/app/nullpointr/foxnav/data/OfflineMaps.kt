@@ -33,8 +33,8 @@ class OfflineMaps(context: Context) {
             .map { (id, packs) -> OfflineArea(id, packs.first().first.name, packs.minOf { it.first.createdMs }, packs.map { it.second }) }
             .sortedByDescending { it.createdMs }
 
-    /** Starts downloading [bounds] for every style in [styleUrls] as one area called [name]. */
-    suspend fun download(name: String, bounds: BoundingBox, styleUrls: Collection<String>) {
+    /** Starts downloading [bounds] for every style in [styleUrls] as one area called [name]; returns the area's ID. */
+    suspend fun download(name: String, bounds: BoundingBox, styleUrls: Collection<String>): String {
         val id = UUID.randomUUID().toString()
         val created = System.currentTimeMillis()
         for (styleUrl in styleUrls.distinct()) {
@@ -42,6 +42,7 @@ class OfflineMaps(context: Context) {
             val pack = manager.create(OfflinePackDefinition.TilePyramid(styleUrl, bounds, minZoom = 0, maxZoom = MAX_ZOOM), metadata)
             manager.resume(pack)
         }
+        return id
     }
 
     fun pause(area: OfflineArea) {
@@ -146,6 +147,9 @@ data class OfflineArea(val id: String, val name: String, val createdMs: Long, va
             progress.any { it is DownloadProgress.Healthy && it.status == DownloadStatus.Downloading } -> AreaStatus.DOWNLOADING
             else -> AreaStatus.PAUSED
         }
+
+    /** The area itself. */
+    val bounds: BoundingBox? get() = packs.firstNotNullOfOrNull { (it.definition as? OfflinePackDefinition.TilePyramid)?.bounds }
 
     /** 0–1, as far as MapLibre knows how much there is. */
     val fraction: Float

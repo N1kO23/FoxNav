@@ -32,6 +32,7 @@ import app.nullpointr.foxnav.settings.MapOrientation
 import app.nullpointr.foxnav.settings.OverLimitSound
 import app.nullpointr.foxnav.settings.SettingsScope
 import app.nullpointr.foxnav.settings.OfflineMapsSheet
+import app.nullpointr.foxnav.settings.RoadDataSheet
 import app.nullpointr.foxnav.settings.ServerSettingsSheet
 import app.nullpointr.foxnav.settings.SettingsScreen
 import app.nullpointr.foxnav.settings.SpeedometerStyle
@@ -58,6 +59,7 @@ import app.nullpointr.foxnav.shared.search.SavedPlaces
 private sealed interface SettingsSheet {
     data object Car : SettingsSheet
     data class OfflineMaps(val visible: BoundingBox?) : SettingsSheet
+    data class Roads(val visible: BoundingBox?) : SettingsSheet
     data object Server : SettingsSheet
     data object VoicePacks : SettingsSheet
 }
@@ -209,6 +211,13 @@ fun DriveSettings(document: DiscoveryDocument, viewModel: DriveViewModel, naviga
             else "${areas.size} ${if (areas.size == 1) "area" else "areas"} · ${Formatter.formatShortFileSize(context, areas.sumOf { it.bytes })}",
             action = "Manage",
         ) { sheet = SettingsSheet.OfflineMaps(navigationMapState.cameraState.projection?.queryVisibleBoundingBox()) }
+        val roads by graph.roadData.state.collectAsState()
+        LinkRow(
+            "Road data",
+            if (roads.selections.isEmpty()) "Routes, guidance and speed limits without a connection."
+            else "${roads.selections.size} ${if (roads.selections.size == 1) "download" else "downloads"} · ${Formatter.formatShortFileSize(context, roads.bytes)}",
+            action = "Manage",
+        ) { sheet = SettingsSheet.Roads(navigationMapState.cameraState.projection?.queryVisibleBoundingBox()) }
 
         Section("Server")
         LinkRow(document.name, serverUrl, action = "Change") { sheet = SettingsSheet.Server }
@@ -228,6 +237,12 @@ fun DriveSettings(document: DiscoveryDocument, viewModel: DriveViewModel, naviga
             is SettingsSheet.OfflineMaps -> OfflineMapsSheet(
                 visible = open.visible,
                 styleUrls = document.styles.values,
+                placeSearch = remember(document.search) { document.search?.takeIf { it.type == "photon" }?.let(graph::placeSearch) },
+                onDismiss = { sheet = null },
+            )
+            is SettingsSheet.Roads -> RoadDataSheet(
+                visible = open.visible,
+                regions = document.regions,
                 placeSearch = remember(document.search) { document.search?.takeIf { it.type == "photon" }?.let(graph::placeSearch) },
                 onDismiss = { sheet = null },
             )

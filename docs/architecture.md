@@ -69,7 +69,7 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
   - cameras and reports ahead;
   - your convoy.
 
-  Only turn-by-turn needs a route. Without one, speed limits come from matching the last few GPS fixes to the road network (Valhalla's `trace_attributes`), and, without a connection, from the same lookup on the phone's own Valhalla (in progress, [ADR 0005](adr/0005-offline-routing.md)).
+  Only turn-by-turn needs a route. Without one, speed limits come from matching the last few GPS fixes to the road network (Valhalla's `trace_attributes`), which the phone's own Valhalla answers wherever it has road data, and the server elsewhere ([ADR 0005](adr/0005-offline-routing.md)).
 
 - Two build flavours: `foss` (no Google Play Services, for F-Droid) and `play` (Play Store).
 - Ferrostar is pre-1.0, so its version is pinned and upgraded deliberately. Problems get fixed upstream rather than in a fork.
@@ -133,7 +133,12 @@ Details are in the [protocol spec](../protocol/SPEC.md#2-realtime-draft); this i
   - Map tiles, search and routes are far too big for LoRa. Driving without internet needs offline map regions and on-device routing instead.
   - Short-range links between nearby cars (Wi-Fi Direct or Wi-Fi Aware, Bluetooth) carry much more, and could pass full updates from car to car.
 - **Following from a browser.** Invite links point at the server's convoy page (`/join`, spec §2.5) when it has one, so they open anywhere: the page offers the app, or follows the convoy itself, with a map, the timing tower and optional location sharing while the page is open. Friends without the app, iPhones included, can drive along until the iOS app exists. It's plain JavaScript modules in [`web/`](../web/), with no build step and no dependencies besides MapLibre GL JS and PMTiles, which the server build fetches pinned and hash-checked; its encoding and encryption are tested against vectors from the app's own code. A browser member who doesn't share a position shows as "watching".
-- **Offline maps.** Drivers download areas (the one on screen, up to street level, zoom 14) through MapLibre's offline packs: the style, fonts, icons and tiles go into the app's database, and the map shows them without signal, stretching street-level tiles when zoomed in further. A city district is a few megabytes, plus about 6 MB of fonts with the first area. The app also starts without a connection, from the server's last discovery document, and keeps the last 200 MB of map it showed. Routing, search, reports and convoys still need the server; speed cameras work offline from their data pack. Routing and road lookups on the phone are in progress ([ADR 0005](adr/0005-offline-routing.md)): servers publish their graph's tiles, and map areas, trips made available offline and a road-data setting will download them. The local stack serves tiles as plain `{z}/{x}/{y}` URLs (go-pmtiles in front of the archive) because the offline downloader needs them.
+- **Offline maps.** Drivers download areas (the one on screen, up to street level, zoom 14) through MapLibre's offline packs: the style, fonts, icons and tiles go into the app's database, and the map shows them without signal, stretching street-level tiles when zoomed in further. A city district is a few megabytes, plus about 6 MB of fonts with the first area. The app also starts without a connection, from the server's last discovery document, and keeps the last 200 MB of map it showed. Speed cameras work offline from their data pack. The local stack serves tiles as plain `{z}/{x}/{y}` URLs (go-pmtiles in front of the archive) because the offline downloader needs them.
+- **Road data** ([ADR 0005](adr/0005-offline-routing.md)). Routes, guidance and speed limits work without a connection too, from Valhalla on the phone (valhalla-mobile) over the server's own graph tiles. Map areas bring the road data under them (a switch, on by default), the route preview offers to make a trip available offline (the tiles within 2 km of the route, kept 30 days), and Settings → Road data downloads all of the server's regions, their main roads only, or the area on screen.
+  - `RoadData` keeps one build's tiles and fetches what's missing whenever there's a connection. A new build downloads next to the old one and takes over once complete.
+  - Routes ask the server first and fall back to the phone. Road lookups ask the phone first wherever it has the local roads: they come every few seconds, and the answer is the same.
+  - Dense cities are heavy: central Helsinki is 72 MB on the phone (25 MB to download), the Rovaniemi–Helsinki trip 199 MB (75 MB).
+  - Search, reports and convoys still need the server.
 - **Testing with bots.** [`tools/convoy-sim`](../tools/convoy-sim/) puts bot cars in a convoy, driving one behind the other along a real route, so one developer can test a full convoy.
 - **Convoy soundtrack (later).** Members can opt in to share what they're playing. Title and artist go out as an encrypted `STATE` payload, and others can listen along.
   - Every member plays the track from their own music service. Audio is never streamed between phones, which would need music licences.
@@ -244,7 +249,7 @@ What drivers can change, on one settings page:
    - camera packs and warnings, from OpenStreetMap and national data;
    - national speed-limit data including winter limits;
    - crowd reports, seeded from national traffic feeds.
-5. **Car integration and reach:** _(in progress: the web convoy page and offline map areas work; routing on the phone has started, [ADR 0005](adr/0005-offline-routing.md))_ Android Auto, offline map regions, a web convoy page, Play Store and F-Droid releases, then iOS and CarPlay.
+5. **Car integration and reach:** _(in progress: the web convoy page and offline map areas work; and so do routes, guidance and speed limits without a connection, [ADR 0005](adr/0005-offline-routing.md))_ Android Auto, offline map regions, a web convoy page, Play Store and F-Droid releases, then iOS and CarPlay.
 6. **Enthusiast features:**
    - custom voices, push-to-talk convoy radio and the convoy soundtrack;
    - off-grid convoys over LoRa (Meshtastic) and car-to-car links, with gateway cars;

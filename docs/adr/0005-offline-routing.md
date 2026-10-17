@@ -17,10 +17,11 @@ The options were:
 The app embeds Valhalla through [valhalla-mobile](https://github.com/Rallista/valhalla-mobile) (MIT, Valhalla 3.9). Servers publish their own graph as static tiles: a manifest plus gzipped tiles under a build ID ([spec §3.3](../../protocol/SPEC.md#33-routing-tiles)).
 
 - **Same engine, same graph.** Routes and guidance are the server's, in the same languages, and so are the way IDs, so the speed-limit pack works unchanged. The app sends the phone's Valhalla the same JSON requests it sends the server's.
-- **The server first.** The phone's Valhalla takes over when there's no connection or the server fails.
+- **Routes ask the server first.** The phone's Valhalla takes over when there's no connection, when the server can't be reached, or when it fails (5xx). The server's own refusals, such as no route to a place, stand.
+- **Road lookups ask the phone first,** wherever it has the local roads. They come every few seconds, and the phone gives the same answer in about 60 ms, without the network.
 - **Which tiles the phone keeps.** All of them come from one build:
   - each offline map area brings the tiles under it, on every level;
-  - a trip made available offline brings the tiles within 2 km of its route;
+  - a trip made available offline brings the tiles within 2 km of its route, kept for 30 days;
   - in settings, separately from map areas, drivers can download road data for all of a server's regions or for parts of them.
 - **A new build replaces the whole set.** It downloads next to the old one and takes over once complete.
 

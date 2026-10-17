@@ -12,7 +12,6 @@ import app.nullpointr.foxnav.shared.speed.SpeedLimitPack
 import app.nullpointr.foxnav.shared.speed.SpeedLimits
 import com.stadiamaps.ferrostar.core.withJsonOptions
 import com.valhalla.valhalla.Valhalla
-import com.valhalla.valhalla.config.ValhallaConfigFactory
 import org.junit.After
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -54,12 +53,7 @@ class OnDeviceValhallaTest {
     fun setUp() {
         assumeTrue("No routing tiles in $tiles", File(tiles, "0").isDirectory)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val config = ValhallaConfigFactory.usingTilesDir(tiles.absolutePath).let { config ->
-            // Valhalla's connectivity map comes from the tiles present, so with only some areas it
-            // calls places in different areas unconnected even where the main roads join them.
-            config.copy(loki = config.loki?.copy(useConnectivity = false))
-        }
-        valhalla = timed("start") { Valhalla(context, config) }
+        valhalla = timed("start") { Valhalla(context, OnDeviceValhalla.config(tiles)) }
     }
 
     @After

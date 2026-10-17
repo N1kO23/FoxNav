@@ -9,11 +9,13 @@ import app.nullpointr.foxnav.data.Connectivity
 import app.nullpointr.foxnav.data.DataPacks
 import app.nullpointr.foxnav.data.DiscoveryCache
 import app.nullpointr.foxnav.data.OfflineMaps
+import app.nullpointr.foxnav.data.OnDeviceValhalla
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.ValhallaRoutes
 import app.nullpointr.foxnav.shared.format.UnitSystem
 import app.nullpointr.foxnav.voice.effectiveLanguage
 import app.nullpointr.foxnav.data.PlaceStore
+import app.nullpointr.foxnav.data.RoadData
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.data.TravelTimes
 import app.nullpointr.foxnav.location.liveLocationProvider
@@ -42,8 +44,12 @@ import uniffi.ferrostar.SpokenInstruction
 import uniffi.ferrostar.WaypointAdvanceMode
 import uniffi.ferrostar.stepAdvanceDistanceEntryAndExit
 import uniffi.ferrostar.stepAdvanceDistanceToEndOfStep
+import java.io.File
 import java.time.Duration
 import java.util.UUID
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -93,6 +99,15 @@ class AppGraph(private val context: Context) {
     /** Map areas downloaded for driving without a connection. */
     val offlineMaps by lazy { OfflineMaps(context) }
 
+    /** App-wide work that outlives any screen: road data downloads. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** The routing graph's tiles on the phone: for map areas, trips and the road data chosen in settings. */
+    val roadData by lazy { RoadData(File(context.filesDir, "roaddata"), httpClient, connectivity.online, scope) }
+
+    /** Valhalla on the phone, for routes and road lookups from [roadData] (ADR 0005). */
+    private val onDeviceValhalla by lazy { OnDeviceValhalla(context, roadData) }
+
     val voicePacks = VoicePacks(context)
 
     val clipPlayer by lazy { ClipPlayer(context) }
@@ -112,7 +127,7 @@ class AppGraph(private val context: Context) {
 
     fun placeSearch(endpoint: ServiceEndpoint) = PlaceSearch(httpClient, endpoint)
 
-    fun roadLookup(routing: ServiceEndpoint) = RoadLookup(httpClient, routing)
+    fun roadLookup(routing: ServiceEndpoint) = RoadLookup(httpClient, routing, onDeviceValhalla, online = { connectivity.online.value })
 
     /** Travel times for the shortcuts; only Valhalla says them. */
     fun travelTimes(routing: ServiceEndpoint): TravelTimes? = routing.takeIf { it.type == "valhalla" }?.let { TravelTimes(httpClient, it.url) }
@@ -138,7 +153,7 @@ class AppGraph(private val context: Context) {
 
     /**
      * The navigation core, routing with the server's Valhalla in the guidance language and units
-     * of the settings at the time of each route.
+     * of the settings at the time of each route; without a connection, with the phone's.
      *
      * One for the app's life: the drive screen's view model goes when its activity does, but a
      * trip under way carries on in the foreground service. Reopened, the screen picks that trip
@@ -157,7 +172,7 @@ class AppGraph(private val context: Context) {
     }
 
     private fun newFerrostarCore(routing: ServiceEndpoint): FerrostarCore {
-        val routes = ValhallaRoutes(httpClient, routing.url.trimEnd('/') + "/route") {
+        val routes = ValhallaRoutes(httpClient, routing.url.trimEnd('/') + "/route", onDeviceValhalla, online = { connectivity.online.value }) {
             val current = settings.settings.value
             mapOf(
                 "language" to current.effectiveLanguage(),

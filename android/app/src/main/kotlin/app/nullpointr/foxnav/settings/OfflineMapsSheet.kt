@@ -1,6 +1,5 @@
 package app.nullpointr.foxnav.settings
 
-import android.text.format.Formatter
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +44,8 @@ import app.nullpointr.foxnav.data.OfflineArea
 import app.nullpointr.foxnav.data.OfflineMaps
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.shared.geo.GeoPoint
+import app.nullpointr.foxnav.shared.routing.RoadSelection
+import app.nullpointr.foxnav.shared.routing.RoadSelectionKind
 import kotlinx.coroutines.launch
 import org.maplibre.spatialk.geojson.BoundingBox
 
@@ -65,7 +68,8 @@ fun OfflineMapsSheet(visible: BoundingBox?, styleUrls: Collection<String>, place
         ) {
             Text("Offline maps", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Download areas to keep the map without signal. Speed cameras work offline too; routes, search, reports and convoys need a connection.",
+                "Download areas to keep the map without signal. With their road data, routes, guidance and speed limits work there too, " +
+                    "and speed cameras work anywhere. Search, reports and convoys need a connection.",
                 color = colors.onSurfaceVariant,
             )
             if (visible != null) NewArea(visible, styleUrls, placeSearch, online, offline)
@@ -94,6 +98,11 @@ private fun NewArea(visible: BoundingBox, styleUrls: Collection<String>, placeSe
         if (name.isEmpty()) name = runCatching { placeSearch?.areaName(center, small) }.getOrNull().orEmpty()
     }
     val tooBig = estimate.tiles > OfflineMaps.MAX_TILES
+    val roadData = context.appGraph.roadData
+    val roads by roadData.state.collectAsState()
+    val roadTiles = remember(visible, roads.manifest) { roads.tilesIn(visible) }
+    val roadCoverage = roads.coverage(roadTiles)?.takeIf { roadTiles.isNotEmpty() }
+    var withRoads by remember { mutableStateOf(true) }
 
     Surface(shape = RoundedCornerShape(20.dp), color = colors.surfaceVariant, border = BorderStroke(1.dp, colors.outline)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -104,10 +113,29 @@ private fun NewArea(visible: BoundingBox, styleUrls: Collection<String>, placeSe
                 color = if (tooBig) colors.error else colors.onSurfaceVariant,
             )
             OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            if (roadCoverage != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("With road data", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (roadCoverage.complete) "Routes and speed limits offline here: already on the phone."
+                            else "Routes and speed limits offline here too. About ${size(context, roadCoverage.missingDownload)} more.",
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = withRoads, onCheckedChange = { withRoads = it })
+                }
+            }
             Button(
                 onClick = {
                     started = true
-                    scope.launch { offline.download(name.trim().ifEmpty { "Map area" }, visible, styleUrls) }
+                    val areaName = name.trim().ifEmpty { "Map area" }
+                    scope.launch {
+                        val id = offline.download(areaName, visible, styleUrls)
+                        if (withRoads && roadTiles.isNotEmpty()) {
+                            roadData.add(RoadSelection.of(id, RoadSelectionKind.MAP_AREA, areaName, System.currentTimeMillis(), roadTiles))
+                        }
+                    }
                 },
                 enabled = online && !tooBig && !started,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -126,6 +154,11 @@ private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean) {
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf(false) }
     val status = area.status
+    val roadData = context.appGraph.roadData
+    val roads by roadData.state.collectAsState()
+    val roadSelection = roads.selection(area.id)
+    val bounds = area.bounds
+    val roadTiles = remember(bounds, roads.manifest) { bounds?.let { roads.tilesIn(it) }.orEmpty() }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(area.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -141,11 +174,21 @@ private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean) {
         if (status == AreaStatus.DOWNLOADING || status == AreaStatus.PAUSED) {
             LinearProgressIndicator(progress = { area.fraction }, modifier = Modifier.fillMaxWidth())
         }
+        roadSelection?.let { roads.coverage(it) }?.let { coverage ->
+            Text("Road data: ${status(context, coverage, roads.downloading, online).replaceFirstChar { it.lowercase() }}", color = colors.onSurfaceVariant)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             when (status) {
                 AreaStatus.DOWNLOADING -> TextButton(onClick = { offline.pause(area) }) { Text("Pause") }
                 AreaStatus.PAUSED, AreaStatus.FAILED -> TextButton(onClick = { offline.resume(area) }, enabled = online) { Text("Resume") }
                 AreaStatus.READY -> TextButton(onClick = { scope.launch { offline.update(area) } }, enabled = online) { Text("Update") }
+            }
+            if (roadSelection == null && roadTiles.isNotEmpty()) {
+                val download = roads.coverage(roadTiles)?.missingDownload ?: 0L
+                TextButton(
+                    onClick = { roadData.add(RoadSelection.of(area.id, RoadSelectionKind.MAP_AREA, area.name, System.currentTimeMillis(), roadTiles)) },
+                    enabled = online,
+                ) { Text(if (download > 0) "Add road data · ${size(context, download)}" else "Add road data") }
             }
             TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = colors.error) }
         }
@@ -155,10 +198,11 @@ private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete ${area.name}?") },
-            text = { Text("The map there needs a connection again, or a new download.") },
+            text = { Text("The map there needs a connection again, or a new download. So do routes and speed limits, unless other road data covers them.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
+                    roadData.remove(area.id)
                     scope.launch { offline.delete(area) }
                 }) { Text("Delete") }
             },
@@ -166,8 +210,6 @@ private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean) {
         )
     }
 }
-
-private fun size(context: android.content.Context, bytes: Long): String = Formatter.formatShortFileSize(context, bytes)
 
 /** Diagonal below which an area is named after its district rather than its city. */
 private const val SMALL_AREA_M = 15_000.0

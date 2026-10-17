@@ -57,6 +57,8 @@ fun DriveRoute(document: DiscoveryDocument) {
             retired = graph.claimDrive(),
         )
     }
+    // Road data for routes without a connection follows this server's tiles, and carries on downloading.
+    LaunchedEffect(document) { graph.roadData.use(document) }
     LaunchedEffect(Unit) {
         // Downloads interrupted when the app last closed carry on, once MapLibre has listed them.
         val offline = graph.offlineMaps

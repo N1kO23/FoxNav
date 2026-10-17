@@ -80,6 +80,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import app.nullpointr.foxnav.shared.search.SavedPlace
 import app.nullpointr.foxnav.shared.search.SavedPlaces
+import app.nullpointr.foxnav.shared.geo.GeoPoint
+import app.nullpointr.foxnav.shared.routing.RoadSelection
+import app.nullpointr.foxnav.shared.routing.RoadSelectionKind
+import app.nullpointr.foxnav.shared.routing.RoadSelections
+import app.nullpointr.foxnav.shared.search.Place
+import app.nullpointr.foxnav.settings.size
+import androidx.compose.material3.TextButton
+import uniffi.ferrostar.Route
+import java.util.UUID
 
 /**
  * Everything on top of the map when not navigating, laid out as the free-drive mockup: search at
@@ -364,6 +373,7 @@ private fun RoutePreviewContent(preview: RoutePreview, viewModel: DriveViewModel
                 }
             }
         }
+        preview.selectedRoute?.let { OfflineTripRow(it, preview.destination) }
         if (BuildConfig.DEBUG) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Simulate the drive", Modifier.weight(1f), color = colors.onSurfaceVariant)
@@ -373,6 +383,39 @@ private fun RoutePreviewContent(preview: RoutePreview, viewModel: DriveViewModel
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
             Button(onClick = viewModel::startNavigation, enabled = preview.selectedRoute != null, modifier = Modifier.weight(1f)) { Text("Start") }
+        }
+    }
+}
+
+/**
+ * Whether the trip on [route] works without a connection: routes, guidance and speed limits all
+ * along it need road data there (ADR 0005). Offers to download it when it's missing.
+ */
+@Composable
+private fun OfflineTripRow(route: Route, destination: Place) {
+    val context = LocalContext.current
+    val graph = context.appGraph
+    val roads by graph.roadData.state.collectAsState()
+    val online by graph.connectivity.online.collectAsState()
+    val manifest = roads.manifest?.takeIf { it.isUsable } ?: return
+    val tiles = remember(route, manifest) { manifest.tilesAlong(route.geometry.map { GeoPoint(it.lat, it.lng) }) }
+    val coverage = roads.coverage(tiles)?.takeIf { tiles.isNotEmpty() } ?: return
+    val wanted = remember(roads.selections, manifest) { RoadSelections(roads.selections).wanted(manifest) }
+    val colors = MaterialTheme.colorScheme
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        when {
+            coverage.complete -> Text("Available offline", color = colors.secondary)
+            wanted.containsAll(tiles) -> Text("Downloading for offline · ${(coverage.fraction * 100).toInt()} %", color = colors.onSurfaceVariant)
+            else -> {
+                Text("Offline", Modifier.weight(1f), color = colors.onSurfaceVariant)
+                TextButton(
+                    onClick = {
+                        graph.roadData.add(RoadSelection.of(UUID.randomUUID().toString(), RoadSelectionKind.TRIP, destination.title, System.currentTimeMillis(), tiles))
+                    },
+                    enabled = online,
+                ) { Text("Make available · ${size(context, coverage.missingDownload)}") }
+            }
         }
     }
 }

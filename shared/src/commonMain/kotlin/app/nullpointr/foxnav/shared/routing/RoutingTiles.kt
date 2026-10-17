@@ -11,7 +11,17 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /** One tile of Valhalla's routing graph: its hierarchy [level] (0 motorways, 1 arterials, 2 local roads) and [id] in it. */
-data class RoutingTile(val level: Int, val id: Long)
+data class RoutingTile(val level: Int, val id: Long) {
+    /** `level/id`, as stored. */
+    val key: String get() = "$level/$id"
+
+    companion object {
+        fun parse(key: String): RoutingTile? {
+            val (level, id) = key.split('/').takeIf { it.size == 2 } ?: return null
+            return RoutingTile(level.toIntOrNull() ?: return null, id.toLongOrNull() ?: return null)
+        }
+    }
+}
 
 /** A tile's size on the phone and to download, in bytes. */
 data class TileSize(val bytes: Long, val download: Long)
@@ -50,6 +60,16 @@ data class RoutingTileManifest(
     /** Every tile in the build. */
     val all: Set<RoutingTile> get() = sizes.keys
 
+    /** The local roads' level, whose tiles road lookups need (2 in Valhalla's graph). */
+    val localLevel: Int get() = levels.maxOf { it.level }
+
+    /** The local-road tile at [point], whether or not the build has one. */
+    fun localTileAt(point: GeoPoint): RoutingTile {
+        val size = sizeOfLevel(localLevel)
+        val (row, column) = cell(point, size)
+        return RoutingTile(localLevel, row.toLong() * (360 / size).roundToInt() + column)
+    }
+
     /** Whether this client can use the tiles. */
     val isUsable: Boolean get() = format == FORMAT && engine == "valhalla" && version.substringBefore('.') == "3"
 
@@ -74,13 +94,17 @@ data class RoutingTileManifest(
     /** Where to download [tile], gzipped, under the manifest's directory [base]. */
     fun urlOf(base: String, tile: RoutingTile): String = "${base.trimEnd('/')}/$build/${pathOf(tile)}.gz"
 
-    /** The tiles of every level that overlap the box from [southWest] to [northEast]. */
+    /**
+     * The tiles of every level that overlap the box from [southWest] to [northEast]. A box whose
+     * west edge is east of its east edge crosses 180°, as a map zoomed out far enough reports.
+     */
     fun tilesIn(southWest: GeoPoint, northEast: GeoPoint): Set<RoutingTile> = buildSet {
         for (level in levels) {
             val columns = (360 / level.size).roundToInt()
             val (firstRow, firstColumn) = cell(southWest, level.size)
             val (lastRow, lastColumn) = cell(northEast, level.size)
-            for (row in firstRow..lastRow) for (column in firstColumn..lastColumn) {
+            val spans = if (southWest.longitude <= northEast.longitude) listOf(firstColumn..lastColumn) else listOf(firstColumn until columns, 0..lastColumn)
+            for (row in firstRow..lastRow) for (span in spans) for (column in span) {
                 RoutingTile(level.level, row.toLong() * columns + column).takeIf { it in sizes }?.let(::add)
             }
         }

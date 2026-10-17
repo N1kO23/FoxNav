@@ -7,22 +7,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RoutingTilesTest {
-    // Tile IDs and sizes from the local stack's Finland graph, rounded.
-    private val manifest = RoutingTileManifest.parse(
-        """
-        {
-          "format": 1, "engine": "valhalla", "version": "3.9.1", "build": "758e170c8b3cf751",
-          "generated": "2026-10-09T23:57:26Z", "attribution": "© OpenStreetMap contributors, ODbL",
-          "levels": [{ "level": 0, "size": 4 }, { "level": 1, "size": 1 }, { "level": 2, "size": 0.25 }],
-          "tiles": {
-            "0": [[3381, 4900000, 1800000]],
-            "1": [[54204, 15000000, 5000000]],
-            "2": [[864819, 26000000, 12000000], [864820, 26000000, 9000000], [866259, 5000000, 2000000], [867699, 7700000, 2900000]]
-          },
-          "somethingFromTheFuture": true
-        }
-        """.trimIndent(),
-    )
+    private val manifest = FINLAND_SAMPLE
 
     @Test
     fun pathsAreValhallas() {
@@ -46,6 +31,15 @@ class RoutingTilesTest {
 
         assertEquals(setOf(RoutingTile(0, 3381), RoutingTile(1, 54204), RoutingTile(2, 864819), RoutingTile(2, 864820)), tiles)
         assertEquals(TileSize(bytes = 71_900_000, download = 27_800_000), manifest.sizeOf(tiles))
+    }
+
+    @Test
+    fun aBoxAcross180DegreesWrapsAround() {
+        // As a map zoomed far out can report it: from 170° E eastwards across 180° to 30° E, which takes in Helsinki.
+        val tiles = manifest.tilesIn(GeoPoint(50.0, 170.0), GeoPoint(70.0, 30.0))
+
+        assertTrue(RoutingTile(2, 864819) in tiles)
+        assertEquals(manifest.all, tiles)
     }
 
     @Test
