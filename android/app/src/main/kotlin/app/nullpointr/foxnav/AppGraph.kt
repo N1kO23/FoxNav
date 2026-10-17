@@ -130,7 +130,15 @@ class AppGraph(private val context: Context) {
         FerrostarForegroundServiceManager(context, DefaultForegroundNotificationBuilder(context))
     }
 
-    fun placeSearch(endpoint: ServiceEndpoint) = PlaceSearch(httpClient, endpoint, searchIndex, online = { connectivity.online.value })
+    /** Searches with the server's Photon; offline, the phone's search data, with only places its road data can route to. */
+    fun placeSearch(endpoint: ServiceEndpoint) = PlaceSearch(
+        httpClient,
+        endpoint,
+        searchIndex,
+        online = { connectivity.online.value },
+        covered = roadData::covers,
+        reachable = onDeviceValhalla::reachable,
+    )
 
     fun roadLookup(routing: ServiceEndpoint) = RoadLookup(httpClient, routing, onDeviceValhalla, online = { connectivity.online.value })
 

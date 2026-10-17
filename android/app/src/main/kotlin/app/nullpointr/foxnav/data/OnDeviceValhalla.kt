@@ -2,6 +2,7 @@ package app.nullpointr.foxnav.data
 
 import android.content.Context
 import app.nullpointr.foxnav.shared.geo.GeoPoint
+import app.nullpointr.foxnav.shared.road.Reachability
 import com.valhalla.config.models.ValhallaConfig
 import com.valhalla.valhalla.Valhalla
 import com.valhalla.valhalla.config.ValhallaConfigFactory
@@ -25,6 +26,16 @@ class OnDeviceValhalla(private val context: Context, private val roadData: RoadD
      */
     fun traceAttributes(request: String, at: GeoPoint): String? =
         if (roadData.covers(at)) engine()?.traceAttributesRaw(request) else null
+
+    /**
+     * For each of [targets], whether the phone's road data has a way there from [from], in one
+     * matrix request; null without road data where the car is. Throws Valhalla's error when it
+     * can't place them on a road.
+     */
+    fun reachable(from: GeoPoint, targets: List<GeoPoint>): List<Boolean>? {
+        if (targets.isEmpty() || !roadData.covers(from)) return null
+        return engine()?.matrixRaw(Reachability.request(from, targets))?.let { Reachability.parse(it, targets.size) }
+    }
 
     /** One engine for the current build's tiles; a new build gets a new one. */
     @Synchronized

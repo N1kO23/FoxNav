@@ -7,6 +7,7 @@ import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.geo.GeoPoint
 import app.nullpointr.foxnav.shared.routing.RoadSelection
 import app.nullpointr.foxnav.shared.routing.RoadSelectionKind
+import app.nullpointr.foxnav.shared.search.SearchKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -78,14 +79,25 @@ class RoadDataTest {
         assertTrue(roadData.covers(GeoPoint(ROVANIEMI_CENTRE.lat, ROVANIEMI_CENTRE.lng)))
         assertTrue(tiles.all { File(roadData.tilesDir, manifest.pathOf(it)).length() == manifest.sizeOf(it)?.bytes })
 
-        // Search data came with the roads: without a connection, the phone finds the street.
-        val search = PlaceSearch(client, document.search!!, index, online = { false })
-        val street = search.search("koskikatu", near = GeoPoint(ROVANIEMI_CENTRE.lat, ROVANIEMI_CENTRE.lng)).first()
+        // Search data came with the roads: without a connection, the phone finds the street, and
+        // only what its road data can route to, which the phone's Valhalla checks.
+        val onDevice = OnDeviceValhalla(context, roadData)
+        val here = GeoPoint(ROVANIEMI_CENTRE.lat, ROVANIEMI_CENTRE.lng)
+        val search = PlaceSearch(client, document.search!!, index, online = { false }, covered = roadData::covers, reachable = onDevice::reachable)
+        val street = search.search("koskikatu", near = here).first()
         assertEquals("Koskikatu" to "Rovaniemi", street.title to street.detail)
+        assertEquals(listOf(true), onDevice.reachable(here, listOf(GeoPoint(street.latitude, street.longitude))))
         assertTrue(search.search("rovak", near = null).any { it.title == "Rovakatu" })
+        // Give or take a typo: a letter missing, two swapped.
+        assertEquals("Koskikatu", search.search("koskkatu", near = here).first().title)
+        assertEquals("Koskikatu", search.search("koksikatu", near = here).first().title)
+
+        // Places get names offline too: an area after its town, a pin after the address it's at.
+        assertEquals("Rovaniemi", search.areaName(here, small = false))
+        val address = index.nearby(here, 300.0).first { it.kind == SearchKind.ADDRESS }
+        assertEquals(address.title to "Rovaniemi", search.pinAt(address.point).let { it.title to it.detail })
 
         online.value = false
-        val onDevice = OnDeviceValhalla(context, roadData)
         val options = { mapOf<String, Any>("language" to "fi-FI", "units" to "kilometers") }
         val offline = ValhallaRoutes(client, "http://127.0.0.1:9/route", onDevice, online = { false }, options)
         val route = offline.getRoutes(location(ROVANIEMI_CENTRE), listOf(Waypoint(STATION, WaypointKind.BREAK))).first()

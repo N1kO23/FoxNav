@@ -1,12 +1,14 @@
 package app.nullpointr.foxnav.shared.search
 
 import app.nullpointr.foxnav.shared.geo.GeoPoint
+import kotlin.math.abs
 import kotlin.math.log10
 
 /**
  * Searching the offline search pack: how text is compared and results ranked. Text is compared in
  * lower case, without accents (ä matches a, so "aanekoski" finds Äänekoski), in words of letters
- * and digits. Every word typed matches the start of a word.
+ * and digits. Every word typed matches the start of a word, and when that finds too little, the
+ * start of a word give or take a typo or two ([similar]): "mannerhem" still finds Mannerheimintie.
  */
 object SearchText {
     /** [text] as the index stores and compares it. */
@@ -48,6 +50,7 @@ object SearchText {
                     names.any { it == full } -> 4.0
                     names.any { it.startsWith(full) } -> 3.0
                     words.all { word -> names.any { name -> name.split(' ').any { it.startsWith(word) } } } -> 1.5
+                    words.all { word -> names.any { name -> name.split(' ').any { similar(word, it) } } } -> 1.0
                     else -> 0.0
                 }
                 score += when (entry.kind) {
@@ -64,6 +67,58 @@ object SearchText {
             .map { it.first }
             .distinctBy { fold(it.title) + "|" + fold(it.detail) }
             .take(limit)
+    }
+
+    /** How many typos a typed word may have: none in short ones, where one makes another word. */
+    fun typosAllowed(word: String): Int = when {
+        word.length <= 4 -> 0
+        word.length <= 8 -> 1
+        else -> 2
+    }
+
+    /**
+     * Whether [typed] is the start of [word] give or take [typosAllowed] typos: a wrong, missing,
+     * extra or swapped letter. The start of the word, since the last word is often still being typed.
+     */
+    fun similar(typed: String, word: String): Boolean {
+        val allowed = typosAllowed(typed)
+        if (word.startsWith(typed)) return true
+        if (allowed == 0) return false
+        // The start of the word a letter or two shorter or longer than what's typed: missing and extra letters.
+        return (typed.length - allowed..typed.length + allowed).any { length ->
+            length in 1..word.length && distance(typed, word.take(length), allowed) <= allowed
+        }
+    }
+
+    /** Whether every word of [query] is [similar] to a word of [entry]'s names or place. */
+    fun matchesLoosely(query: String, entry: SearchEntry): Boolean {
+        val words = indexed(entry).split(' ')
+        return words(query).all { typed -> words.any { similar(typed, it) } }
+    }
+
+    /** The optimal string alignment distance between [a] and [b], or anything above [max] once it's past it. */
+    fun distance(a: String, b: String, max: Int): Int {
+        if (abs(a.length - b.length) > max) return max + 1
+        var before = IntArray(b.length + 1)
+        var previous = IntArray(b.length + 1) { it }
+        var current = IntArray(b.length + 1)
+        for (i in 1..a.length) {
+            current[0] = i
+            var best = current[0]
+            for (j in 1..b.length) {
+                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+                var value = minOf(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
+                if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) value = minOf(value, before[j - 2] + 1)
+                current[j] = value
+                best = minOf(best, value)
+            }
+            if (best > max) return max + 1
+            val spare = before
+            before = previous
+            previous = current
+            current = spare
+        }
+        return previous[b.length]
     }
 
     private const val MAX_WORDS = 8

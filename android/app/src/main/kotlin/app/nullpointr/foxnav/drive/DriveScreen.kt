@@ -49,7 +49,6 @@ import app.nullpointr.foxnav.convoy.ConvoyOverlay
 import app.nullpointr.foxnav.convoy.ConvoySheet
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.geo.GeoPoint
-import app.nullpointr.foxnav.shared.search.Place
 import app.nullpointr.foxnav.ui.ScreenPanels
 import app.nullpointr.foxnav.ui.topPanelOf
 import com.stadiamaps.ferrostar.composeui.config.NavigationViewComponentBuilder
@@ -206,7 +205,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
                 ),
                 onTapExit = { viewModel.stopNavigation() },
                 onMapLongClick = { position, _ ->
-                    viewModel.preview(Place(title = "Dropped pin", detail = "", latitude = position.lat, longitude = position.lng))
+                    viewModel.dropPin(GeoPoint(position.lat, position.lng))
                     NavigationMapClickResult.Consume
                 },
                 // The credits are our own tag on the panels (MapCreditTag), where they don't cover the map's controls.

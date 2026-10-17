@@ -31,6 +31,7 @@ import app.nullpointr.foxnav.shared.safety.CameraAhead
 import app.nullpointr.foxnav.shared.safety.CameraRules
 import app.nullpointr.foxnav.shared.safety.CameraWatch
 import app.nullpointr.foxnav.shared.search.Place
+import app.nullpointr.foxnav.shared.search.PlaceNames
 import app.nullpointr.foxnav.shared.speed.Day
 import app.nullpointr.foxnav.shared.speed.SpeedLimitPack
 import app.nullpointr.foxnav.shared.speed.SpeedLimits
@@ -457,23 +458,36 @@ class DriveViewModel(
             fromMs = SystemClock.elapsedRealtime()
             // Fixes keep coming while the routes do: they wait for them rather than cancel them.
             withContext(NonCancellable) {
-                if (!showing) _preview.update { if (it == null || it.destination == place) RoutePreview(place, loading = true) else it }
+                if (!showing) _preview.update { if (it == null) RoutePreview(place, loading = true) else if (it.destination.sameSpot(place)) it.copy(loading = true, error = null) else it }
                 val result = runCatching { withContext(Dispatchers.IO) { core.getRoutes(location, listOf(destination)) } }
                 _preview.update { current ->
                     val routes = result.getOrNull().orEmpty()
                     when {
-                        // Closed, or another place previewed meanwhile.
-                        current == null || current.destination != place -> current
-                        routes.isNotEmpty() -> RoutePreview(place, routes, selected = current.selected.takeIf { it < routes.size } ?: 0)
+                        // Closed, or another place previewed meanwhile. (A dropped pin may have got its name since: same spot.)
+                        current == null || !current.destination.sameSpot(place) -> current
+                        routes.isNotEmpty() -> current.copy(routes = routes, selected = current.selected.takeIf { it < routes.size } ?: 0, loading = false, error = null)
                         // A refresh that failed keeps the routes we had: they're still good to go.
                         current.routes.isNotEmpty() -> current
-                        result.isSuccess -> RoutePreview(place, error = "No route found")
-                        else -> RoutePreview(place, error = "Couldn't get a route: ${result.exceptionOrNull()?.message}")
+                        result.isSuccess -> current.copy(loading = false, error = "No route found")
+                        else -> current.copy(loading = false, error = "Couldn't get a route: ${result.exceptionOrNull()?.message}")
                     }
                 }
             }
         }
     }
+
+    /** Previews a route to a pin dropped on the map: named after what's there, online or off, once that's known. */
+    fun dropPin(point: GeoPoint) {
+        val pin = Place(title = PlaceNames.DROPPED_PIN, detail = "", latitude = point.latitude, longitude = point.longitude)
+        preview(pin)
+        val search = placeSearch ?: return
+        viewModelScope.launch {
+            val named = runCatching { search.pinAt(point) }.getOrNull() ?: return@launch
+            _preview.update { current -> if (current != null && current.destination.sameSpot(pin)) current.copy(destination = named) else current }
+        }
+    }
+
+    private fun Place.sameSpot(other: Place) = latitude == other.latitude && longitude == other.longitude
 
     /** Previews a route to a place from the convoy: a shared destination or the regroup point. */
     fun previewConvoyPlace(point: GeoPoint, name: String) {
