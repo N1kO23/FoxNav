@@ -65,6 +65,7 @@ import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationMapState
 import uniffi.ferrostar.LaneInfo
 import uniffi.ferrostar.ManeuverModifier
 import uniffi.ferrostar.ManeuverType
+import uniffi.ferrostar.RouteDeviation
 import java.text.DecimalFormatSymbols
 import java.util.Date
 
@@ -113,8 +114,26 @@ fun ManeuverCard(uiState: NavigationUiState, modifier: Modifier = Modifier, maxW
                 }
             }
         }
-        LaneGuide(instruction.subContent?.laneInfo)
+        // Off the route, the lanes are the old route's: say what's happening instead, until the new route is in.
+        if (uiState.routeDeviation is RouteDeviation.Deviation) Rerouting() else LaneGuide(instruction.subContent?.laneInfo)
         Box(Modifier.fillMaxWidth()) { warnings() }
+    }
+}
+
+/** Off the route (or the wrong way along it), while the new one comes. */
+@Composable
+private fun Rerouting() {
+    val colors = MaterialTheme.colorScheme
+    Surface(shape = RoundedCornerShape(16.dp), color = colors.surface, border = BorderStroke(1.dp, colors.tertiary)) {
+        Text(
+            "OFF ROUTE · finding a new one",
+            Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            fontFamily = ChakraPetch,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+            letterSpacing = 1.sp,
+            color = colors.tertiary,
+        )
     }
 }
 

@@ -62,6 +62,12 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
   - the free-drive overlay with search and route preview.
 
   The colours and fonts come from the design tokens.
+- **Leaving the route reroutes** from where the car is, heading the way it's going. Ferrostar fetches the new route; `RouteDeviationCheck` tells it when, using `OffRouteCheck` in `shared/`:
+  - more than 50 m off the line, by a fix accurate to 25 m or better;
+  - or driving against the route for four seconds and 40 m at 15 km/h or more. A distance check alone never sees a driver who has turned round, since they stay on the line. Where the route itself comes back along the same road, both ways count as right.
+
+  Course and speed come from the fixes, or from their movement when a phone doesn't report them. The maneuver card says "Off route" until the new route is in. A route started from somewhere else reroutes on the first fix.
+- **The route preview follows the car.** Its routes are worked out again after every 50 m moved, at most every 10 s, so the route starts where you are when you press Start. A preview opened before the first fix waits for it.
 - **Arriving ends the trip**, also when parking up to 30 m short of the destination (Ferrostar alone needs a few metres). The route line clears and the panel says where you arrived.
 - **Over the limit** (3 km/h of tolerance), the speedometer turns red and the over-limit sound (the kin-kon unless chosen otherwise) plays once. It re-arms only after you're back at the limit.
 - **Free drive is a first-class mode.** Without a destination, the app still follows you on the map and shows:

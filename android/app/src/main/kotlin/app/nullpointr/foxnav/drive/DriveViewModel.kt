@@ -46,6 +46,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,6 +68,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.ferrostar.CourseOverGround
 import uniffi.ferrostar.GeographicCoordinate
@@ -173,6 +175,9 @@ class DriveViewModel(
 
     private var destination: Place? = null
     private var arrivalJob: Job? = null
+
+    /** Keeps the open preview's routes starting where the car is. */
+    private var previewJob: Job? = null
     private val _arrivedAt = MutableStateFlow<String?>(null)
 
     /** Where we just arrived, for a few seconds after a trip ends there. */
@@ -427,20 +432,46 @@ class DriveViewModel(
     fun preview(place: Place) {
         _query.value = ""
         _results.value = emptyList()
-        val origin = freeDriveLocation.value
-        if (origin == null) {
-            _preview.value = RoutePreview(place, error = "Waiting for your location")
-            return
-        }
-        _preview.value = RoutePreview(place, loading = true)
-        viewModelScope.launch(Dispatchers.IO) {
-            val destination = Waypoint(GeographicCoordinate(place.latitude, place.longitude), WaypointKind.BREAK)
-            _preview.value = runCatching { core.getRoutes(origin, listOf(destination)) }.fold(
-                onSuccess = { routes ->
-                    if (routes.isEmpty()) RoutePreview(place, error = "No route found") else RoutePreview(place, routes)
-                },
-                onFailure = { RoutePreview(place, error = "Couldn't get a route: ${it.message}") },
-            )
+        previewJob?.cancel()
+        previewJob = viewModelScope.launch { previewFromHere(place) }
+    }
+
+    /**
+     * Routes to [place] from where the car is, and again whenever it has moved on while the
+     * preview is open: the route starts where you are when you press Start, not where you were
+     * when you looked. Waits for a first fix if there's none yet.
+     */
+    private suspend fun previewFromHere(place: Place) {
+        val destination = Waypoint(GeographicCoordinate(place.latitude, place.longitude), WaypointKind.BREAK)
+        if (freeDriveLocation.value == null) _preview.value = RoutePreview(place, error = "Waiting for your location")
+        var from: GeoPoint? = null
+        var fromMs = 0L
+        freeDriveLocation.filterNotNull().collectLatest { location ->
+            val here = GeoPoint(location.coordinates.lat, location.coordinates.lng)
+            val last = from
+            val showing = _preview.value?.routes?.isNotEmpty() == true
+            if (last != null && showing && here.distanceTo(last) < PREVIEW_MOVE_M) return@collectLatest
+            // Not more often than every PREVIEW_REFRESH_MS: wait out the rest, unless a newer fix comes first.
+            if (last != null) delay(fromMs + PREVIEW_REFRESH_MS - SystemClock.elapsedRealtime())
+            from = here
+            fromMs = SystemClock.elapsedRealtime()
+            // Fixes keep coming while the routes do: they wait for them rather than cancel them.
+            withContext(NonCancellable) {
+                if (!showing) _preview.update { if (it == null || it.destination == place) RoutePreview(place, loading = true) else it }
+                val result = runCatching { withContext(Dispatchers.IO) { core.getRoutes(location, listOf(destination)) } }
+                _preview.update { current ->
+                    val routes = result.getOrNull().orEmpty()
+                    when {
+                        // Closed, or another place previewed meanwhile.
+                        current == null || current.destination != place -> current
+                        routes.isNotEmpty() -> RoutePreview(place, routes, selected = current.selected.takeIf { it < routes.size } ?: 0)
+                        // A refresh that failed keeps the routes we had: they're still good to go.
+                        current.routes.isNotEmpty() -> current
+                        result.isSuccess -> RoutePreview(place, error = "No route found")
+                        else -> RoutePreview(place, error = "Couldn't get a route: ${result.exceptionOrNull()?.message}")
+                    }
+                }
+            }
         }
     }
 
@@ -454,6 +485,7 @@ class DriveViewModel(
     }
 
     fun cancelPreview() {
+        previewJob?.cancel()
         _preview.value = null
     }
 
@@ -465,6 +497,7 @@ class DriveViewModel(
     fun startNavigation() {
         val preview = _preview.value ?: return
         val route = preview.selectedRoute ?: return
+        previewJob?.cancel()
         _preview.value = null
         destination = preview.destination
         places.driveTo(preview.destination)
@@ -611,6 +644,10 @@ private fun UserLocation.withCourseFrom(previous: UserLocation?): UserLocation {
 
 private const val MIN_COURSE_MOVE_M = 3.0
 private const val SHORTCUT_MOVE_M = 500.0
+
+/** An open preview's routes are worked out again after this far, at most this often. */
+private const val PREVIEW_MOVE_M = 50.0
+private const val PREVIEW_REFRESH_MS = 10_000L
 private const val SHORTCUT_REFRESH_MS = 5 * 60_000L
 private val COURSE_ACCURACY_DEG: UShort = 20u
 

@@ -19,6 +19,7 @@ import app.nullpointr.foxnav.data.RoadData
 import app.nullpointr.foxnav.data.RoadLookup
 import app.nullpointr.foxnav.data.SearchIndex
 import app.nullpointr.foxnav.data.TravelTimes
+import app.nullpointr.foxnav.drive.RouteDeviationCheck
 import app.nullpointr.foxnav.location.liveLocationProvider
 import app.nullpointr.foxnav.settings.AlertSettings
 import app.nullpointr.foxnav.settings.ServerSettings
@@ -193,7 +194,8 @@ class AppGraph(private val context: Context) {
                 WaypointAdvanceMode.WaypointWithinRange(100.0),
                 stepAdvanceDistanceEntryAndExit(30u, 5u, 32u),
                 stepAdvanceDistanceToEndOfStep(10u, 32u),
-                RouteDeviationTracking.StaticThreshold(15u, 50.0),
+                // Off the line, or the wrong way along it: Ferrostar then reroutes from where we are.
+                RouteDeviationTracking.Custom(RouteDeviationCheck()),
                 CourseFiltering.SNAP_TO_ROUTE,
             ),
         ).also { core ->
