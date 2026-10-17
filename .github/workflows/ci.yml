@@ -50,13 +50,18 @@ jobs:
           mkdir apks
           cp android/app/build/outputs/apk/foss/debug/app-foss-debug.apk apks/foxnav-dev-foss.apk
           cp android/app/build/outputs/apk/play/debug/app-play-debug.apk apks/foxnav-dev-play.apk
+      # One artifact per APK, not zipped: each downloads straight from the run's page as the APK itself.
+      # (Unzipped artifacts are single files, named after the file.)
       - uses: actions/upload-artifact@v7
         with:
-          name: foxnav-dev-apks
-          path: apks/
+          path: apks/foxnav-dev-foss.apk
+          archive: false
           retention-days: 14
-          # APKs are compressed already.
-          compression-level: 0
+      - uses: actions/upload-artifact@v7
+        with:
+          path: apks/foxnav-dev-play.apk
+          archive: false
+          retention-days: 14
 
   dev-release:
     name: Dev release
@@ -72,14 +77,18 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: foxnav-dev-apks
+          pattern: foxnav-dev-*.apk
           path: apks
+          merge-multiple: true
       - name: Replace the dev pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Wherever the download put them: both APKs, or no release.
+          mapfile -t apks < <(find apks -name '*.apk' | sort)
+          [ "${#apks[@]}" -eq 2 ] || { echo "Expected 2 APKs, found: ${apks[*]}"; exit 1; }
           gh release delete dev --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
-          gh release create dev apks/*.apk --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+          gh release create dev "${apks[@]}" --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
             --title "Dev build" \
             --notes "Debug build of ${GITHUB_SHA::7} (CI run $GITHUB_RUN_NUMBER), replaced by every push to main.
 
