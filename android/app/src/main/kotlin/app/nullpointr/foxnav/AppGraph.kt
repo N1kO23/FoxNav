@@ -125,6 +125,8 @@ class AppGraph(private val context: Context) {
     val voicePacks = VoicePacks(context)
 
     init {
+        // Before MapLibre opens its database: is there damage from an earlier version's map update to repair?
+        OfflineMaps.noteStaleEntries(context)
         // Road data with something left to download: see it through, with the app closed too.
         scope.launch { roadData.state.map { it.toDownload > 0 }.distinctUntilChanged().collect { if (it) offlineDownloads.schedule() } }
         // Wi-Fi only: map areas wait off Wi-Fi and carry on on it (road data follows the same).

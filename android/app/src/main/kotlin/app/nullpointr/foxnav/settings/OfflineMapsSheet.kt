@@ -77,7 +77,7 @@ fun OfflineMapsSheet(visible: BoundingBox?, styleUrls: Collection<String>, place
             if (areas.isNotEmpty()) {
                 HorizontalDivider(color = colors.outline)
                 Text("Downloaded", style = MaterialTheme.typography.titleMedium)
-                areas.forEach { AreaRow(it, offline, online) }
+                areas.forEach { AreaRow(it, offline, online, styleUrls) }
             }
         }
     }
@@ -152,7 +152,7 @@ private fun NewArea(visible: BoundingBox, styleUrls: Collection<String>, placeSe
 }
 
 @Composable
-private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean) {
+private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean, styleUrls: Collection<String>) {
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
@@ -188,7 +188,7 @@ private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean) {
             when (status) {
                 AreaStatus.DOWNLOADING -> TextButton(onClick = { offline.pause(area) }) { Text("Pause") }
                 AreaStatus.PAUSED, AreaStatus.FAILED -> if (!heldForWifi) TextButton(onClick = { offline.resume(area) }, enabled = online) { Text("Resume") }
-                AreaStatus.READY -> TextButton(onClick = { scope.launch { offline.update(area) } }, enabled = online) { Text("Update") }
+                AreaStatus.READY -> TextButton(onClick = { scope.launch { offline.update(area, styleUrls) } }, enabled = online) { Text("Update") }
             }
             if (roadSelection == null && roadTiles.isNotEmpty()) {
                 val download = roads.coverage(roadTiles)?.missingDownload ?: 0L

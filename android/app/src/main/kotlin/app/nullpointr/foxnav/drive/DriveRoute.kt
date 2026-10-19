@@ -64,7 +64,12 @@ fun DriveRoute(document: DiscoveryDocument) {
         val offline = graph.offlineMaps
         offline.configure()
         withTimeoutOrNull(5.seconds) { snapshotFlow { offline.areas }.first { it.isNotEmpty() } }
-        if (graph.offlineDownloads.allowed.value) offline.resumeUnfinished()
+        if (graph.offlineDownloads.allowed.value) {
+            // Stale entries from an earlier version's map update: the areas download again, once. Only
+            // when downloads may run, so nobody is left without maps.
+            offline.repairStale()
+            offline.resumeUnfinished()
+        }
     }
     // Where we are, roughly, for sunrise and sunset.
     LaunchedEffect(viewModel) {

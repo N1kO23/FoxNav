@@ -1,6 +1,8 @@
 package app.nullpointr.foxnav.data
 
 import android.content.Context
+import android.database.DatabaseUtils
+import android.database.sqlite.SQLiteDatabase
 import androidx.core.content.edit
 import org.json.JSONObject
 import org.maplibre.compose.offline.DownloadProgress
@@ -9,6 +11,7 @@ import org.maplibre.compose.offline.OfflinePack
 import org.maplibre.compose.offline.OfflinePackDefinition
 import org.maplibre.compose.offline.getOfflineManager
 import org.maplibre.spatialk.geojson.BoundingBox
+import java.io.File
 import java.util.UUID
 import kotlin.math.PI
 import kotlin.math.floor
@@ -29,7 +32,7 @@ class OfflineMaps(
     private val onDownloading: () -> Unit = {},
 ) {
     private val manager = getOfflineManager(context)
-    private val preferences = context.getSharedPreferences("offline_maps", Context.MODE_PRIVATE)
+    private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     /** Downloaded and downloading areas, newest first. Compose state: reading it in a composable follows changes. */
     val areas: List<OfflineArea>
@@ -42,14 +45,16 @@ class OfflineMaps(
     /** Starts downloading [bounds] for every style in [styleUrls] as one area called [name]; returns the area's ID. */
     suspend fun download(name: String, bounds: BoundingBox, styleUrls: Collection<String>): String {
         val id = UUID.randomUUID().toString()
-        val created = System.currentTimeMillis()
-        for (styleUrl in styleUrls.distinct()) {
-            val metadata = PackMetadata(id, name, created).toBytes()
-            val pack = manager.create(OfflinePackDefinition.TilePyramid(styleUrl, bounds, minZoom = 0, maxZoom = MAX_ZOOM), metadata)
-            if (mayDownload()) manager.resume(pack)
-        }
+        createPacks(PackMetadata(id, name, System.currentTimeMillis()), bounds, styleUrls)
         onDownloading()
         return id
+    }
+
+    private suspend fun createPacks(metadata: PackMetadata, bounds: BoundingBox, styleUrls: Collection<String>) {
+        for (styleUrl in styleUrls.distinct()) {
+            val pack = manager.create(OfflinePackDefinition.TilePyramid(styleUrl, bounds, minZoom = 0, maxZoom = MAX_ZOOM), metadata.toBytes())
+            if (mayDownload() && metadata.id !in pausedIds) manager.resume(pack)
+        }
     }
 
     fun pause(area: OfflineArea) {
@@ -63,13 +68,38 @@ class OfflineMaps(
         onDownloading()
     }
 
-    /** Downloads the area again where the server has newer tiles. */
-    suspend fun update(area: OfflineArea) {
-        for (pack in area.packs) {
-            manager.invalidate(pack)
-            if (mayDownload()) manager.resume(pack)
-        }
+    /**
+     * Downloads [area] afresh, with the server's [styleUrls]: its packs go and come back under the same
+     * ID, so its road data stays with it. Tiles it shares with other areas stay as they are.
+     *
+     * Not with MapLibre's invalidate. That marks everything the packs hold, the styles, fonts and icons
+     * all areas share included, as needing a check with the server before use, which offline never
+     * comes. Resuming the download doesn't fetch what's already there either, so the light theme, say,
+     * then stays broken offline.
+     */
+    suspend fun update(area: OfflineArea, styleUrls: Collection<String>) {
+        val bounds = area.bounds ?: return
+        val styles = styleUrls.ifEmpty { area.styleUrls }
+        for (pack in area.packs) manager.delete(pack)
+        // A deleted pack's tiles stay in MapLibre's cache, and the new pack would take them from there.
+        manager.clearAmbientCache()
+        createPacks(PackMetadata(area.id, area.name, area.createdMs), bounds, styles)
         onDownloading()
+    }
+
+    /**
+     * Repairs what earlier versions' updates did with MapLibre's invalidate (see [update]), if
+     * [noteStaleEntries] found its marks: every area downloads again. Only deleting every pack and then
+     * clearing the cache gets rid of the stale entries the areas share. The next start checks again.
+     */
+    suspend fun repairStale() {
+        if (!preferences.getBoolean(KEY_REPAIR, false)) return
+        val again = areas.mapNotNull { area -> area.bounds?.let { Triple(area, it, area.styleUrls) } }
+        for (area in areas) for (pack in area.packs) manager.delete(pack)
+        manager.clearAmbientCache()
+        for ((area, bounds, styleUrls) in again) createPacks(PackMetadata(area.id, area.name, area.createdMs), bounds, styleUrls)
+        if (again.isNotEmpty()) onDownloading()
+        preferences.edit { remove(KEY_REPAIR) }
     }
 
     suspend fun delete(area: OfflineArea) {
@@ -123,7 +153,34 @@ class OfflineMaps(
         /** Label fonts, downloaded with the first area and shared by all. */
         private const val FONT_BYTES = 6_000_000L
         private const val AMBIENT_CACHE_BYTES = 200L * 1024 * 1024
+        private const val PREFERENCES = "offline_maps"
         private const val KEY_PAUSED = "paused"
+        private const val KEY_REPAIR = "repair_stale"
+        private const val KEY_CLEAN = "no_stale_entries"
+
+        /** MapLibre's offline database, in the app's files. */
+        private const val DATABASE = "mbgl-offline.db"
+
+        /**
+         * Notes, for [repairStale], whether MapLibre's database holds entries that an earlier version's
+         * update marked stale, until it finds none: this version marks nothing. Runs at the app's start,
+         * before MapLibre opens the database and locks it.
+         *
+         * Invalidate sets `expires` to 0 with `must_revalidate`, which nothing else does, on a pack's
+         * tiles and on its style, icons and fonts. Those are in the small `resources` table, so that
+         * table tells: reading `tiles` would mean reading every tile.
+         */
+        fun noteStaleEntries(context: Context) {
+            val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            if (preferences.getBoolean(KEY_CLEAN, false)) return
+            val database = File(context.filesDir, DATABASE)
+            val stale = if (!database.isFile) false else runCatching {
+                SQLiteDatabase.openDatabase(database.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                    DatabaseUtils.longForQuery(db, "SELECT EXISTS (SELECT 1 FROM resources WHERE must_revalidate = 1 AND expires = 0)", null) == 1L
+                }
+            }.getOrNull() ?: return
+            preferences.edit { if (stale) putBoolean(KEY_REPAIR, true) else putBoolean(KEY_CLEAN, true) }
+        }
 
         /** How many tiles [bounds] needs from zoom 0 to [MAX_ZOOM], and roughly how many bytes, with the fonts for the [first] area. */
         fun estimate(bounds: BoundingBox, first: Boolean = false): Estimate {
@@ -167,6 +224,9 @@ data class OfflineArea(val id: String, val name: String, val createdMs: Long, va
 
     /** The area itself. */
     val bounds: BoundingBox? get() = packs.firstNotNullOfOrNull { (it.definition as? OfflinePackDefinition.TilePyramid)?.bounds }
+
+    /** The styles (themes) it was downloaded for. */
+    val styleUrls: List<String> get() = packs.map { it.definition.styleUrl }
 
     /** 0–1, as far as MapLibre knows how much there is. */
     val fraction: Float
