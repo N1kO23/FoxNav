@@ -4,24 +4,31 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
- * An invitation to a convoy: which server hosts it, the room, the join token, and the
- * encryption key with its epoch (it changes when someone is removed). Everything travels in the
- * link's fragment, which browsers never send to any server (protocol/SPEC.md §2.2).
+ * An invitation to a convoy: which server hosts it, the room, the join token, the encryption key
+ * with its epoch (it changes when someone is removed), and the owner's signing key with the number
+ * of handovers so far. Everything travels in the link's fragment, which browsers never send to any
+ * server (protocol/SPEC.md §2.2).
  */
 class Invite(
     val server: String,
     val convoyId: ByteArray,
     val joinToken: ByteArray,
     val key: ByteArray,
+    val ownerKey: ByteArray,
     val keyEpoch: Int = 0,
+    val handovers: Int = 0,
 ) {
-    /** A link anyone can open: `foxnav://join#v=0&s=…&c=…&t=…&k=…`, plus `&e=…` after a key rotation. */
+    /**
+     * A link anyone can open: `foxnav://join#v=0&s=…&c=…&t=…&k=…&o=…`, plus `&e=…` after a key
+     * rotation and `&h=…` after a handover.
+     */
     fun toLink(base: String = DEFAULT_BASE): String =
-        "$base#v=$VERSION&s=${percentEncode(server)}&c=${base64Url(convoyId)}&t=${base64Url(joinToken)}&k=${base64Url(key)}" +
-            if (keyEpoch != 0) "&e=$keyEpoch" else ""
+        "$base#v=$VERSION&s=${percentEncode(server)}&c=${base64Url(convoyId)}&t=${base64Url(joinToken)}&k=${base64Url(key)}&o=${base64Url(ownerKey)}" +
+            (if (keyEpoch != 0) "&e=$keyEpoch" else "") + if (handovers != 0) "&h=$handovers" else ""
 
     override fun equals(other: Any?): Boolean = other is Invite && server == other.server && keyEpoch == other.keyEpoch &&
-        convoyId.contentEquals(other.convoyId) && joinToken.contentEquals(other.joinToken) && key.contentEquals(other.key)
+        handovers == other.handovers && convoyId.contentEquals(other.convoyId) && joinToken.contentEquals(other.joinToken) &&
+        key.contentEquals(other.key) && ownerKey.contentEquals(other.ownerKey)
 
     override fun hashCode(): Int = server.hashCode() * 31 + convoyId.contentHashCode()
 
@@ -45,9 +52,11 @@ class Invite(
             val server = fields["s"]?.let(::percentDecode)?.takeIf { it.isNotBlank() } ?: return null
             val convoyId = fields["c"]?.let(::fromBase64Url)?.takeIf { it.size == 16 } ?: return null
             val joinToken = fields["t"]?.let(::fromBase64Url)?.takeIf { it.isNotEmpty() } ?: return null
-            val key = fields["k"]?.let(::fromBase64Url)?.takeIf { it.size == ConvoyCrypto.KEY_SIZE } ?: return null
+            val key = fields["k"]?.let(::fromBase64Url)?.takeIf { it.size == ConvoyFrames.KEY_SIZE } ?: return null
+            val ownerKey = fields["o"]?.let(::fromBase64Url)?.takeIf { it.size == ConvoyFrames.KEY_SIZE } ?: return null
             val keyEpoch = fields["e"]?.let { it.toIntOrNull()?.takeIf { epoch -> epoch >= 0 } ?: return null } ?: 0
-            return Invite(server, convoyId, joinToken, key, keyEpoch)
+            val handovers = fields["h"]?.let { it.toIntOrNull()?.takeIf { number -> number >= 0 } ?: return null } ?: 0
+            return Invite(server, convoyId, joinToken, key, ownerKey, keyEpoch, handovers)
         }
 
         @OptIn(ExperimentalEncodingApi::class)

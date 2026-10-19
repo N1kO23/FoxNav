@@ -26,6 +26,10 @@ kotlin {
             api(libs.ktor.client.core)
             api(libs.ktor.client.websockets)
         }
+        jvmMain.dependencies {
+            // Convoy frames' signatures and key exchange (Crypto.jvm.kt).
+            implementation(libs.bouncycastle)
+        }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)

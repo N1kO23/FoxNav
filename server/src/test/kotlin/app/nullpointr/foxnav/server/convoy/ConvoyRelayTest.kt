@@ -1,19 +1,24 @@
 package app.nullpointr.foxnav.server.convoy
 
-import app.nullpointr.foxnav.protocol.convoy.v0.Channel
 import app.nullpointr.foxnav.protocol.convoy.v0.ClientMessage
 import app.nullpointr.foxnav.protocol.convoy.v0.CreateConvoy
+import app.nullpointr.foxnav.protocol.convoy.v0.HandOver
 import app.nullpointr.foxnav.protocol.convoy.v0.JoinConvoy
 import app.nullpointr.foxnav.protocol.convoy.v0.Joined
 import app.nullpointr.foxnav.protocol.convoy.v0.LeaveConvoy
 import app.nullpointr.foxnav.protocol.convoy.v0.Publish
 import app.nullpointr.foxnav.protocol.convoy.v0.RemoveMember
 import app.nullpointr.foxnav.protocol.convoy.v0.Resume
-import app.nullpointr.foxnav.protocol.convoy.v0.Sealed
 import app.nullpointr.foxnav.protocol.convoy.v0.ServerMessage
+import app.nullpointr.foxnav.shared.convoy.ConvoyFrames
+import app.nullpointr.foxnav.shared.convoy.FrameHeader
+import app.nullpointr.foxnav.shared.convoy.FrameKind
+import app.nullpointr.foxnav.shared.convoy.Identity
+import app.nullpointr.foxnav.shared.convoy.OwnerSignatures
 import kotlinx.coroutines.test.runTest
 import okio.ByteString
 import okio.ByteString.Companion.encodeUtf8
+import okio.ByteString.Companion.toByteString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -23,13 +28,16 @@ import app.nullpointr.foxnav.protocol.convoy.v0.Error as ProtocolError
 
 class ConvoyRelayTest {
     private var now = 1_000_000L
-    private val relay = ConvoyRelay(ConvoyRelay.Limits(maxConvoySize = 3, stateBurst = 2, stateWindowMs = 2_000, eventBurst = 2), clock = { now })
+    private val relay = ConvoyRelay(ConvoyRelay.Limits(maxConvoySize = 3, positionBurst = 2, positionWindowMs = 2_000, otherBurst = 2), clock = { now })
 
-    private inner class Client {
+    private inner class Client(val identity: Identity = Identity.generate()) {
         val inbox = mutableListOf<ServerMessage>()
         val connection = relay.connect { inbox += it }
+        val id: Int get() = identity.memberId
 
         suspend fun send(message: ClientMessage) = relay.receive(connection, message)
+
+        suspend fun publish(kind: FrameKind, text: String, sender: Int = id) = send(ClientMessage(publish = Publish(frame = frame(kind, sender, text))))
 
         fun <T : Any> last(pick: (ServerMessage) -> T?): T = inbox.mapNotNull(pick).last()
 
@@ -38,55 +46,101 @@ class ConvoyRelayTest {
         fun errors(): List<ProtocolError.Code> = all { it.error }.map { it.code }
     }
 
-    private fun opaque(text: String) = Sealed(key_epoch = 0, nonce = ByteString.of(1, 2, 3), ciphertext = text.encodeUtf8())
-
-    private fun publish(channel: Channel, text: String) = ClientMessage(publish = Publish(channel = channel, payload = opaque(text)))
-
-    /** Creates a convoy with [owner]; returns its id and join token. */
-    private suspend fun create(owner: Client): Pair<ByteString, ByteString> {
-        owner.send(ClientMessage(create_convoy = CreateConvoy()))
-        val created = owner.last { it.convoy_created }
-        return created.convoy_id to created.join_token
+    /** A frame as the relay sees it: a header, then bytes it can't read (here, [text]). */
+    private fun frame(kind: FrameKind, sender: Int, text: String): ByteString {
+        val body = text.encodeUtf8().toByteArray()
+        return (FrameHeader(kind.value, 0x0BAD_CAFE, sender, 1).toBytes() + body + ByteArray(ConvoyFrames.MIN_SIZE - FrameHeader.SIZE - body.size)).toByteString()
     }
 
-    private suspend fun Client.join(convoy: Pair<ByteString, ByteString>): Joined? {
-        send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.first, join_token = convoy.second)))
+    private fun ByteString.text() = substring(FrameHeader.SIZE).utf8().trimEnd('\u0000')
+
+    private data class Convoy(val id: ByteString, val token: ByteString)
+
+    private suspend fun create(owner: Client): Convoy {
+        owner.send(ClientMessage(create_convoy = CreateConvoy(member_id = owner.id, owner_key = owner.identity.signingKey.toByteString())))
+        val created = owner.last { it.convoy_created }
+        return Convoy(created.convoy_id, created.join_token)
+    }
+
+    private suspend fun Client.join(convoy: Convoy, token: ByteString = convoy.token): Joined? {
+        send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = token, member_id = id)))
         return all { it.joined }.lastOrNull()
     }
 
+    private fun Client.removal(convoy: Convoy, target: Int, epoch: Int = 1) = ClientMessage(
+        remove_member = RemoveMember(member_id = target, epoch = epoch, signature = identity.sign(OwnerSignatures.removal(convoy.id.toByteArray(), target, epoch)).toByteString()),
+    )
+
+    private fun Client.handover(convoy: Convoy, to: Client, number: Int) = ClientMessage(
+        hand_over = HandOver(
+            number = number,
+            new_owner_key = to.identity.signingKey.toByteString(),
+            signature = identity.sign(OwnerSignatures.handover(convoy.id.toByteArray(), number, to.identity.signingKey)).toByteString(),
+        ),
+    )
+
     @Test
-    fun createJoinAndRelayOpaquePayloads() = runTest {
+    fun membersComeWithTheirOwnIdsAndFramesGoOutAsTheyAre() = runTest {
         val owner = Client()
         val convoy = create(owner)
-        val ownerSeat = owner.last { it.joined }
-        assertEquals(ownerSeat.member_id, ownerSeat.owner)
+        assertEquals(owner.id, owner.last { it.joined }.member_id)
 
         val member = Client()
         val seat = member.join(convoy)!!
-        assertEquals(ownerSeat.member_id, seat.owner)
-        assertEquals(seat.member_id, owner.last { it.member_joined }.member_id)
+        assertEquals(member.id, seat.member_id)
+        assertEquals(listOf(owner.id), seat.members)
+        assertEquals(member.id, owner.last { it.member_joined }.member_id)
 
-        member.send(publish(Channel.CHANNEL_STATE, "position"))
+        member.publish(FrameKind.POSITION, "position")
         val relayed = owner.last { it.relay }
-        assertEquals(seat.member_id, relayed.sender)
-        assertEquals(opaque("position"), relayed.payload) // byte for byte: the server never looks inside
+        assertEquals(member.id, relayed.from)
+        assertEquals(frame(FrameKind.POSITION, member.id, "position"), relayed.frame) // byte for byte
         assertTrue(member.all { it.relay }.isEmpty()) // not echoed back
     }
 
     @Test
-    fun lateJoinersGetEveryonesLatestState() = runTest {
+    fun theCreatorsIdMustBeTheirKeysAndIdsAreUnique() = runTest {
+        val owner = Client()
+        owner.send(ClientMessage(create_convoy = CreateConvoy(member_id = owner.id + 1, owner_key = owner.identity.signingKey.toByteString())))
+        assertEquals(listOf(ProtocolError.Code.CODE_BAD_REQUEST), owner.errors())
+
+        val convoy = create(owner)
+        val twin = Client(owner.identity)
+        assertNull(twin.join(convoy))
+        assertEquals(listOf(ProtocolError.Code.CODE_CONFLICT), twin.errors())
+    }
+
+    @Test
+    fun lateJoinersGetTheLatestOfEachKindPerSender() = runTest {
         val owner = Client()
         val convoy = create(owner)
-        owner.send(publish(Channel.CHANNEL_STATE, "first"))
+        owner.publish(FrameKind.CARD, "card")
+        owner.publish(FrameKind.POSITION, "first")
         now += 1_000
-        owner.send(publish(Channel.CHANNEL_STATE, "latest"))
-        owner.send(publish(Channel.CHANNEL_EVENT, "fuel stop")) // events aren't kept
-        now += 4_000
+        owner.publish(FrameKind.POSITION, "latest")
+        owner.publish(FrameKind.EVENT, "fuel stop") // events aren't kept
+        owner.send(ClientMessage(publish = Publish(frame = (byteArrayOf(99) + frame(FrameKind.CARD, owner.id, "?").toByteArray().drop(1)).toByteString())))
+        val gateway = Client()
+        gateway.join(convoy)
+        now += 1_000
+        gateway.publish(FrameKind.POSITION, "from the radio", sender = 0x0D10)
+        now += 3_000
 
         val late = Client()
         val seat = late.join(convoy)!!
-        assertEquals(listOf(opaque("latest")), seat.members.map { it.last_state })
-        assertEquals(listOf(4_000L), seat.members.map { it.last_state_age_ms })
+        assertEquals(listOf("card", "latest", "from the radio"), seat.frames.map { it.frame.text() })
+        assertEquals(listOf(owner.id, owner.id, gateway.id), seat.frames.map { it.from })
+        assertEquals(listOf(5_000L, 4_000L, 3_000L), seat.frames.map { it.age_ms })
+        assertEquals(listOf(owner.id, gateway.id), seat.members)
+    }
+
+    @Test
+    fun onlyFramesGoThrough() = runTest {
+        val owner = Client()
+        create(owner)
+        owner.send(ClientMessage(publish = Publish(frame = ByteArray(ConvoyFrames.MAX_SIZE + 1).toByteString())))
+        owner.send(ClientMessage(publish = Publish(frame = ByteArray(ConvoyFrames.MIN_SIZE - 1).toByteString())))
+        assertEquals(listOf(ProtocolError.Code.CODE_BAD_REQUEST, ProtocolError.Code.CODE_BAD_REQUEST), owner.errors())
     }
 
     @Test
@@ -95,8 +149,8 @@ class ConvoyRelayTest {
         val convoy = create(owner)
 
         val stranger = Client()
-        assertNull(stranger.join(convoy.first to "guess".encodeUtf8()))
-        assertNull(stranger.join(ByteString.of(*ByteArray(16)) to convoy.second))
+        assertNull(stranger.join(convoy, "guess".encodeUtf8()))
+        assertNull(stranger.join(Convoy(ByteString.of(*ByteArray(16)), convoy.token)))
         assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN, ProtocolError.Code.CODE_NOT_FOUND), stranger.errors())
 
         Client().join(convoy)
@@ -107,87 +161,122 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun stateBurstsAreCappedAndEventsAreLimited() = runTest {
+    fun positionBurstsAreCappedAndOtherKindsLimitedPerSender() = runTest {
         val owner = Client()
         val convoy = create(owner)
         val member = Client()
         member.join(convoy)
 
-        member.send(publish(Channel.CHANNEL_STATE, "a"))
+        member.publish(FrameKind.POSITION, "a")
         now += 100
-        member.send(publish(Channel.CHANNEL_STATE, "b")) // queued behind a network stall: still relayed
+        member.publish(FrameKind.POSITION, "b") // queued behind a network stall: still relayed
         now += 100
-        member.send(publish(Channel.CHANNEL_STATE, "c")) // over the burst: dropped
+        member.publish(FrameKind.POSITION, "c") // over the burst: dropped
+        member.publish(FrameKind.POSITION, "radio", sender = 0x0D10) // another sender, through a gateway
         now += 2_000
-        member.send(publish(Channel.CHANNEL_STATE, "d"))
-        assertEquals(listOf("a", "b", "d"), owner.all { it.relay }.map { it.payload!!.ciphertext.utf8() })
+        member.publish(FrameKind.POSITION, "d")
+        assertEquals(listOf("a", "b", "radio", "d"), owner.all { it.relay }.map { it.frame.text() })
 
-        repeat(3) { member.send(publish(Channel.CHANNEL_EVENT, "event")) }
-        assertEquals(2, owner.all { it.relay }.count { it.channel == Channel.CHANNEL_EVENT })
+        repeat(3) { member.publish(FrameKind.EVENT, "event") }
+        assertEquals(2, owner.all { it.relay }.count { it.frame.text() == "event" })
         assertEquals(listOf(ProtocolError.Code.CODE_RATE_LIMITED), member.errors())
     }
 
     @Test
-    fun onlyTheOwnerRemovesAndOwnershipMovesOnWhenTheOwnerLeaves() = runTest {
+    fun removalsTakeTheOwnersSignature() = runTest {
         val owner = Client()
         val convoy = create(owner)
         val second = Client()
-        val secondSeat = second.join(convoy)!!
+        second.join(convoy)
         val third = Client()
-        val thirdSeat = third.join(convoy)!!
+        third.join(convoy)
 
-        second.send(ClientMessage(remove_member = RemoveMember(member_id = thirdSeat.member_id)))
+        second.send(second.removal(convoy, third.id)) // signed, but not by the owner
+        owner.send(owner.removal(convoy, third.id).let { it.copy(remove_member = it.remove_member!!.copy(epoch = 2)) }) // not what was signed
         assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN), second.errors())
+        assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN), owner.errors())
 
-        owner.send(ClientMessage(remove_member = RemoveMember(member_id = thirdSeat.member_id)))
+        // Anyone may deliver the owner's signed removal; it's the signature that counts.
+        second.send(owner.removal(convoy, third.id))
         assertTrue(third.last { it.member_left }.removed)
-        assertEquals(thirdSeat.member_id, second.last { it.member_left }.member_id)
-        third.send(publish(Channel.CHANNEL_STATE, "still here?"))
+        assertEquals(third.id, second.last { it.member_left }.member_id)
+        third.publish(FrameKind.POSITION, "still here?")
         assertEquals(listOf(ProtocolError.Code.CODE_BAD_REQUEST), third.errors())
-
-        owner.send(ClientMessage(leave_convoy = LeaveConvoy()))
-        assertEquals(secondSeat.member_id, second.last { it.member_left }.new_owner)
+        // Nor do their frames come through anyone else.
+        second.publish(FrameKind.POSITION, "theirs, from the radio", sender = third.id)
+        assertTrue(owner.all { it.relay }.none { it.frame.text() == "theirs, from the radio" })
     }
 
     @Test
-    fun removingSomeoneChangesTheJoinToken() = runTest {
+    fun removingSomeoneChangesTheJoinTokenAndKeepsThemOut() = runTest {
         val owner = Client()
         val convoy = create(owner)
         val rider = Client()
-        val riderSeat = rider.join(convoy)!!
+        rider.join(convoy)
         val other = Client()
         other.join(convoy)
 
-        owner.send(ClientMessage(remove_member = RemoveMember(member_id = riderSeat.member_id)))
+        owner.send(owner.removal(convoy, rider.id))
         val newToken = other.last { it.invite_changed }.join_token
         assertEquals(newToken, owner.last { it.invite_changed }.join_token)
         assertTrue(rider.all { it.invite_changed }.isEmpty())
-        assertNotEquals(convoy.second, newToken)
+        assertNotEquals(convoy.token, newToken)
 
-        // The removed member still has the old invite; it no longer works. The new one does.
-        val comeback = Client()
+        // The removed member still has the old invite; it no longer works. The new one does, but not for them.
+        val comeback = Client(rider.identity)
         assertNull(comeback.join(convoy))
-        assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN), comeback.errors())
-        assertEquals(newToken, Client().join(convoy.first to newToken)!!.join_token)
+        assertNull(comeback.join(convoy, newToken))
+        assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN, ProtocolError.Code.CODE_FORBIDDEN), comeback.errors())
+        assertEquals(newToken, Client().join(convoy, newToken)!!.join_token)
     }
 
     @Test
-    fun onlyTheOwnerRotatesKeysAndLaterArrivalsGetTheLatestRotations() = runTest {
+    fun ownerFramesComeOnlyFromTheOwnerAndStayForLaterArrivals() = runTest {
         val owner = Client()
         val convoy = create(owner)
         val member = Client()
         member.join(convoy)
 
-        member.send(publish(Channel.CHANNEL_KEY, "not yours to rotate"))
+        member.publish(FrameKind.OWNER, "not yours to say")
         assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN), member.errors())
 
-        repeat(10) { index ->
-            now += 6_000
-            owner.send(publish(Channel.CHANNEL_KEY, "key $index"))
+        repeat(70) { index ->
+            now += 6_000 // within the rate limit
+            owner.publish(FrameKind.OWNER, "statement $index")
         }
-        assertEquals(10, member.all { it.relay }.count { it.channel == Channel.CHANNEL_KEY })
+        assertEquals(70, member.all { it.relay }.size)
+        member.send(ClientMessage(leave_convoy = LeaveConvoy()))
         val late = Client().join(convoy)!!
-        assertEquals((2..9).map { "key $it" }, late.key_history.map { it.payload!!.ciphertext.utf8() })
+        assertEquals((6..69).map { "statement $it" }, late.frames.map { it.frame.text() })
+    }
+
+    @Test
+    fun handoversTakeTheOwnersSignatureInOrder() = runTest {
+        val owner = Client()
+        val convoy = create(owner)
+        val heir = Client()
+        heir.join(convoy)
+        val other = Client()
+        other.join(convoy)
+
+        heir.send(heir.handover(convoy, to = heir, number = 1))
+        owner.send(owner.handover(convoy, to = heir, number = 2))
+        assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN), heir.errors())
+        assertEquals(listOf(ProtocolError.Code.CODE_BAD_REQUEST), owner.errors())
+
+        owner.send(owner.handover(convoy, to = heir, number = 1))
+        owner.send(ClientMessage(leave_convoy = LeaveConvoy()))
+        assertEquals(owner.id, heir.last { it.member_left }.member_id)
+        // The new owner speaks for the convoy now; the old one doesn't.
+        heir.publish(FrameKind.OWNER, "rotation")
+        assertEquals("rotation", other.last { it.relay }.frame.text())
+        other.send(owner.removal(convoy, other.id))
+        assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN), other.errors())
+        heir.send(heir.removal(convoy, other.id))
+        assertTrue(other.last { it.member_left }.removed)
+        // An old handover again changes nothing.
+        heir.send(owner.handover(convoy, to = heir, number = 1))
+        assertEquals(listOf(ProtocolError.Code.CODE_FORBIDDEN, ProtocolError.Code.CODE_FORBIDDEN), heir.errors())
     }
 
     @Test
@@ -196,17 +285,18 @@ class ConvoyRelayTest {
         val convoy = create(owner)
         val member = Client()
         val seat = member.join(convoy)!!
+        member.publish(FrameKind.CARD, "mine")
         relay.disconnect(member.connection)
 
         now += 60_000
         relay.sweep()
-        owner.send(publish(Channel.CHANNEL_STATE, "while you were away"))
+        owner.publish(FrameKind.POSITION, "while you were away")
 
-        val reconnected = Client()
+        val reconnected = Client(member.identity)
         reconnected.send(ClientMessage(resume = Resume(resume_token = seat.resume_token)))
         val resumed = reconnected.last { it.joined }
-        assertEquals(seat.member_id, resumed.member_id)
-        assertEquals(listOf(opaque("while you were away")), resumed.members.map { it.last_state })
+        assertEquals(member.id, resumed.member_id)
+        assertEquals(listOf("while you were away"), resumed.frames.map { it.frame.text() }) // not its own card
         assertTrue(owner.all { it.member_left }.isEmpty()) // nobody was told they'd gone
     }
 
@@ -220,7 +310,7 @@ class ConvoyRelayTest {
 
         now += 6 * 60_000
         relay.sweep()
-        assertEquals(seat.member_id, owner.last { it.member_left }.member_id)
+        assertEquals(member.id, owner.last { it.member_left }.member_id)
         val late = Client()
         late.send(ClientMessage(resume = Resume(resume_token = seat.resume_token)))
         assertEquals(listOf(ProtocolError.Code.CODE_NOT_FOUND), late.errors())

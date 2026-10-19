@@ -1,8 +1,8 @@
 package app.nullpointr.foxnav.conformance
 
-import app.nullpointr.foxnav.protocol.convoy.v0.Channel
 import app.nullpointr.foxnav.protocol.convoy.v0.ClientMessage
 import app.nullpointr.foxnav.protocol.convoy.v0.CreateConvoy
+import app.nullpointr.foxnav.protocol.convoy.v0.HandOver
 import app.nullpointr.foxnav.protocol.convoy.v0.Hello
 import app.nullpointr.foxnav.protocol.convoy.v0.JoinConvoy
 import app.nullpointr.foxnav.protocol.convoy.v0.Joined
@@ -11,7 +11,11 @@ import app.nullpointr.foxnav.protocol.convoy.v0.Ping
 import app.nullpointr.foxnav.protocol.convoy.v0.Publish
 import app.nullpointr.foxnav.protocol.convoy.v0.RemoveMember
 import app.nullpointr.foxnav.protocol.convoy.v0.Resume
-import app.nullpointr.foxnav.protocol.convoy.v0.Sealed
+import app.nullpointr.foxnav.shared.convoy.ConvoyFrames
+import app.nullpointr.foxnav.shared.convoy.ConvoyKey
+import app.nullpointr.foxnav.shared.convoy.FrameKind
+import app.nullpointr.foxnav.shared.convoy.Identity
+import app.nullpointr.foxnav.shared.convoy.OwnerSignatures
 import app.nullpointr.foxnav.shared.convoy.secureRandomBytes
 import app.nullpointr.foxnav.shared.FoxNavJson
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
@@ -68,8 +72,9 @@ data class CheckResult(val group: Group, val name: String, val outcome: Outcome,
 
 /**
  * Checks a server against protocol/SPEC.md: the discovery document, the map services it lists,
- * and the convoy relay, message by message. The realtime checks speak the raw protocol with
- * opaque payloads, so they test the server, not a client. Each convoy check uses a new convoy.
+ * and the convoy relay, message by message. The realtime checks speak the raw protocol, with real
+ * frames the server can't read, so they test the server, not a client. Each convoy check uses a
+ * new convoy.
  *
  * Checks that leave something behind for other users, like a report, run only with [writes];
  * they put it on Null Island (0, 0), far from any road, and vote it away afterwards.
@@ -273,95 +278,125 @@ class ConformanceSuite(
             client.expectError(ProtocolError.Code.CODE_BAD_REQUEST)
         }
         realtime(realtime, "creates a convoy with its creator as owner") { create() }
-        realtime(realtime, "lets members join with the token and tells the others") {
+        realtime(realtime, "refuses a creator whose member ID isn't their key's") {
+            val client = connect()
+            val identity = Identity.generate()
+            client.send(ClientMessage(create_convoy = CreateConvoy(member_id = identity.memberId xor 1, owner_key = identity.signingKey.toByteString())))
+            client.expectError(ProtocolError.Code.CODE_BAD_REQUEST)
+        }
+        realtime(realtime, "lets members join with their own ID and the token, and tells the others") {
             val convoy = create()
-            val (_, seat) = join(convoy)
-            expect(seat.member_id != convoy.ownerId) { "the new member got the owner's ID" }
-            expect(seat.owner == convoy.ownerId) { "Joined names ${seat.owner} as owner, not the creator ${convoy.ownerId}" }
+            val (member, seat) = join(convoy)
+            expect(seat.member_id == member.id) { "Joined gives member ${seat.member_id}, not the joiner's own ${member.id}" }
+            expect(seat.members == listOf(convoy.owner.id)) { "Joined lists ${seat.members} as connected, not just the owner" }
             expect(seat.join_token == convoy.token) { "Joined doesn't carry the current join token" }
-            convoy.owner.expect("MemberJoined for the new member") { message -> message.member_joined?.takeIf { it.member_id == seat.member_id } }
+            convoy.owner.client.expect("MemberJoined for the new member") { message -> message.member_joined?.takeIf { it.member_id == member.id } }
+        }
+        realtime(realtime, "refuses a member ID already in the convoy") {
+            val convoy = create()
+            val twin = Party(connect(), convoy.owner.identity)
+            twin.client.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = convoy.token, member_id = twin.id)))
+            twin.client.expectError(ProtocolError.Code.CODE_CONFLICT)
         }
         realtime(realtime, "refuses wrong tokens and unknown convoys") {
             val convoy = create()
-            val stranger = connect()
-            stranger.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = "guess".encodeUtf8())))
-            stranger.expectError(ProtocolError.Code.CODE_FORBIDDEN)
-            stranger.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = secureRandomBytes(16).toByteString(), join_token = convoy.token)))
-            stranger.expectError(ProtocolError.Code.CODE_NOT_FOUND)
+            val stranger = Party(connect())
+            stranger.client.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = "guess".encodeUtf8(), member_id = stranger.id)))
+            stranger.client.expectError(ProtocolError.Code.CODE_FORBIDDEN)
+            stranger.client.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = secureRandomBytes(16).toByteString(), join_token = convoy.token, member_id = stranger.id)))
+            stranger.client.expectError(ProtocolError.Code.CODE_NOT_FOUND)
         }
-        realtime(realtime, "relays STATE unchanged, from the right sender, not back to it") {
-            val convoy = create()
-            val (member, seat) = join(convoy)
-            val payload = opaque("state")
-            member.publish(Channel.CHANNEL_STATE, payload)
-            val relay = convoy.owner.expect("the relayed STATE") { message -> message.relay?.takeIf { it.channel == Channel.CHANNEL_STATE } }
-            expect(relay.sender == seat.member_id) { "the relay names ${relay.sender} as sender, not ${seat.member_id}" }
-            expect(relay.payload == payload) { "the payload changed on the way" }
-            member.expectNone("its own STATE back") { it.relay }
-        }
-        realtime(realtime, "relays EVENTs") {
+        realtime(realtime, "relays frames unchanged, with who published them, not back to the publisher") {
             val convoy = create()
             val (member, _) = join(convoy)
-            val payload = opaque("event")
-            member.publish(Channel.CHANNEL_EVENT, payload)
-            val relay = convoy.owner.expect("the relayed EVENT") { message -> message.relay?.takeIf { it.channel == Channel.CHANNEL_EVENT } }
-            expect(relay.payload == payload) { "the payload changed on the way" }
+            for (kind in listOf(FrameKind.POSITION, FrameKind.EVENT)) {
+                val frame = member.frame(convoy, kind, kind.name)
+                member.publish(frame)
+                val relay = convoy.owner.client.expect("the relayed ${kind.name} frame") { it.relay }
+                expect(relay.frame == frame) { "the ${kind.name} frame changed on the way" }
+                expect(relay.from == member.id) { "the relay names ${relay.from} as publisher, not ${member.id}" }
+            }
+            member.client.expectNone("its own frames back") { it.relay }
         }
-        realtime(realtime, "gives later arrivals everyone's latest STATE") {
+        realtime(realtime, "refuses frames longer than 233 bytes") {
             val convoy = create()
-            convoy.owner.publish(Channel.CHANNEL_STATE, opaque("latest"))
-            convoy.owner.expectNone("an error") { it.error }
+            convoy.owner.publish(ByteArray(234).toByteString())
+            convoy.owner.client.expectError(ProtocolError.Code.CODE_BAD_REQUEST)
+        }
+        realtime(realtime, "gives later arrivals the latest of each kind, but no events") {
+            val convoy = create()
+            val card = convoy.owner.frame(convoy, FrameKind.CARD, "card")
+            val latest = convoy.owner.frame(convoy, FrameKind.POSITION, "latest")
+            convoy.owner.publish(card)
+            convoy.owner.publish(convoy.owner.frame(convoy, FrameKind.POSITION, "first"))
+            convoy.owner.publish(latest)
+            convoy.owner.publish(convoy.owner.frame(convoy, FrameKind.EVENT, "fuel"))
+            convoy.owner.client.expectNone("an error") { it.error }
             val (_, seat) = join(convoy)
-            val owner = seat.members.firstOrNull { it.member_id == convoy.ownerId } ?: fail("Joined doesn't list the owner")
-            expect(owner.last_state == opaque("latest")) { "Joined doesn't carry the owner's latest STATE" }
+            expect(seat.frames.map { it.frame } == listOf(card, latest)) { "Joined carries ${seat.frames.size} frames, not the owner's card and latest position" }
+            expect(seat.frames.all { it.from == convoy.owner.id }) { "Joined says someone else published the owner's frames" }
         }
         realtime(realtime, "lets a dropped member resume their seat, without telling the others") {
             val convoy = create()
             val (member, seat) = join(convoy)
-            member.close()
+            member.client.close()
             val back = connect()
             back.send(ClientMessage(resume = Resume(resume_token = seat.resume_token)))
             val resumed = back.expect("Joined after Resume") { it.joined }
-            expect(resumed.member_id == seat.member_id) { "Resume gave member ${resumed.member_id}, not ${seat.member_id}" }
-            convoy.owner.expectNone("MemberLeft for a member who only dropped") { it.member_left }
+            expect(resumed.member_id == member.id) { "Resume gave member ${resumed.member_id}, not ${member.id}" }
+            convoy.owner.client.expectNone("MemberLeft for a member who only dropped") { it.member_left }
         }
-        realtime(realtime, "lets only the owner remove members, and changes the join token") {
+        realtime(realtime, "removes members only with the owner's signature, and changes the join token") {
             val convoy = create()
             val (member, _) = join(convoy)
-            val (target, targetSeat) = join(convoy)
-            member.send(ClientMessage(remove_member = RemoveMember(member_id = targetSeat.member_id)))
-            member.expectError(ProtocolError.Code.CODE_FORBIDDEN)
+            val (target, _) = join(convoy)
+            member.client.send(member.removal(convoy, target.id))
+            member.client.expectError(ProtocolError.Code.CODE_FORBIDDEN)
 
-            convoy.owner.send(ClientMessage(remove_member = RemoveMember(member_id = targetSeat.member_id)))
-            target.expect("MemberLeft with removed set, for the removed member") { message -> message.member_left?.takeIf { it.member_id == targetSeat.member_id && it.removed } }
-            member.expect("MemberLeft with removed set, for the others") { message -> message.member_left?.takeIf { it.member_id == targetSeat.member_id && it.removed } }
-            val newToken = member.expect("InviteChanged") { it.invite_changed }.join_token
+            // Delivered by someone else: the signature is what counts.
+            member.client.send(convoy.owner.removal(convoy, target.id))
+            target.client.expect("MemberLeft with removed set, for the removed member") { message -> message.member_left?.takeIf { it.member_id == target.id && it.removed } }
+            convoy.owner.client.expect("MemberLeft with removed set, for the others") { message -> message.member_left?.takeIf { it.member_id == target.id && it.removed } }
+            val newToken = member.client.expect("InviteChanged") { it.invite_changed }.join_token
             expect(newToken != convoy.token) { "the join token didn't change" }
 
-            val comeback = connect()
-            comeback.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = convoy.token)))
-            comeback.expectError(ProtocolError.Code.CODE_FORBIDDEN)
+            member.publish(target.frame(convoy, FrameKind.POSITION, "theirs, through someone else"))
+            convoy.owner.client.expectNone("a frame from the removed member") { it.relay }
+            val comeback = Party(connect(), target.identity)
+            comeback.client.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = newToken, member_id = target.id)))
+            comeback.client.expectError(ProtocolError.Code.CODE_FORBIDDEN)
             join(convoy.copy(token = newToken))
         }
-        realtime(realtime, "takes KEY payloads only from the owner, and keeps them for later arrivals") {
+        realtime(realtime, "takes OWNER frames only from the owner, and keeps them for later arrivals") {
             val convoy = create()
             val (member, _) = join(convoy)
-            member.publish(Channel.CHANNEL_KEY, opaque("not the owner's"))
-            member.expectError(ProtocolError.Code.CODE_FORBIDDEN)
+            member.publish(member.frame(convoy, FrameKind.OWNER, "not the owner's"))
+            member.client.expectError(ProtocolError.Code.CODE_FORBIDDEN)
 
-            val rotation = opaque("rotation")
-            convoy.owner.publish(Channel.CHANNEL_KEY, rotation)
-            member.expect("the relayed KEY payload") { message -> message.relay?.takeIf { it.channel == Channel.CHANNEL_KEY } }
+            val rotation = convoy.owner.frame(convoy, FrameKind.OWNER, "rotation")
+            convoy.owner.publish(rotation)
+            member.client.expect("the relayed OWNER frame") { message -> message.relay?.takeIf { it.frame == rotation } }
             val (_, late) = join(convoy)
-            expect(late.key_history.any { it.payload == rotation && it.sender == convoy.ownerId }) { "Joined.key_history doesn't carry the rotation" }
+            expect(late.frames.any { it.frame == rotation && it.from == convoy.owner.id }) { "Joined doesn't carry the owner's frame" }
         }
-        realtime(realtime, "tells the others when someone leaves, and hands ownership on") {
+        realtime(realtime, "hands the convoy over only with the owner's signature") {
             val convoy = create()
-            val (member, seat) = join(convoy)
-            convoy.owner.send(ClientMessage(leave_convoy = LeaveConvoy()))
-            val left = member.expect("MemberLeft for the owner") { message -> message.member_left?.takeIf { it.member_id == convoy.ownerId } }
+            val (heir, _) = join(convoy)
+            val (other, _) = join(convoy)
+            heir.client.send(heir.handover(convoy, heir, 1))
+            heir.client.expectError(ProtocolError.Code.CODE_FORBIDDEN)
+
+            convoy.owner.client.send(convoy.owner.handover(convoy, heir, 1))
+            convoy.owner.client.expectNone("an error") { it.error }
+            heir.client.send(heir.removal(convoy, other.id))
+            other.client.expect("MemberLeft with removed set, by the new owner") { message -> message.member_left?.takeIf { it.member_id == other.id && it.removed } }
+        }
+        realtime(realtime, "tells the others when someone leaves") {
+            val convoy = create()
+            val (member, _) = join(convoy)
+            convoy.owner.client.send(ClientMessage(leave_convoy = LeaveConvoy()))
+            val left = member.client.expect("MemberLeft for the owner") { message -> message.member_left?.takeIf { it.member_id == convoy.owner.id } }
             expect(!left.removed) { "MemberLeft says the owner was removed" }
-            expect(left.new_owner == seat.member_id) { "ownership went to ${left.new_owner}, not the only member left, ${seat.member_id}" }
         }
     }
 
@@ -444,7 +479,30 @@ class ConformanceSuite(
         }
     }
 
-    private data class Convoy(val id: ByteString, val token: ByteString, val owner: RawClient, val ownerId: Long)
+    private data class Convoy(val id: ByteString, val token: ByteString, val owner: Party, val key: ConvoyKey)
+
+    /** A connection and the member identity it speaks for: frames are really sealed and signed, though the server can't tell. */
+    private class Party(val client: RawClient, val identity: Identity = Identity.generate()) {
+        val id: Int get() = identity.memberId
+        private var counter = 0L
+
+        fun frame(convoy: Convoy, kind: FrameKind, text: String): ByteString =
+            ConvoyFrames.seal(convoy.id.toByteArray(), convoy.key, identity, ++counter, kind, text.encodeToByteArray()).toByteString()
+
+        suspend fun publish(frame: ByteString) = client.send(ClientMessage(publish = Publish(frame = frame)))
+
+        fun removal(convoy: Convoy, target: Int, epoch: Int = 1) = ClientMessage(
+            remove_member = RemoveMember(member_id = target, epoch = epoch, signature = identity.sign(OwnerSignatures.removal(convoy.id.toByteArray(), target, epoch)).toByteString()),
+        )
+
+        fun handover(convoy: Convoy, to: Party, number: Int) = ClientMessage(
+            hand_over = HandOver(
+                number = number,
+                new_owner_key = to.identity.signingKey.toByteString(),
+                signature = identity.sign(OwnerSignatures.handover(convoy.id.toByteArray(), number, to.identity.signingKey)).toByteString(),
+            ),
+        )
+    }
 
     private inner class Connections(private val url: String) {
         private val open = ArrayList<RawClient>()
@@ -452,21 +510,20 @@ class ConformanceSuite(
         suspend fun connect(): RawClient = RawClient.connect(http, url).also { open += it }
 
         suspend fun create(): Convoy {
-            val owner = connect()
-            owner.send(ClientMessage(create_convoy = CreateConvoy()))
-            val created = owner.expect("ConvoyCreated") { it.convoy_created }
+            val owner = Party(connect())
+            owner.client.send(ClientMessage(create_convoy = CreateConvoy(member_id = owner.id, owner_key = owner.identity.signingKey.toByteString())))
+            val created = owner.client.expect("ConvoyCreated") { it.convoy_created }
             expect(created.convoy_id.size == 16) { "the convoy ID has ${created.convoy_id.size} bytes, not 16" }
             expect(created.join_token.size > 0) { "the join token is empty" }
-            val seat = owner.expect("Joined after ConvoyCreated") { it.joined }
-            expect(seat.member_id != 0L) { "the creator got member ID 0" }
-            expect(seat.owner == seat.member_id) { "the creator isn't the convoy's owner" }
-            return Convoy(created.convoy_id, created.join_token, owner, seat.member_id)
+            val seat = owner.client.expect("Joined after ConvoyCreated") { it.joined }
+            expect(seat.member_id == owner.id) { "the creator got member ID ${seat.member_id}, not their own ${owner.id}" }
+            return Convoy(created.convoy_id, created.join_token, owner, ConvoyKey(0, ConvoyFrames.newKey(), created.convoy_id.toByteArray()))
         }
 
-        suspend fun join(convoy: Convoy): Pair<RawClient, Joined> {
-            val client = connect()
-            client.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = convoy.token)))
-            return client to client.expect("Joined") { it.joined }
+        suspend fun join(convoy: Convoy): Pair<Party, Joined> {
+            val member = Party(connect())
+            member.client.send(ClientMessage(join_convoy = JoinConvoy(convoy_id = convoy.id, join_token = convoy.token, member_id = member.id)))
+            return member to member.client.expect("Joined") { it.joined }
         }
 
         suspend fun closeAll() {
@@ -474,16 +531,10 @@ class ConformanceSuite(
         }
     }
 
-    private suspend fun RawClient.publish(channel: Channel, payload: Sealed) =
-        send(ClientMessage(publish = Publish(channel = channel, payload = payload)))
-
     private suspend fun RawClient.expectError(code: ProtocolError.Code) {
         val error = expect("Error ${code.name.removePrefix("CODE_")}") { it.error }
         expect(error.code == code) { "got Error ${error.code.name.removePrefix("CODE_")}, not ${code.name.removePrefix("CODE_")}" }
     }
-
-    /** A payload as the server sees them: bytes it can't read. */
-    private fun opaque(text: String) = Sealed(key_epoch = 0, nonce = OPAQUE_NONCE, ciphertext = text.encodeUtf8())
 
     private class TestTrip(val route: Pair<GeoPoint, GeoPoint>, val place: String)
 
@@ -492,7 +543,6 @@ class ConformanceSuite(
         // A build names a directory of tiles (spec §3.3).
         val BUILD = Regex("^[A-Za-z0-9._-]+$")
         val DAY = Regex("""^(\d{4}-)?(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$""")
-        val OPAQUE_NONCE: ByteString = ByteString.of(*ByteArray(12) { it.toByte() })
 
         /** A short drive and a place to search for, in each region a server may list. */
         val TEST_TRIPS = mapOf(

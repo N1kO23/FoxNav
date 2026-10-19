@@ -88,86 +88,170 @@ What the local stack in `infra/` returns:
 
 ### 2.2 Convoys
 
-A convoy is a room on one server.
+A convoy is a room on one server. Its members know each other by their keys (§2.3), not by anything the server assigns, so a convoy can also carry on over other links, such as LoRa radios, without the server ([ADR 0007](../docs/adr/0007-convoy-member-keys.md)).
 
-1. **Create.** The client sends `CreateConvoy`.
+1. **Create.** The client generates the convoy key and its own identity (§2.3), then sends `CreateConvoy` with its member ID and its signing public key.
    - The server answers `ConvoyCreated`, with a random 16-byte `convoy_id` and a `join_token`.
-   - Then it sends `Joined`: the creator is the convoy's first member and its **owner**.
-   - The client generates the convoy's encryption key locally (§2.3). The key never goes to the server.
+   - Then it sends `Joined`: the creator is the convoy's first member and its **owner**. The server keeps the owner's public key, to check the owner's signatures (step 5).
+   - The convoy key never goes to the server.
 2. **Invite.** The creator shares a link:
 
    ```
-   https://<link domain>/join#v=0&s=<server URL>&c=<convoy_id>&t=<join_token>&k=<key>[&e=<key epoch>]
+   https://<link domain>/join#v=0&s=<server URL>&c=<convoy_id>&t=<join_token>&k=<key>&o=<owner's key>[&e=<key epoch>][&h=<handovers>]
    ```
 
    - The parameters are form-encoded, with binary values in unpadded base64url.
+   - `o` is the owner's signing public key (§2.3). Members accept removals, key rotations and handovers only from the owner it names, or from whoever that owner handed over to.
    - `e` is the key's epoch (§2.3), left out while it is 0.
+   - `h` is how many handovers there have been (§2.3), left out while there have been none.
    - Everything sits in the URL fragment, which browsers never send to any server. So the operator of the link domain learns nothing, and the link works for convoys on any server.
    - The same string can be shown as a QR code.
    - Until FoxNav has a link domain, the app uses `foxnav://join#…` with the same fragment.
-3. **Join.** The client connects to the server named in the invite and sends `JoinConvoy` with the convoy ID and join token. The server answers `Joined`, with:
-   - the member ID it assigned, and a resume token;
-   - the owner's member ID, and the current join token;
-   - every other member, with their latest `STATE` payload (still encrypted) and how long ago the server received it. That lets a late joiner tell a quiet car from a live one;
-   - the latest `KEY` payloads (§2.3), oldest first, for members who missed a key rotation.
+3. **Join.** The client generates its identity (§2.3), connects to the server named in the invite, and sends `JoinConvoy` with the convoy ID, the join token and its member ID. The server answers `Joined`, with:
+   - a resume token and the current join token;
+   - the members connected to the server, by member ID;
+   - the frames it keeps (step 4), oldest first, each with how long ago the server received it. A late joiner gets everyone's card and latest position at once, and can tell a quiet car from a live one.
 
-   Other members get `MemberJoined`. A wrong token gets `Error` `FORBIDDEN`, an unknown convoy `NOT_FOUND`, and a full convoy `CONVOY_FULL`.
-4. **Publish.** Members send `Publish` with an encrypted payload on one of three channels:
-   - `STATE` for things where only the latest value matters: everything about the member, bundled (§2.4). The server keeps the latest `STATE` payload per member for people who join later.
-   - `EVENT` for one-off messages (quick messages, regroup pins). The server relays them without keeping them.
-   - `KEY` for key rotations (§2.3). Only the owner may publish on it; the server answers anyone else with `Error` `FORBIDDEN`. It keeps the latest few (8 in the reference server) for `Joined`.
+   Other members get `MemberJoined`. A wrong token gets `Error` `FORBIDDEN`, as does a removed member's ID, an unknown convoy `NOT_FOUND`, a full convoy `CONVOY_FULL`, and a member ID already in the convoy `CONFLICT`. After a `CONFLICT`, the client generates a new identity and tries again.
+4. **Publish.** Members send `Publish` with a frame (§2.3). The server reads only the frame's header, and forwards the frame to all other members as `Relay`, with its clock (`server_time_ms`) and the member who published it (`from`). That's usually the frame's sender. A gateway, though, publishes frames it heard over a radio, from members who have no connection themselves.
 
-   The server forwards each payload to all other members as `Relay`, stamped with the sender and the server's clock (`server_time_ms`).
+   What the server keeps, for those who join later:
+   - the latest `CARD`, `POSITION`, `ROUTE` and `SONG` frame of each sender, from each member who published one, for as long as that member is in the convoy;
+   - the latest 64 `OWNER` frames. It takes those only with the owner of the time as their sender, and answers others with `Error` `FORBIDDEN`;
+   - no `EVENT` frames, and no frames of kinds it doesn't know: those it relays without keeping.
+
+   It answers frames longer than 233 bytes with `Error` `BAD_REQUEST`, and drops frames from removed senders.
 
    Rates:
-   - Clients publish `STATE` at most once a second. They publish it again every 5 s while it stays the same, because the others take silence for a lost signal.
-   - Servers may rate-limit. The reference server relays at most 5 `STATE` payloads per member in any 3 s, since a burst arrives after a network stall, and drops the rest silently.
-   - It answers more than 10 `EVENT` and `KEY` payloads per member in 10 s with `Error` `RATE_LIMITED`.
+   - Clients publish `POSITION` at most once a second. They publish it again every 5 s while it stays the same, because the others take silence for a lost signal; members without a position send their card that often instead.
+   - Cards, routes and songs go out when they change, and all of them again on (re)joining and after a key rotation, so that what the server keeps is under the current key. The card goes out on joining even before the member has a profile: the others need its keys.
+   - Servers may rate-limit. The reference server relays at most 5 `POSITION` frames per member and sender in any 3 s, since a burst arrives after a network stall, and drops the rest silently.
+   - It answers more than 10 frames of other kinds per member and sender in 10 s with `Error` `RATE_LIMITED`.
 5. **Leave or remove.**
-   - `LeaveConvoy` removes yourself.
-   - The owner can send `RemoveMember`. The server tells the removed member with `MemberLeft` (`removed` set) and stops relaying to and from them.
-   - The others get `MemberLeft` either way.
+   - `LeaveConvoy` removes yourself. An owner hands over first (§2.3): the app hands over to whoever has been in the convoy longest, unless the owner picks someone.
+   - The owner removes a member with `RemoveMember`: the member ID, the key epoch the removal starts, and the owner's signature (§2.3). The server checks the signature against the owner's key and answers anything else with `Error` `FORBIDDEN`.
+   - The server tells the removed member with `MemberLeft` (`removed` set), stops relaying to them, and from then on drops frames with them as the sender. The others get `MemberLeft` either way.
    - A removal also changes the join token: the server sends the new one to everyone left in `InviteChanged`, and refuses the old one from then on. Otherwise the removed member could come straight back with their invite. The owner then rotates the key (§2.3).
-   - When the owner leaves, ownership passes to whoever has been in the convoy longest, named in `MemberLeft.new_owner`.
+   - Handing over, the owner also sends the server `HandOver`, signed (§2.3), and the server takes the new owner's key from then on.
 
 A member whose connection drops keeps their seat for a few minutes (5 in the reference server) and can `Resume` it, without the others being told. After that, the server frees the seat and the others get `MemberLeft`.
 
-Servers never store positions. Rooms live in memory and expire when they have been empty for a while (an hour in the reference server).
+Servers can't read frames, and keep them only in memory. Rooms expire when they have been empty for a while (an hour in the reference server).
 
 ### 2.3 End-to-end encryption
 
-- **Key:** 32 random bytes generated by the convoy creator, epoch 0. Members receive the current key and its epoch through the invite.
-- **Cipher:** AES-256-GCM with a fresh random 12-byte nonce per message and a 16-byte tag.
-- **Associated data:** `convoy_id ‖ sender member_id (8 bytes, big-endian) ‖ channel (1 byte)`. A server can't move a payload to another convoy, member or channel without detection.
-- **Plaintext:** a serialized `ConvoyPayload` message.
-- **Rotation:** once the server confirms a removal (`MemberLeft` with `removed` set), the owner generates a new key and sends it as a `KeyRotation` with the next epoch on the `KEY` channel, encrypted under the current key. The removed member no longer gets anything relayed, so they never see it.
-  - Each `Sealed` payload names the epoch of its key. Members seal with the newest key they have and keep older ones, to open messages still on their way.
-  - Members accept a rotation only from the current owner, and only to a newer epoch.
-  - Someone away during a rotation catches up from `Joined.key_history` when they resume.
-  - The invite changes with it: the new key, its epoch and the new join token.
+Everything members send each other is a **frame**: signed by its sender, then encrypted with the convoy key. The format is the same over every link, so a gateway forwards frames between a radio and the server as they are. A gateway or a server can drop or delay frames, but not read or change them.
+
+#### Identities
+
+- **Keys.** On creating or joining a convoy, a member's client generates an Ed25519 key pair for signing and an X25519 key pair for receiving keys. A member *is* their signing key.
+- **Member ID.** The first 4 bytes of the SHA-256 of the signing public key, as an unsigned big-endian number. It's a hint for finding the key: receivers check frames against keys, not IDs.
+- **One convoy only.** An identity is used in one convoy, and lives exactly as long as its frame counter. A client that loses its counter, say in a restart, generates a new identity and joins again.
+- **Same ID.** A client that hears another card with its own member ID generates a new identity. With 30 members, that happens in about one convoy in ten million.
+- **Cards.** Members announce their public keys and profile in a `CARD` frame (§2.4), on joining and whenever the profile changes. Receivers take a card only if its signing key's member ID is the frame's sender and the frame is signed by that key.
+
+#### Keys
+
+- **Convoy key:** 32 random bytes generated by the convoy's creator, epoch 0. Members get the current key and its epoch through the invite.
+- From each convoy key, with HKDF-SHA-256 and the convoy ID as salt:
+  - the **frame key**, 32 bytes, with the info `foxnav v0 frame`;
+  - the **convoy tag**, 4 bytes, with the info `foxnav v0 tag`. It tells receivers which convoy and which key a frame is for, without trying every key.
+
+#### Frames
+
+A frame is at most 233 bytes, so that it fits one Meshtastic packet. Numbers are big-endian.
+
+| Bytes | Field |
+|---|---|
+| 1 | kind |
+| 4 | convoy tag |
+| 4 | sender's member ID |
+| 4 | counter |
+| rest | encrypted content and signature, then the 16-byte GCM tag |
+
+- **Header.** The first 13 bytes. Servers and gateways read it; they can't read the rest.
+- **Counter.** It starts at 1 with a new identity and goes up by one with every frame the member sends, whatever its kind.
+- **Content.** The protobuf message for the frame's kind (§2.4), at most 140 bytes.
+- **Signature.** Ed25519, by the sender's signing key, over `"foxnav v0 frame" ‖ convoy_id ‖ header ‖ content`.
+- **Encryption.** AES-256-GCM under the frame key, with a 16-byte tag:
+  - nonce: sender's member ID (4 bytes) ‖ counter (4 bytes) ‖ 4 zero bytes. A counter never repeats within an identity, so neither does a nonce;
+  - associated data: `convoy_id ‖ header`;
+  - plaintext: `content ‖ signature`.
+
+| Kind | Value | Content | Server keeps (§2.2) |
+|---|---|---|---|
+| `CARD` | 1 | `Card` | the latest |
+| `POSITION` | 2 | `Position` | the latest |
+| `ROUTE` | 3 | `RouteShare` | the latest |
+| `SONG` | 4 | `NowPlaying` | the latest |
+| `EVENT` | 5 | `Event` | nothing |
+| `OWNER` | 6 | `KeyRotation` or `Handover` | the latest 64 |
+
+Receiving a frame:
+
+1. Find the key whose convoy tag the frame carries. None: it's for another convoy, or for a key the receiver doesn't have yet (see rotation below).
+2. Drop it if the sender has been removed, or if its counter was already accepted from that sender. Receivers keep each sender's highest counter, and which of the 64 below it they accepted; anything older than that is dropped too.
+3. Decrypt it. If that fails, drop it.
+4. Check the signature against the sender's card. A card's own frame is checked against the key in it. With no card yet, the receiver holds the frame for up to 30 s for the card to arrive. If several cards share the sender's ID, the frame belongs to the one whose key its signature matches.
+5. Only then record the counter as accepted, so frames that fail can't use up a sender's counters.
+
+A frame that arrives twice, say over a radio and through the server, counts once.
+
+#### The owner
+
+- **Who.** The invite names the owner by their signing key. The owner's statements go out as `OWNER` frames, signed like any frame: key rotations and handovers. Members accept them only from the current owner, checked against that key, so they need no card for it.
+- **Handover.** A `Handover` names the new owner's signing key and the handover's number: 1 for the first. Members accept only the next number. Invites from then on name the new owner.
+  - The server learns of it through `HandOver`, with the owner's signature over `"foxnav v0 handover" ‖ convoy_id ‖ number (4 bytes) ‖ the new owner's key`.
+  - An owner who disappears without handing over leaves the convoy without one: nobody can remove members or rotate the key.
+- **Removal.** `RemoveMember` carries the owner's signature over `"foxnav v0 remove" ‖ convoy_id ‖ member ID (4 bytes) ‖ epoch (4 bytes)`, where the epoch is the one the owner's rotation starts.
+
+#### Rotation
+
+After removing someone, the owner rotates the key:
+
+1. It generates a new convoy key, with the next epoch.
+2. It wraps the new key for each remaining member separately, with AES-KW ([RFC 3394](https://www.rfc-editor.org/rfc/rfc3394)), 40 bytes per member. The wrapping key comes from HKDF-SHA-256 over the X25519 shared secret of the owner's and the member's X25519 keys:
+   - salt: the convoy ID;
+   - info: `foxnav v0 wrap` ‖ epoch (4 bytes) ‖ member ID (4 bytes).
+
+   The new key never travels under the old one, so a removed member who still hears every frame, over a radio, say, can't read on.
+3. It sends a `KeyRotation` in `OWNER` frames, under the current key:
+   - the new epoch and the removed members;
+   - the wrapped keys, as many as fit (two with a member removed);
+   - how many frames the rotation takes, and which one this is.
+
+Members accept a rotation only from the owner, and only to a newer epoch. Each unwraps its own key (AES-KW detects a wrong one).
+
+- **Old keys.** Members seal with the newest key from then on. They keep older ones for 2 minutes to open frames still on their way, but never from removed members.
+- **Catching up.** Someone away during a rotation catches up from the `OWNER` frames in `Joined` when they resume.
+  - When the owner hears a frame under an older key from someone not removed, it wraps the current key for them in an `OWNER` frame of its own, sealed under the older key they still have, once per member and key. That covers members whose card the owner didn't have yet when it rotated, and those out of reach of the rotation.
+  - Frames under a key replaced more than 2 minutes ago are checked but not taken in.
+- **The invite.** It changes with a rotation: the new key, its epoch and the new join token.
 
 See [`docs/threat-model.md`](../docs/threat-model.md) for what this protects against and what it doesn't.
 
 ### 2.4 Payloads
 
-Defined in the `.proto` file.
+Defined in the `.proto` file. Each is the content of one frame and fits in 140 bytes; clients shorten texts to fit.
 
-- **`STATE`** carries a `MemberState`, everything the others need about a member in one message, because the server keeps only the latest one:
-  - `Profile`: display name and car (make, model, colour, body style), and `watching` for a member who follows without sharing a position (say, from a browser). Clients show such a member as watching rather than joining. `role` is a part the member takes on themselves: `ROLE_LEAD` leads the way, `ROLE_TAIL` sweeps up at the back. Nobody assigns roles, and more than one member may take the same one;
-  - `Position`: location, speed, heading, accuracy and fix time. It is absent until the first GPS fix;
-  - `RouteShare`: a shared destination and via points, with the destination last;
-  - `NowPlaying`: the song the member's music is playing (title, artist, the music app's name), only if they choose to share it, so the others can play it too. Absent when they don't, or when nothing plays.
-- **`EVENT`** carries a `QuickMessage` or a `RegroupPin`.
-- **`KEY`** carries a `KeyRotation`.
+- **`CARD`** carries a `Card`: the member's signing key and X25519 key (32 bytes each), and their `Profile`:
+  - display name and car (make, model, colour, body style);
+  - `watching`, for a member who follows without sharing a position (say, from a browser). Clients show such a member as watching rather than joining;
+  - `role`, a part the member takes on themselves: `ROLE_LEAD` leads the way, `ROLE_TAIL` sweeps up at the back. Nobody assigns roles, and more than one member may take the same one.
+- **`POSITION`** carries a `Position`: latitude and longitude (degrees × 10^7, as `sfixed32`), speed (cm/s), heading (degrees), accuracy (m) and fix time (Unix epoch milliseconds), about 25 bytes. Members send none until their first GPS fix.
+- **`ROUTE`** carries a `RouteShare`: a shared destination and via points, with the destination last. It takes as many as fit, with their names shortened if need be. An empty one ends the share.
+- **`SONG`** carries a `NowPlaying`: the song the member's music is playing (title, artist, the music app's name), only if they choose to share it, so the others can play it too. An empty one ends the share.
+- **`EVENT`** carries an `Event`: when it was sent (Unix epoch milliseconds), and a `QuickMessage` or a `RegroupPin`. Receivers drop events sent more than 5 minutes before their own clock.
+- **`OWNER`** carries a `KeyRotation` or a `Handover` (§2.3).
 
-Receivers ignore a `STATE` whose position is older than the one they already have (a replay).
+Receivers ignore a position older than the one they already have from that member, and show an old one with its age.
 
 ### 2.5 Convoy page
 
 A server may serve a web page at its discovery document's `invites` URL that takes the same fragment as the app's invite links (§2.2): `https://maps.example.org/join#v=0&s=…&c=…&t=…&k=…`. Apps then share that link instead of `foxnav://join#…`, because every chat app and camera opens it. The page:
 
 - offers to open the convoy in the app (the `foxnav://` link with the same fragment);
-- or joins the convoy itself, over the same realtime protocol and with the same end-to-end encryption (WebCrypto's AES-GCM), and shows everyone on a map with a timing tower;
+- or joins the convoy itself, over the same realtime protocol and with the same end-to-end encryption (WebCrypto's AES-GCM, AES-KW, HKDF, Ed25519 and X25519, which current browsers all have), and shows everyone on a map with a timing tower;
 - shares the browser's position if the person chooses to, while the page is open; otherwise its `Profile` says `watching`.
 
 The fragment never reaches the server. The page holds the convoy's key, so servers should send it with a strict content security policy: scripts only from the server itself, no inline scripts, and nothing from other members inserted as HTML. The reference implementation is [`web/`](../web/): plain JavaScript modules with no build step, served by the reference server at `/join`.
@@ -178,6 +262,7 @@ The page fetches the discovery document and styles of the invite's server, which
 
 These arrive in a later version of this document:
 
+- convoys over LoRa radios (Meshtastic): the radio link, how often each kind of frame goes out over it, and what gateways forward;
 - new reports pushed over this connection, instead of clients polling the feed (§4);
 - quick messages and regroup points sent from the convoy page;
 - more data packs (speed-limit fixes, average-speed sections);

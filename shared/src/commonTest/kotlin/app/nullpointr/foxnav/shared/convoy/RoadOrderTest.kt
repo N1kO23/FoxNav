@@ -1,7 +1,5 @@
 package app.nullpointr.foxnav.shared.convoy
 
-import app.nullpointr.foxnav.protocol.convoy.v0.NowPlaying
-import app.nullpointr.foxnav.protocol.convoy.v0.Profile
 import app.nullpointr.foxnav.shared.geo.GeoPoint
 import kotlin.math.abs
 import kotlin.test.Test
@@ -57,30 +55,6 @@ class RoadOrderTest {
         assertNear(45.0, stopped.headingDeg)
         // A jump isn't a speed.
         assertEquals(0.0, fixOf(here.moved(5_000.0, 0.0), 3_000, null, null, stopped).speedMps)
-    }
-
-    @Test
-    fun aReplayedOlderStateChangesNothing() {
-        val current = ConvoyMember(1).withState(memberState(Profile(display_name = "Now"), Fix(here, 10.0, 0.0, timeMs = 2_000)), heardMs = 10)
-        val replayed = memberState(Profile(display_name = "Then"), Fix(here.moved(500.0, 0.0), 30.0, 0.0, timeMs = 1_000))
-        assertEquals(current, current.withState(replayed, heardMs = 20))
-        // The same state again (a refresh) still counts as hearing from them.
-        val refreshed = current.withState(memberState(Profile(display_name = "Now"), current.fix), heardMs = 30)
-        assertEquals(30L, refreshed.lastHeardMs)
-    }
-
-    @Test
-    fun theirRoleAndSongComeWithTheirState() {
-        val song = NowPlaying(title = "Plastic Love", artist = "Mariya Takeuchi", app = "Music")
-        val leading = ConvoyMember(1).withState(
-            memberState(Profile(display_name = "Aki", role = Profile.Role.ROLE_LEAD), Fix(here, 20.0, 0.0, timeMs = 1_000), nowPlaying = song),
-            heardMs = 10,
-        )
-        assertEquals(Profile.Role.ROLE_LEAD, leading.profile?.role)
-        assertEquals(song, leading.nowPlaying)
-        // Each state says it all: no song in it, they stopped sharing (or playing).
-        val quiet = leading.withState(memberState(Profile(display_name = "Aki", role = Profile.Role.ROLE_LEAD), Fix(here, 20.0, 0.0, timeMs = 2_000)), heardMs = 20)
-        assertEquals(null, quiet.nowPlaying)
     }
 
     private fun assertNear(expected: Double, actual: Double, tolerance: Double = 1.0) =

@@ -7,8 +7,9 @@ package foxnav.convoy.v0;
 option java_package = "app.nullpointr.foxnav.protocol.convoy.v0";
 
 // ---------------------------------------------------------------------------
-// Envelope: what the server sees. Payloads inside `Sealed` are end-to-end
-// encrypted and opaque to the server.
+// Envelope: what the server sees. Frames (§2.3) are signed and end-to-end
+// encrypted; the server reads only their 13-byte header.
+// Member IDs are the first 4 bytes of the SHA-256 of the member's signing key.
 // ---------------------------------------------------------------------------
 
 message ClientMessage {
@@ -21,6 +22,7 @@ message ClientMessage {
     LeaveConvoy leave_convoy = 6;
     RemoveMember remove_member = 7;
     Ping ping = 8;
+    HandOver hand_over = 9;
   }
 }
 
@@ -50,7 +52,10 @@ message Welcome {
 
 // Creates a convoy and joins the creator, who becomes its owner. The server answers
 // ConvoyCreated, then Joined.
-message CreateConvoy {}
+message CreateConvoy {
+  fixed32 member_id = 1;
+  bytes owner_key = 2; // the creator's Ed25519 public key; member_id must be its ID
+}
 
 message ConvoyCreated {
   bytes convoy_id = 1;  // 16 random bytes
@@ -60,6 +65,7 @@ message ConvoyCreated {
 message JoinConvoy {
   bytes convoy_id = 1;
   bytes join_token = 2;
+  fixed32 member_id = 3; // the joiner's own; refused with CONFLICT if already in the convoy
 }
 
 // Rejoins after a dropped connection without a new join.
@@ -69,28 +75,21 @@ message Resume {
 
 message Joined {
   bytes convoy_id = 1;
-  uint64 member_id = 2;      // assigned by the server, unique within the convoy
+  fixed32 member_id = 2;
   bytes resume_token = 3;
-  repeated Member members = 4; // everyone else, with their latest STATE payload
-  uint64 owner = 5;            // the member who may remove others
-  bytes join_token = 6;        // the current one: it changes when someone is removed
-  repeated Relay key_history = 7; // the latest KEY payloads, oldest first, for members who were away
-}
-
-message Member {
-  uint64 member_id = 1;
-  Sealed last_state = 2;        // latest STATE payload, if the member has sent one
-  uint64 last_state_age_ms = 3; // how long ago the server received last_state
+  repeated fixed32 members = 4; // everyone else connected to the server
+  reserved 5;
+  bytes join_token = 6;          // the current one: it changes when someone is removed
+  repeated Relay frames = 7;     // the frames the server keeps, oldest first
 }
 
 message MemberJoined {
-  uint64 member_id = 1;
+  fixed32 member_id = 1;
 }
 
 message MemberLeft {
-  uint64 member_id = 1;
-  bool removed = 2;   // removed by the owner rather than leaving
-  uint64 new_owner = 3; // set when the owner left and ownership moved on
+  fixed32 member_id = 1;
+  bool removed = 2; // removed by the owner rather than leaving
 }
 
 // The join token changed because someone was removed: invites with the old one stop working.
@@ -98,30 +97,33 @@ message InviteChanged {
   bytes join_token = 1;
 }
 
-enum Channel {
-  CHANNEL_UNSPECIFIED = 0;
-  CHANNEL_STATE = 1; // latest value matters; the server keeps the latest per member
-  CHANNEL_EVENT = 2; // one-off; relayed, never kept
-  CHANNEL_KEY = 3;   // key rotations; only the owner may publish, the server keeps the latest few
-}
-
 message Publish {
-  Channel channel = 1;
-  Sealed payload = 2;
+  bytes frame = 1;
 }
 
 message Relay {
-  uint64 sender = 1;
-  Channel channel = 2;
-  Sealed payload = 3;
-  int64 server_time_ms = 4; // Unix epoch milliseconds when the server relayed it
+  bytes frame = 1;
+  fixed32 from = 2;          // who published it: the sender, or a gateway forwarding it from a radio
+  int64 server_time_ms = 3;  // Unix epoch milliseconds when the server relayed it
+  uint64 age_ms = 4;         // in Joined.frames: how long ago the server received it
 }
 
 message LeaveConvoy {}
 
-// Only the convoy's owner may remove members.
+// Only the convoy's owner may remove members. signature: Ed25519 by the owner's key over
+// "foxnav v0 remove" ‖ convoy_id ‖ member_id (4 bytes) ‖ epoch (4 bytes).
 message RemoveMember {
-  uint64 member_id = 1;
+  fixed32 member_id = 1;
+  uint32 epoch = 2; // the key epoch the owner's rotation starts
+  bytes signature = 3;
+}
+
+// The owner hands the convoy over. signature: Ed25519 by the owner's key over
+// "foxnav v0 handover" ‖ convoy_id ‖ number (4 bytes) ‖ new_owner_key.
+message HandOver {
+  uint32 number = 1; // 1 for the convoy's first handover
+  bytes new_owner_key = 2;
+  bytes signature = 3;
 }
 
 message Ping {}
@@ -133,50 +135,34 @@ message Error {
     CODE_UNSPECIFIED = 0;
     CODE_BAD_REQUEST = 1;
     CODE_NOT_FOUND = 2;      // unknown convoy or expired resume token
-    CODE_FORBIDDEN = 3;      // wrong join token, or not allowed to remove members
+    CODE_FORBIDDEN = 3;      // wrong join token, or a missing or wrong owner's signature
     CODE_CONVOY_FULL = 4;
     CODE_RATE_LIMITED = 5;
+    CODE_CONFLICT = 6;       // the member ID is already in the convoy
   }
   Code code = 1;
   string message = 2;
 }
 
-// AES-256-GCM output. Associated data: convoy_id ‖ sender member_id (8 bytes,
-// big-endian) ‖ channel (1 byte). The plaintext is a ConvoyPayload.
-message Sealed {
-  uint32 key_epoch = 1;
-  bytes nonce = 2;      // 12 random bytes
-  bytes ciphertext = 3; // includes the 16-byte tag
-}
-
 // ---------------------------------------------------------------------------
-// Payloads: what members see after decrypting.
+// Frame contents: what members see after decrypting a frame, one message per
+// frame kind (§2.3), at most 140 bytes.
 // ---------------------------------------------------------------------------
 
-message ConvoyPayload {
-  oneof payload {
-    MemberState state = 1;          // STATE
-    QuickMessage quick_message = 2; // EVENT
-    RegroupPin regroup_pin = 3;     // EVENT
-    KeyRotation key_rotation = 4;   // KEY
-  }
+// CARD: who a member is. Its signing key's member ID is the frame's sender.
+message Card {
+  bytes signing_key = 1;  // Ed25519 public key, 32 bytes
+  bytes exchange_key = 2; // X25519 public key, 32 bytes, for receiving new convoy keys
+  Profile profile = 3;
 }
 
-// Everything the others need to know about a member. The server keeps only each member's
-// latest STATE payload for people who join later, so it must be complete on its own.
-message MemberState {
-  Profile profile = 1;
-  Position position = 2;      // absent until the first GPS fix
-  RouteShare route = 3;       // a shared destination, usually only the leader's
-  NowPlaying now_playing = 4; // absent unless the member chooses to share it
-}
-
+// POSITION
 message Position {
-  sint32 lat_e7 = 1;       // degrees × 10^7
-  sint32 lon_e7 = 2;       // degrees × 10^7
-  float speed_mps = 3;     // shown to other members; needed for motion prediction
-  float heading_deg = 4;   // 0-360, clockwise from north
-  float accuracy_m = 5;    // horizontal, 68% confidence
+  sfixed32 lat_e7 = 1;     // degrees × 10^7
+  sfixed32 lon_e7 = 2;     // degrees × 10^7
+  uint32 speed_cms = 3;    // shown to other members; needed for motion prediction
+  uint32 heading_deg = 4;  // 0-359, clockwise from north
+  uint32 accuracy_m = 5;   // horizontal, 68% confidence
   int64 fix_time_ms = 6;   // Unix epoch milliseconds of the GPS fix
 }
 
@@ -193,7 +179,8 @@ message Profile {
   Role role = 4;
 }
 
-// What the member's car stereo is playing, for the others to play along in their own music app.
+// SONG: what the member's car stereo is playing, for the others to play along in their own
+// music app. An empty one ends the share.
 message NowPlaying {
   string title = 1;
   string artist = 2;
@@ -220,14 +207,24 @@ message Car {
 }
 
 message Waypoint {
-  sint32 lat_e7 = 1;
-  sint32 lon_e7 = 2;
+  sfixed32 lat_e7 = 1;
+  sfixed32 lon_e7 = 2;
   string name = 3;
 }
 
-// The shared destination is the last waypoint. Each member routes through them itself.
+// ROUTE: the shared destination is the last waypoint. Each member routes through them itself.
+// An empty one ends the share.
 message RouteShare {
   repeated Waypoint waypoints = 1;
+}
+
+// EVENT
+message Event {
+  int64 sent_ms = 1; // Unix epoch milliseconds; receivers drop events more than 5 minutes old
+  oneof event {
+    QuickMessage quick_message = 2;
+    RegroupPin regroup_pin = 3;
+  }
 }
 
 message QuickMessage {
@@ -248,8 +245,31 @@ message RegroupPin {
   Waypoint location = 1;
 }
 
-// Sent by the owner on the KEY channel after removing someone, encrypted under the current key.
+// OWNER: statements only the owner makes, signed with their key.
+message OwnerStatement {
+  oneof statement {
+    KeyRotation key_rotation = 1;
+    Handover handover = 2;
+  }
+}
+
+// A new convoy key, wrapped for each remaining member separately (never under the old key).
+// A big convoy's rotation takes several frames: `part` of `parts`, each with some of the keys.
 message KeyRotation {
   uint32 epoch = 1;
-  bytes key = 2; // 32 bytes
+  repeated fixed32 removed = 2;
+  uint32 part = 3;  // from 1
+  uint32 parts = 4;
+  repeated WrappedKey keys = 5;
+}
+
+message WrappedKey {
+  fixed32 member_id = 1;
+  bytes key = 2; // AES-KW, 40 bytes
+}
+
+// The owner hands the convoy over; members accept only the next number.
+message Handover {
+  uint32 number = 1;
+  bytes new_owner_key = 2;
 }

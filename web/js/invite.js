@@ -1,6 +1,6 @@
 // Convoy invites, as the app's Invite (shared/…/convoy/Invite.kt): everything is in the link's
 // fragment, which browsers never send to a server.
-//   …#v=0&s=<server>&c=<convoy ID>&t=<join token>&k=<key>[&e=<key epoch>]
+//   …#v=0&s=<server>&c=<convoy ID>&t=<join token>&k=<key>&o=<owner's key>[&e=<key epoch>][&h=<handovers>]
 
 const VERSION = "0";
 const KEY_SIZE = 32;
@@ -39,18 +39,26 @@ export function parseInvite(link) {
   const convoyId = fromBase64Url(fields.get("c") ?? "");
   const joinToken = fromBase64Url(fields.get("t") ?? "");
   const key = fromBase64Url(fields.get("k") ?? "");
-  const epochText = fields.get("e");
-  const keyEpoch = epochText === undefined ? 0 : Number(epochText);
-  if (!server || convoyId?.length !== 16 || !joinToken?.length || key?.length !== KEY_SIZE) return null;
-  if (!Number.isInteger(keyEpoch) || keyEpoch < 0) return null;
-  return { server, convoyId, joinToken, key, keyEpoch };
+  const ownerKey = fromBase64Url(fields.get("o") ?? "");
+  const keyEpoch = count(fields.get("e"));
+  const handovers = count(fields.get("h"));
+  if (!server || convoyId?.length !== 16 || !joinToken?.length || key?.length !== KEY_SIZE || ownerKey?.length !== KEY_SIZE) return null;
+  if (keyEpoch === null || handovers === null) return null;
+  return { server, convoyId, joinToken, key, ownerKey, keyEpoch, handovers };
+}
+
+/** A count from the fragment: 0 when it's left out, null when it isn't one. */
+function count(text) {
+  if (text === undefined) return 0;
+  const value = Number(text);
+  return Number.isInteger(value) && value >= 0 && /^\d+$/.test(text) ? value : null;
 }
 
 /** The fragment for [invite], without the "#". */
 export function inviteFragment(invite) {
   return `v=${VERSION}&s=${encodeURIComponent(invite.server)}&c=${base64Url(invite.convoyId)}` +
-    `&t=${base64Url(invite.joinToken)}&k=${base64Url(invite.key)}` +
-    (invite.keyEpoch ? `&e=${invite.keyEpoch}` : "");
+    `&t=${base64Url(invite.joinToken)}&k=${base64Url(invite.key)}&o=${base64Url(invite.ownerKey)}` +
+    (invite.keyEpoch ? `&e=${invite.keyEpoch}` : "") + (invite.handovers ? `&h=${invite.handovers}` : "");
 }
 
 /** The server's base URL: a bare address means https, as in the app. */

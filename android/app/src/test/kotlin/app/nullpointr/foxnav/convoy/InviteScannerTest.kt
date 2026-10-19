@@ -11,7 +11,7 @@ import kotlin.test.assertNull
 class InviteScannerTest {
     @Test
     fun readsAnInviteQrCodeFromACameraFrame() {
-        val link = Invite("http://192.168.3.202:8080", ByteArray(16) { it.toByte() }, ByteArray(16) { 1 }, ByteArray(32) { 2 }, keyEpoch = 1).toLink()
+        val link = Invite("http://192.168.3.202:8080", ByteArray(16) { it.toByte() }, ByteArray(16) { 1 }, ByteArray(32) { 2 }, ByteArray(32) { 3 }, keyEpoch = 1).toLink()
         val code = QRCodeWriter().encode(link, BarcodeFormat.QR_CODE, 360, 360, mapOf(EncodeHintType.MARGIN to 2))
         // A frame bigger than the code, with padding after each row, as camera buffers have.
         val width = 640

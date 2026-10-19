@@ -1,8 +1,9 @@
 package app.nullpointr.foxnav.server.convoy
 
-import app.nullpointr.foxnav.protocol.convoy.v0.Channel
 import app.nullpointr.foxnav.protocol.convoy.v0.ClientMessage
 import app.nullpointr.foxnav.protocol.convoy.v0.ConvoyCreated
+import app.nullpointr.foxnav.protocol.convoy.v0.CreateConvoy
+import app.nullpointr.foxnav.protocol.convoy.v0.HandOver
 import app.nullpointr.foxnav.protocol.convoy.v0.InviteChanged
 import app.nullpointr.foxnav.protocol.convoy.v0.JoinConvoy
 import app.nullpointr.foxnav.protocol.convoy.v0.Joined
@@ -13,9 +14,14 @@ import app.nullpointr.foxnav.protocol.convoy.v0.Publish
 import app.nullpointr.foxnav.protocol.convoy.v0.Relay
 import app.nullpointr.foxnav.protocol.convoy.v0.RemoveMember
 import app.nullpointr.foxnav.protocol.convoy.v0.Resume
-import app.nullpointr.foxnav.protocol.convoy.v0.Sealed
 import app.nullpointr.foxnav.protocol.convoy.v0.ServerMessage
 import app.nullpointr.foxnav.protocol.convoy.v0.Welcome
+import app.nullpointr.foxnav.shared.convoy.ConvoyFrames
+import app.nullpointr.foxnav.shared.convoy.FrameHeader
+import app.nullpointr.foxnav.shared.convoy.FrameKind
+import app.nullpointr.foxnav.shared.convoy.OwnerSignatures
+import app.nullpointr.foxnav.shared.convoy.ed25519Verify
+import app.nullpointr.foxnav.shared.convoy.memberIdOf
 import app.nullpointr.foxnav.shared.convoy.secureRandomBytes
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -23,11 +29,11 @@ import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import java.security.MessageDigest
 import app.nullpointr.foxnav.protocol.convoy.v0.Error as ProtocolError
-import app.nullpointr.foxnav.protocol.convoy.v0.Member as ProtocolMember
 
 /**
- * The convoy relay (protocol/SPEC.md §2.2): rooms of members that forward end-to-end encrypted
- * payloads to each other. It never sees inside a payload. Rooms live in memory only.
+ * The convoy relay (protocol/SPEC.md §2.2): rooms of members that forward signed, end-to-end
+ * encrypted frames to each other. It reads only a frame's header, never what's inside. It checks
+ * the owner's signature before removing anyone or handing the convoy over. Rooms live in memory only.
  */
 class ConvoyRelay(
     private val limits: Limits = Limits(),
@@ -36,21 +42,20 @@ class ConvoyRelay(
     data class Limits(
         val maxConvoySize: Int = 20,
         /**
-         * At most [stateBurst] STATE payloads per member per [stateWindowMs]; more are dropped.
-         * Clients send one a second, but after a network stall several arrive at once.
+         * At most [positionBurst] POSITION frames per member and sender per [positionWindowMs]; more
+         * are dropped. Clients send one a second, but after a network stall several arrive at once.
          */
-        val stateBurst: Int = 5,
-        val stateWindowMs: Long = 3_000,
-        /** At most [eventBurst] EVENT (and KEY) payloads per member per [eventWindowMs]. */
-        val eventBurst: Int = 10,
-        val eventWindowMs: Long = 10_000,
-        val maxCiphertextBytes: Int = 4_096,
+        val positionBurst: Int = 5,
+        val positionWindowMs: Long = 3_000,
+        /** At most [otherBurst] frames of other kinds per member and sender per [otherWindowMs]. */
+        val otherBurst: Int = 10,
+        val otherWindowMs: Long = 10_000,
         /** How long a dropped member keeps their seat and can resume. */
         val resumeWindowMs: Long = 5 * 60_000,
         /** How long a convoy with nobody in it stays joinable. */
         val emptyRoomTtlMs: Long = 60 * 60_000,
-        /** How many KEY payloads a convoy keeps for members who were away during a rotation. */
-        val keyHistory: Int = 8,
+        /** How many OWNER frames a convoy keeps for members who were away. */
+        val ownerFrames: Int = 64,
     )
 
     /** One client connection; [send] queues a message for it. */
@@ -59,21 +64,26 @@ class ConvoyRelay(
         internal var member: Member? = null
     }
 
-    internal class Room(val id: ByteString, var joinToken: ByteString) {
-        val members = LinkedHashMap<Long, Member>()
-        var owner = 0L
+    internal class Room(val id: ByteString, var joinToken: ByteString, var ownerKey: ByteString) {
+        val members = LinkedHashMap<Int, Member>()
+        var handovers = 0
+        val removed = HashSet<Int>()
         var emptySince: Long? = null
-        val keyHistory = ArrayDeque<Relay>()
+        val ownerFrames = ArrayDeque<Kept>()
+        val ownerId: Int get() = memberIdOf(ownerKey.toByteArray())
     }
 
-    internal class Member(val id: Long, val resumeToken: ByteString) {
+    internal class Member(val id: Int, val resumeToken: ByteString) {
         var connection: Connection? = null
-        var lastState: Sealed? = null
-        var lastStateAt = 0L
         var disconnectedAt: Long? = null
-        val recentStates = ArrayDeque<Long>()
-        val recentEvents = ArrayDeque<Long>()
+
+        /** The latest frame of each kind it published, per sender: its own, or a radio's as a gateway. */
+        val kept = HashMap<Pair<Int, Int>, Kept>()
+        val recentPositions = HashMap<Int, ArrayDeque<Long>>()
+        val recentOthers = HashMap<Int, ArrayDeque<Long>>()
     }
+
+    internal class Kept(val frame: ByteString, val from: Int, val receivedAt: Long)
 
     private val mutex = Mutex()
     private val rooms = HashMap<ByteString, Room>()
@@ -113,24 +123,27 @@ class ConvoyRelay(
             connection.send(ServerMessage(welcome = Welcome(server = SERVER_NAME, max_convoy_size = limits.maxConvoySize)))
             return
         }
-        message.create_convoy?.let { return create(connection) }
+        message.create_convoy?.let { return create(connection, it) }
         message.join_convoy?.let { return join(connection, it) }
         message.resume?.let { return resume(connection, it) }
         message.publish?.let { return publish(connection, it) }
         message.leave_convoy?.let { return leave(connection) }
         message.remove_member?.let { return remove(connection, it) }
+        message.hand_over?.let { return handOver(connection, it) }
         message.ping?.let { return connection.send(ServerMessage(pong = Pong())) }
         connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Unknown or empty message")
     }
 
-    private fun create(connection: Connection) {
+    private fun create(connection: Connection, request: CreateConvoy) {
         if (connection.member != null) return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Already in a convoy")
+        if (request.owner_key.size != ConvoyFrames.KEY_SIZE || memberIdOf(request.owner_key.toByteArray()) != request.member_id) {
+            return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "The member ID isn't the owner key's")
+        }
         var id: ByteString
         do id = secureRandomBytes(16).toByteString() while (id in rooms)
-        val room = Room(id, secureRandomBytes(16).toByteString())
+        val room = Room(id, secureRandomBytes(16).toByteString(), request.owner_key)
         rooms[id] = room
-        val member = seat(room, connection)
-        room.owner = member.id
+        val member = seat(room, connection, request.member_id)
         connection.send(ServerMessage(convoy_created = ConvoyCreated(convoy_id = room.id, join_token = room.joinToken)))
         connection.send(ServerMessage(joined = joinedMessage(room, member)))
     }
@@ -141,9 +154,10 @@ class ConvoyRelay(
         if (!MessageDigest.isEqual(room.joinToken.toByteArray(), request.join_token.toByteArray())) {
             return connection.error(ProtocolError.Code.CODE_FORBIDDEN, "Wrong join token")
         }
+        if (request.member_id in room.removed) return connection.error(ProtocolError.Code.CODE_FORBIDDEN, "Removed from the convoy")
+        if (request.member_id in room.members) return connection.error(ProtocolError.Code.CODE_CONFLICT, "Someone in the convoy has that member ID")
         if (room.members.size >= limits.maxConvoySize) return connection.error(ProtocolError.Code.CODE_CONVOY_FULL, "The convoy is full")
-        val member = seat(room, connection)
-        if (room.owner == 0L) room.owner = member.id
+        val member = seat(room, connection, request.member_id)
         connection.send(ServerMessage(joined = joinedMessage(room, member)))
         broadcast(room, except = member, ServerMessage(member_joined = MemberJoined(member_id = member.id)))
     }
@@ -163,34 +177,29 @@ class ConvoyRelay(
         val room = connection.room
         val member = connection.member
         if (room == null || member == null) return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Join a convoy first")
-        val sealed = request.payload ?: return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Nothing to publish")
-        if (sealed.ciphertext.size > limits.maxCiphertextBytes) return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Payload too large")
+        val frame = request.frame
+        if (frame.size > ConvoyFrames.MAX_SIZE) return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Frame too large")
+        if (frame.size < ConvoyFrames.MIN_SIZE) return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Not a frame")
+        val header = FrameHeader.parse(frame.toByteArray()) ?: return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Not a frame")
+        if (header.sender in room.removed) return // removed: dropped
         val now = clock()
-        when (request.channel) {
-            Channel.CHANNEL_STATE -> {
-                if (!member.recentStates.admit(now, limits.stateBurst, limits.stateWindowMs)) return // too fast: dropped
-                member.lastState = sealed
-                member.lastStateAt = now
-            }
-            Channel.CHANNEL_EVENT -> {
-                if (!member.recentEvents.admit(now, limits.eventBurst, limits.eventWindowMs)) {
-                    return connection.error(ProtocolError.Code.CODE_RATE_LIMITED, "Too many events")
-                }
-            }
-            Channel.CHANNEL_KEY -> {
-                if (room.owner != member.id) return connection.error(ProtocolError.Code.CODE_FORBIDDEN, "Only the convoy's owner rotates keys")
-                if (!member.recentEvents.admit(now, limits.eventBurst, limits.eventWindowMs)) {
-                    return connection.error(ProtocolError.Code.CODE_RATE_LIMITED, "Too many events")
-                }
-            }
-            else -> return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Unknown channel")
+        val kind = FrameKind.of(header.kind)
+        if (kind == FrameKind.POSITION) {
+            if (!member.recentPositions.getOrPut(header.sender) { ArrayDeque() }.admit(now, limits.positionBurst, limits.positionWindowMs)) return // too fast: dropped
+        } else if (!member.recentOthers.getOrPut(header.sender) { ArrayDeque() }.admit(now, limits.otherBurst, limits.otherWindowMs)) {
+            return connection.error(ProtocolError.Code.CODE_RATE_LIMITED, "Too many frames")
         }
-        val relay = Relay(sender = member.id, channel = request.channel, payload = sealed, server_time_ms = now)
-        if (request.channel == Channel.CHANNEL_KEY) {
-            room.keyHistory.addLast(relay)
-            while (room.keyHistory.size > limits.keyHistory) room.keyHistory.removeFirst()
+        val kept = Kept(frame, member.id, now)
+        when {
+            kind == FrameKind.OWNER -> {
+                if (header.sender != room.ownerId) return connection.error(ProtocolError.Code.CODE_FORBIDDEN, "Only the owner's frames go out as the owner's")
+                room.ownerFrames.addLast(kept)
+                while (room.ownerFrames.size > limits.ownerFrames) room.ownerFrames.removeFirst()
+            }
+            kind?.keptPerSender == true -> member.kept[header.sender to header.kind] = kept
+            else -> Unit // events, and kinds this server doesn't know: relayed, not kept
         }
-        broadcast(room, except = member, ServerMessage(relay = relay))
+        broadcast(room, except = member, ServerMessage(relay = Relay(frame = frame, from = member.id, server_time_ms = now)))
     }
 
     private fun leave(connection: Connection) {
@@ -205,24 +214,41 @@ class ConvoyRelay(
         val room = connection.room
         val requester = connection.member
         if (room == null || requester == null) return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Join a convoy first")
-        if (room.owner != requester.id) return connection.error(ProtocolError.Code.CODE_FORBIDDEN, "Only the convoy's owner can remove members")
-        val target = room.members[request.member_id] ?: return connection.error(ProtocolError.Code.CODE_NOT_FOUND, "No such member")
-        if (target === requester) return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Leave instead of removing yourself")
-        target.connection?.let { removed ->
-            removed.send(ServerMessage(member_left = MemberLeft(member_id = target.id, removed = true)))
-            removed.room = null
-            removed.member = null
+        val signed = OwnerSignatures.removal(room.id.toByteArray(), request.member_id, request.epoch)
+        if (!ed25519Verify(room.ownerKey.toByteArray(), signed, request.signature.toByteArray())) {
+            return connection.error(ProtocolError.Code.CODE_FORBIDDEN, "Only the convoy's owner can remove members")
         }
-        removeMember(room, target, removed = true)
+        if (request.member_id == room.ownerId) return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Leave instead of removing yourself")
+        room.removed += request.member_id
+        // Seated or not (they may be on a radio only): from now on, nothing from them goes out.
+        room.members[request.member_id]?.let { target ->
+            target.connection?.let { removed ->
+                removed.send(ServerMessage(member_left = MemberLeft(member_id = target.id, removed = true)))
+                removed.room = null
+                removed.member = null
+            }
+            removeMember(room, target, removed = true)
+        }
+        for (member in room.members.values) member.kept.keys.removeAll { (sender, _) -> sender == request.member_id }
         // They still have the invite: a new join token keeps them from coming straight back.
         room.joinToken = secureRandomBytes(16).toByteString()
         broadcast(room, except = null, ServerMessage(invite_changed = InviteChanged(join_token = room.joinToken)))
     }
 
-    private fun seat(room: Room, connection: Connection): Member {
-        var id: Long
-        do id = secureRandomBytes(8).fold(0L) { acc, byte -> (acc shl 8) or (byte.toLong() and 0xFF) } and Long.MAX_VALUE
-        while (id == 0L || id in room.members)
+    private fun handOver(connection: Connection, request: HandOver) {
+        val room = connection.room ?: return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Join a convoy first")
+        val signed = OwnerSignatures.handover(room.id.toByteArray(), request.number, request.new_owner_key.toByteArray())
+        if (!ed25519Verify(room.ownerKey.toByteArray(), signed, request.signature.toByteArray())) {
+            return connection.error(ProtocolError.Code.CODE_FORBIDDEN, "Only the convoy's owner can hand it over")
+        }
+        if (request.number != room.handovers + 1 || request.new_owner_key.size != ConvoyFrames.KEY_SIZE) {
+            return connection.error(ProtocolError.Code.CODE_BAD_REQUEST, "Not the next handover")
+        }
+        room.handovers = request.number
+        room.ownerKey = request.new_owner_key
+    }
+
+    private fun seat(room: Room, connection: Connection, id: Int): Member {
         val member = Member(id, secureRandomBytes(32).toByteString())
         member.connection = connection
         room.members[id] = member
@@ -236,28 +262,22 @@ class ConvoyRelay(
     private fun removeMember(room: Room, member: Member, removed: Boolean) {
         room.members.remove(member.id)
         seats.remove(member.resumeToken)
-        var newOwner = 0L
-        if (room.owner == member.id) {
-            room.owner = room.members.keys.firstOrNull() ?: 0L
-            newOwner = room.owner
-        }
-        broadcast(room, except = member, ServerMessage(member_left = MemberLeft(member_id = member.id, removed = removed, new_owner = newOwner)))
+        broadcast(room, except = member, ServerMessage(member_left = MemberLeft(member_id = member.id, removed = removed)))
         if (room.members.isEmpty()) room.emptySince = clock()
     }
 
+    /** Everyone else seated, and every frame kept, oldest first; but not the frames [member] published itself. */
     private fun joinedMessage(room: Room, member: Member): Joined {
         val now = clock()
+        val kept = (room.members.values.filter { it !== member }.flatMap { it.kept.values } + room.ownerFrames.filter { it.from != member.id })
+            .sortedBy { it.receivedAt }
         return Joined(
             convoy_id = room.id,
             member_id = member.id,
             resume_token = member.resumeToken,
-            members = room.members.values.filter { it !== member }.map { other ->
-                val age = if (other.lastState != null) (now - other.lastStateAt).coerceAtLeast(0) else 0
-                ProtocolMember(member_id = other.id, last_state = other.lastState, last_state_age_ms = age)
-            },
-            owner = room.owner,
+            members = room.members.keys.filter { it != member.id },
             join_token = room.joinToken,
-            key_history = room.keyHistory.toList(),
+            frames = kept.map { Relay(frame = it.frame, from = it.from, server_time_ms = it.receivedAt, age_ms = (now - it.receivedAt).coerceAtLeast(0)) },
         )
     }
 

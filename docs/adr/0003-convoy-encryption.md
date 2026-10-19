@@ -1,6 +1,6 @@
 # 0003: Convoy payloads are end-to-end encrypted
 
-**Status:** accepted, October 2026
+**Status:** accepted, October 2026. Partly replaced by [ADR 0007](0007-convoy-member-keys.md): members sign what they send, and new keys go to each member separately, so convoys work without a relay.
 
 ## Context
 

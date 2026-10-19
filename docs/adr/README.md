@@ -6,7 +6,8 @@ Short records of decisions that shape FoxNav, so nobody has to rediscover why. E
 |---|---|
 | [0001](0001-navigation-sdk.md) | Build on Ferrostar and MapLibre instead of a commercial navigation SDK |
 | [0002](0002-convoy-transport.md) | Convoys use a WebSocket relay, not WebRTC |
-| [0003](0003-convoy-encryption.md) | Convoy payloads are end-to-end encrypted |
+| [0003](0003-convoy-encryption.md) | Convoy payloads are end-to-end encrypted (partly replaced by 0007) |
 | [0004](0004-licensing.md) | GPL apps, AGPL server, Apache-2.0 protocol |
 | [0005](0005-offline-routing.md) | Routing and road lookups also run on the phone, on the server's own graph |
 | [0006](0006-offline-search.md) | Search works offline from search packs that come with road data |
+| [0007](0007-convoy-member-keys.md) | Convoy members sign what they send, so convoys work without a relay |

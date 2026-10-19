@@ -1,5 +1,6 @@
 package app.nullpointr.foxnav.server.convoy
 
+import app.nullpointr.foxnav.protocol.convoy.v0.NowPlaying
 import app.nullpointr.foxnav.protocol.convoy.v0.Profile
 import app.nullpointr.foxnav.protocol.convoy.v0.QuickMessage
 import app.nullpointr.foxnav.shared.convoy.ConvoyEvent
@@ -8,7 +9,9 @@ import app.nullpointr.foxnav.shared.convoy.ConvoyStatus
 import app.nullpointr.foxnav.shared.convoy.EndReason
 import app.nullpointr.foxnav.shared.convoy.Fix
 import app.nullpointr.foxnav.shared.convoy.Invite
+import app.nullpointr.foxnav.shared.convoy.memberIdOf
 import app.nullpointr.foxnav.shared.convoy.memberState
+import app.nullpointr.foxnav.shared.convoy.toMemberId
 import app.nullpointr.foxnav.shared.geo.GeoPoint
 import io.ktor.client.HttpClient
 import io.ktor.server.application.install
@@ -103,7 +106,7 @@ class ConvoySessionTest {
         owner.events.await("the rider joining") { ConvoyEvent.MemberJoined(riderId) in it }
 
         owner.session.updateState(memberState(Profile(display_name = "Aki"), Fix(HELSINKI, speedMps = 22.0, headingDeg = 90.0, timeMs = 1_700_000_000_000)))
-        val seen = rider.session.members.await("the owner's state") { it[ownerId]?.profile != null }.getValue(ownerId)
+        val seen = rider.session.members.await("the owner's state") { it[ownerId]?.profile?.display_name == "Aki" && it[ownerId]?.fix != null }.getValue(ownerId)
         assertEquals("Aki", seen.profile?.display_name)
         assertEquals(HELSINKI.latitude, seen.fix!!.point.latitude, 1e-6)
         assertEquals(HELSINKI.longitude, seen.fix!!.point.longitude, 1e-6)
@@ -143,7 +146,7 @@ class ConvoySessionTest {
         assertEquals(riderId, rider.id())
 
         owner.session.updateState(memberState(Profile(display_name = "Aki"), Fix(HELSINKI, 0.0, 0.0, timeMs = 1)))
-        rider.session.members.await("state after resuming") { it[ownerId]?.profile != null }
+        rider.session.members.await("state after resuming") { it[ownerId]?.profile?.display_name == "Aki" }
         assertTrue(owner.events.value.none { it is ConvoyEvent.MemberLeft }, "nobody saw anyone leave")
     }
 
@@ -175,8 +178,25 @@ class ConvoySessionTest {
             ConvoyEvent.MemberLeft(oldId, removed = false) in owner.events.value
         }
 
-        val back = rider.session.status.await("a new seat") { it is ConvoyStatus.Live && it.memberId != oldId } as ConvoyStatus.Live
-        owner.events.await("the rider back") { ConvoyEvent.MemberJoined(back.memberId) in it }
+        // The same identity in a new seat: the others see them leave and come back.
+        owner.events.await("the rider back") { events -> events.count { it == ConvoyEvent.MemberJoined(oldId) } == 2 }
+        rider.session.status.await("a new seat") { it == ConvoyStatus.Live(oldId) }
+    }
+
+    @Test
+    fun aMemberWhoseCardCameTooLateForARotationStillGetsTheKey() = convoyTest {
+        val owner = create()
+        val ownerId = owner.id()
+        val invite = owner.invite()
+        val removedId = join(invite).id()
+        owner.session.members.await("their card") { it[removedId]?.profile != null }
+        // The owner removes someone the moment a newcomer is in, likely before the newcomer's card arrives.
+        val newcomer = join(invite)
+        newcomer.id()
+        owner.session.remove(removedId)
+        newcomer.session.invite.await("the new key, wrapped for them when their frames came in under the old one") { it?.keyEpoch == 1 }
+        owner.session.updateState(memberState(Profile(display_name = "After"), Fix(HELSINKI, 0.0, 0.0, timeMs = 1)))
+        newcomer.session.members.await("the owner's new state") { it[ownerId]?.profile?.display_name == "After" }
     }
 
     @Test
@@ -228,6 +248,8 @@ class ConvoySessionTest {
         // Comes back slowly, so the rotation happens while they're away.
         val away = join(invite, ConvoySession.Timing(minBackoffMs = 3_000))
         val awayId = away.id()
+        // The owner needs their card to send them the next key.
+        owner.session.members.await("their card") { it[awayId]?.profile != null }
         sockets.last().close()
         away.session.status.await("the drop") { it is ConvoyStatus.Reconnecting }
 
@@ -239,6 +261,52 @@ class ConvoySessionTest {
         away.session.status.await("the resume") { it == ConvoyStatus.Live(awayId) }
         away.session.members.await("the owner's new state") { it[ownerId]?.profile?.display_name == "Rotated" }
         assertEquals(1, away.session.invite.value?.keyEpoch)
+    }
+
+    @Test
+    fun anOlderPositionChangesNothingAndAnEmptySongEndsTheShare() = convoyTest {
+        val owner = create()
+        val ownerId = owner.id()
+        val rider = join(owner.invite())
+        rider.id()
+        val song = NowPlaying(title = "Plastic Love", artist = "Mariya Takeuchi", app = "Music")
+        val profile = Profile(display_name = "Aki", role = Profile.Role.ROLE_LEAD)
+
+        owner.session.updateState(memberState(profile, Fix(HELSINKI, 20.0, 0.0, timeMs = 2_000), nowPlaying = song))
+        val seen = rider.session.members.await("the song") { it[ownerId]?.nowPlaying == song }.getValue(ownerId)
+        assertEquals(Profile.Role.ROLE_LEAD, seen.profile?.role)
+
+        // A late, older position: it doesn't move them back.
+        owner.session.updateState(memberState(profile, Fix(GeoPoint(61.0, 25.0), 30.0, 0.0, timeMs = 1_000)))
+        val after = rider.session.members.await("the song to end") { it[ownerId]?.nowPlaying == null }.getValue(ownerId)
+        assertEquals(2_000, after.fix?.timeMs)
+        assertEquals(HELSINKI.latitude, after.fix!!.point.latitude, 1e-6)
+    }
+
+    @Test
+    fun theOwnerHandsTheConvoyOverWhenLeaving() = convoyTest {
+        val owner = create()
+        owner.id()
+        val first = join(owner.invite())
+        val firstId = first.id()
+        val second = join(owner.invite())
+        val secondId = second.id()
+        owner.session.members.await("both cards") { it[firstId]?.profile != null && it[secondId]?.profile != null }
+
+        owner.session.leave()
+        // To whoever has been in the convoy longest; the others follow the owner's signed handover.
+        first.session.ownerId.await("the handover") { it == firstId }
+        second.session.ownerId.await("the handover") { it == firstId }
+        val invite = first.session.invite.await("the new invite") { it?.handovers == 1 }!!
+        assertEquals(firstId, memberIdOf(invite.ownerKey).toMemberId())
+
+        // The new owner can remove members, and the rest follow its new key.
+        val third = join(invite)
+        val thirdId = third.id()
+        first.session.members.await("the newcomer's card") { it[thirdId]?.profile != null }
+        first.session.remove(thirdId)
+        third.session.status.await("the removal") { it == ConvoyStatus.Ended(EndReason.REMOVED) }
+        second.session.invite.await("the new key") { it?.keyEpoch == 1 }
     }
 
     @Test
@@ -258,10 +326,10 @@ class ConvoySessionTest {
         owner.id()
         val invite = owner.invite()
 
-        val forged = join(Invite(invite.server, invite.convoyId, "guessed".encodeToByteArray(), invite.key))
+        val forged = join(Invite(invite.server, invite.convoyId, "guessed".encodeToByteArray(), invite.key, invite.ownerKey))
         forged.session.status.await("the refusal") { it == ConvoyStatus.Ended(EndReason.INVITE_INVALID) }
 
-        val unknown = join(Invite(invite.server, ByteArray(16), invite.joinToken, invite.key))
+        val unknown = join(Invite(invite.server, ByteArray(16), invite.joinToken, invite.key, invite.ownerKey))
         unknown.session.status.await("the refusal") { it == ConvoyStatus.Ended(EndReason.CONVOY_GONE) }
     }
 
