@@ -64,7 +64,7 @@ fun DriveRoute(document: DiscoveryDocument) {
         val offline = graph.offlineMaps
         offline.configure()
         withTimeoutOrNull(5.seconds) { snapshotFlow { offline.areas }.first { it.isNotEmpty() } }
-        offline.resumeUnfinished()
+        if (graph.offlineDownloads.allowed.value) offline.resumeUnfinished()
     }
     // Where we are, roughly, for sunrise and sunset.
     LaunchedEffect(viewModel) {

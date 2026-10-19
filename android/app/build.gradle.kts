@@ -112,6 +112,7 @@ dependencies {
     implementation(libs.maplibre.compose)
     implementation(libs.valhalla.mobile)
     implementation(libs.valhalla.models.config)
+    implementation(libs.androidx.work.runtime)
     // Only the Play Store build may use Google Play Services (fused location).
     "playImplementation"(libs.ferrostar.google.play.services)
 

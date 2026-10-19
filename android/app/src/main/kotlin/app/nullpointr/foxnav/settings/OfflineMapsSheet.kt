@@ -142,7 +142,11 @@ private fun NewArea(visible: BoundingBox, styleUrls: Collection<String>, placeSe
             ) {
                 Text(if (started) "Downloading…" else "Download")
             }
-            if (!online) Text("Connect to the internet to download.", color = colors.onSurfaceVariant)
+            val waitingForWifi by context.appGraph.offlineDownloads.waitingForWifi.collectAsState()
+            when {
+                !online -> Text("Connect to the internet to download.", color = colors.onSurfaceVariant)
+                waitingForWifi -> Text("Downloads when you're on Wi-Fi.", color = colors.onSurfaceVariant)
+            }
         }
     }
 }
@@ -159,6 +163,9 @@ private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean) {
     val roadSelection = roads.selection(area.id)
     val bounds = area.bounds
     val roadTiles = remember(bounds, roads.manifest) { bounds?.let { roads.tilesIn(it) }.orEmpty() }
+    val waitingForWifi by context.appGraph.offlineDownloads.waitingForWifi.collectAsState()
+    // Not paused by the driver, just held back: off Wi-Fi, with Wi-Fi only on.
+    val heldForWifi = waitingForWifi && offline.isWaiting(area)
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(area.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -166,7 +173,7 @@ private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean) {
             when (status) {
                 AreaStatus.READY -> "Ready · ${size(context, area.bytes)}"
                 AreaStatus.DOWNLOADING -> "Downloading · ${(area.fraction * 100).toInt()} % · ${size(context, area.bytes)}"
-                AreaStatus.PAUSED -> "Paused at ${(area.fraction * 100).toInt()} %"
+                AreaStatus.PAUSED -> if (heldForWifi) "Waiting for Wi-Fi · ${(area.fraction * 100).toInt()} %" else "Paused at ${(area.fraction * 100).toInt()} %"
                 AreaStatus.FAILED -> "Download failed: ${area.problem ?: "unknown error"}"
             },
             color = if (status == AreaStatus.FAILED) colors.error else colors.onSurfaceVariant,
@@ -175,12 +182,12 @@ private fun AreaRow(area: OfflineArea, offline: OfflineMaps, online: Boolean) {
             LinearProgressIndicator(progress = { area.fraction }, modifier = Modifier.fillMaxWidth())
         }
         roadSelection?.let { roads.coverage(it) }?.let { coverage ->
-            Text("Road data: ${status(context, coverage, roads.downloading, online).replaceFirstChar { it.lowercase() }}", color = colors.onSurfaceVariant)
+            Text("Road data: ${status(context, coverage, roads.downloading, online, waitingForWifi).replaceFirstChar { it.lowercase() }}", color = colors.onSurfaceVariant)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             when (status) {
                 AreaStatus.DOWNLOADING -> TextButton(onClick = { offline.pause(area) }) { Text("Pause") }
-                AreaStatus.PAUSED, AreaStatus.FAILED -> TextButton(onClick = { offline.resume(area) }, enabled = online) { Text("Resume") }
+                AreaStatus.PAUSED, AreaStatus.FAILED -> if (!heldForWifi) TextButton(onClick = { offline.resume(area) }, enabled = online) { Text("Resume") }
                 AreaStatus.READY -> TextButton(onClick = { scope.launch { offline.update(area) } }, enabled = online) { Text("Update") }
             }
             if (roadSelection == null && roadTiles.isNotEmpty()) {

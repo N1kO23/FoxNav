@@ -8,6 +8,7 @@ import app.nullpointr.foxnav.convoy.TowerPlacementStore
 import app.nullpointr.foxnav.data.Connectivity
 import app.nullpointr.foxnav.data.DataPacks
 import app.nullpointr.foxnav.data.DiscoveryCache
+import app.nullpointr.foxnav.data.OfflineDownloads
 import app.nullpointr.foxnav.data.OfflineMaps
 import app.nullpointr.foxnav.data.OnDeviceValhalla
 import app.nullpointr.foxnav.data.PlaceSearch
@@ -53,6 +54,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.filterNotNull
@@ -99,7 +103,10 @@ class AppGraph(private val context: Context) {
     val discoveryCache = DiscoveryCache(context)
 
     /** Map areas downloaded for driving without a connection. */
-    val offlineMaps by lazy { OfflineMaps(context) }
+    val offlineMaps by lazy { OfflineMaps(context, mayDownload = { offlineDownloads.allowed.value }, onDownloading = offlineDownloads::schedule) }
+
+    /** When offline data may download (only on Wi-Fi, if so set), and seeing downloads through with the app closed. */
+    val offlineDownloads by lazy { OfflineDownloads(context, connectivity, scope) }
 
     /** App-wide work that outlives any screen: road data downloads. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -108,12 +115,23 @@ class AppGraph(private val context: Context) {
     private val searchIndex by lazy { SearchIndex(File(context.filesDir, "roaddata/search.db")) }
 
     /** The routing graph's tiles on the phone, with search data: for map areas, trips and the road data chosen in settings. */
-    val roadData by lazy { RoadData(File(context.filesDir, "roaddata"), httpClient, connectivity.online, scope, searchIndex) }
+    val roadData by lazy {
+        RoadData(File(context.filesDir, "roaddata"), httpClient, connectivity.online, scope, searchIndex, mayDownload = offlineDownloads.allowed)
+    }
 
     /** Valhalla on the phone, for routes and road lookups from [roadData] (ADR 0005). */
     private val onDeviceValhalla by lazy { OnDeviceValhalla(context, roadData) }
 
     val voicePacks = VoicePacks(context)
+
+    init {
+        // Road data with something left to download: see it through, with the app closed too.
+        scope.launch { roadData.state.map { it.toDownload > 0 }.distinctUntilChanged().collect { if (it) offlineDownloads.schedule() } }
+        // Wi-Fi only: map areas wait off Wi-Fi and carry on on it (road data follows the same).
+        scope.launch(Dispatchers.Main) {
+            offlineDownloads.allowed.drop(1).collect { allowed -> if (allowed) offlineMaps.resumeUnfinished() else offlineMaps.holdDownloads() }
+        }
+    }
 
     val clipPlayer by lazy { ClipPlayer(context) }
 

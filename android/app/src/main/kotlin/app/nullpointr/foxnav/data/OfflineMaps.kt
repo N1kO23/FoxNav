@@ -21,7 +21,13 @@ import kotlin.math.tan
  * the style, its fonts and icons, and every tile in the area up to [MAX_ZOOM]. Each area is one
  * pack per theme (night and day share the tiles, so the second costs little).
  */
-class OfflineMaps(context: Context) {
+class OfflineMaps(
+    context: Context,
+    /** Whether downloads may run now: off Wi-Fi they wait, if the driver chose Wi-Fi only. */
+    private val mayDownload: () -> Boolean = { true },
+    /** Something started or resumed downloading: see it through, also with the app closed. */
+    private val onDownloading: () -> Unit = {},
+) {
     private val manager = getOfflineManager(context)
     private val preferences = context.getSharedPreferences("offline_maps", Context.MODE_PRIVATE)
 
@@ -40,8 +46,9 @@ class OfflineMaps(context: Context) {
         for (styleUrl in styleUrls.distinct()) {
             val metadata = PackMetadata(id, name, created).toBytes()
             val pack = manager.create(OfflinePackDefinition.TilePyramid(styleUrl, bounds, minZoom = 0, maxZoom = MAX_ZOOM), metadata)
-            manager.resume(pack)
+            if (mayDownload()) manager.resume(pack)
         }
+        onDownloading()
         return id
     }
 
@@ -52,15 +59,17 @@ class OfflineMaps(context: Context) {
 
     fun resume(area: OfflineArea) {
         pausedIds = pausedIds - area.id
-        area.packs.forEach(manager::resume)
+        if (mayDownload()) area.packs.forEach(manager::resume)
+        onDownloading()
     }
 
     /** Downloads the area again where the server has newer tiles. */
     suspend fun update(area: OfflineArea) {
         for (pack in area.packs) {
             manager.invalidate(pack)
-            manager.resume(pack)
+            if (mayDownload()) manager.resume(pack)
         }
+        onDownloading()
     }
 
     suspend fun delete(area: OfflineArea) {
@@ -72,6 +81,14 @@ class OfflineMaps(context: Context) {
     fun resumeUnfinished() {
         for (area in areas) if (area.status != AreaStatus.READY && area.id !in pausedIds) area.packs.forEach(manager::resume)
     }
+
+    /** Holds the downloads under way, without counting them as paused by the driver: off Wi-Fi, for Wi-Fi only. */
+    fun holdDownloads() {
+        for (area in areas) if (area.status == AreaStatus.DOWNLOADING) area.packs.forEach(manager::pause)
+    }
+
+    /** Whether [area] is unfinished but not paused by the driver: waiting to carry on, say for Wi-Fi. */
+    fun isWaiting(area: OfflineArea): Boolean = area.status == AreaStatus.PAUSED && area.id !in pausedIds
 
     private var pausedIds: Set<String>
         get() = preferences.getStringSet(KEY_PAUSED, emptySet()).orEmpty()

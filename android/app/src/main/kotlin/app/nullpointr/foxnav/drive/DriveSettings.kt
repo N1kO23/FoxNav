@@ -218,6 +218,13 @@ fun DriveSettings(document: DiscoveryDocument, viewModel: DriveViewModel, naviga
             else "${roads.selections.size} ${if (roads.selections.size == 1) "download" else "downloads"} · ${Formatter.formatShortFileSize(context, roads.bytes)}",
             action = "Manage",
         ) { sheet = SettingsSheet.Roads(navigationMapState.cameraState.projection?.queryVisibleBoundingBox()) }
+        val wifiOnly by graph.offlineDownloads.wifiOnly.collectAsState()
+        SwitchRow(
+            "Download on Wi-Fi only",
+            "Map areas and road data wait for Wi-Fi. They carry on with the app closed either way.",
+            checked = wifiOnly,
+            onChange = graph.offlineDownloads::setWifiOnly,
+        )
 
         Section("Server")
         LinkRow(document.name, serverUrl, action = "Change") { sheet = SettingsSheet.Server }

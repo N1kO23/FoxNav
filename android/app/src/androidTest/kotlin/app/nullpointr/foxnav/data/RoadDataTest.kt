@@ -54,10 +54,11 @@ class RoadDataTest {
     fun setUp() {
         root.deleteRecursively()
         val url = BuildConfig.DEFAULT_SERVER_URL.trimEnd('/') + DiscoveryDocument.PATH
-        val found = runCatching {
+        val fetched = runCatching {
             client.newCall(Request.Builder().url(url).build()).execute().use { DiscoveryDocument.parse(it.body.string()).resolved(url) }
-        }.getOrNull()
-        assumeTrue("No local stack with routing tiles at $url", found?.routing?.tiles != null)
+        }
+        val found = fetched.getOrNull()
+        assumeTrue("No local stack with routing tiles at $url (${fetched.exceptionOrNull() ?: found?.routing})", found?.routing?.tiles != null)
         document = found!!
     }
 

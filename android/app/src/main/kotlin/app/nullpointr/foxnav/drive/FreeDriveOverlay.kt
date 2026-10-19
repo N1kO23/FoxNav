@@ -397,6 +397,7 @@ private fun OfflineTripRow(route: Route, destination: Place) {
     val graph = context.appGraph
     val roads by graph.roadData.state.collectAsState()
     val online by graph.connectivity.online.collectAsState()
+    val waitingForWifi by graph.offlineDownloads.waitingForWifi.collectAsState()
     val manifest = roads.manifest?.takeIf { it.isUsable } ?: return
     val tiles = remember(route, manifest) { manifest.tilesAlong(route.geometry.map { GeoPoint(it.lat, it.lng) }) }
     val coverage = roads.coverage(tiles)?.takeIf { tiles.isNotEmpty() } ?: return
@@ -406,7 +407,10 @@ private fun OfflineTripRow(route: Route, destination: Place) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         when {
             coverage.complete -> Text("Available offline", color = colors.secondary)
-            wanted.containsAll(tiles) -> Text("Downloading for offline · ${(coverage.fraction * 100).toInt()} %", color = colors.onSurfaceVariant)
+            wanted.containsAll(tiles) -> Text(
+                "${if (waitingForWifi) "Waiting for Wi-Fi" else "Downloading for offline"} · ${(coverage.fraction * 100).toInt()} %",
+                color = colors.onSurfaceVariant,
+            )
             else -> {
                 Text("Offline", Modifier.weight(1f), color = colors.onSurfaceVariant)
                 TextButton(

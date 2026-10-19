@@ -45,7 +45,16 @@ import java.util.zip.GZIPInputStream
  * Road data brings search with it: the search packs' cells (spec §3.4) where the phone has local
  * roads go into [search], so search works offline wherever routes do.
  */
-class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<Boolean>, scope: CoroutineScope, private val search: SearchIndex) {
+class RoadData(
+    private val root: File,
+    client: OkHttpClient,
+    /** Whether there's a connection: manifests, which are small, come whenever there is. */
+    online: StateFlow<Boolean>,
+    scope: CoroutineScope,
+    private val search: SearchIndex,
+    /** Whether tiles and search data may download now: only on Wi-Fi, if the driver chose so. */
+    mayDownload: StateFlow<Boolean> = online,
+) {
     private val builds = File(root, "builds")
     private val selectionsFile = File(root, "selections.json")
     private val currentFile = File(root, "current")
@@ -72,7 +81,12 @@ class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<B
         val searchCells: Map<String, Map<Long, String>> = emptyMap(),
         /** What the search index takes on the phone. */
         val searchBytes: Long = 0,
+        /** What's left to download, in bytes: routing tiles and search data. */
+        val roadsToDownload: Long = 0,
+        val searchToDownload: Long = 0,
     ) {
+        val toDownload: Long get() = roadsToDownload + searchToDownload
+
         /**
          * How much of [tiles] the phone has, with the search data for their local roads; null
          * without a manifest. Search data counts by what its index takes on the phone, roughly.
@@ -115,11 +129,11 @@ class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<B
 
     init {
         scope.launch(Dispatchers.IO) {
-            combine(changes, online) { _, online -> online }.collectLatest { online ->
+            combine(changes, online, mayDownload) { _, online, mayDownload -> online to mayDownload }.collectLatest { (online, mayDownload) ->
                 var refetched = false
                 while (true) {
                     try {
-                        sync(online)
+                        sync(online, mayDownload)
                         break
                     } catch (error: CancellationException) {
                         throw error
@@ -130,7 +144,7 @@ class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<B
                         if (!refetched) refetched = true else delay(RETRY_MS)
                     } catch (error: Exception) {
                         _state.update { it.copy(downloading = false, problem = error.message ?: error.javaClass.simpleName) }
-                        if (!online) break
+                        if (!mayDownload) break
                         delay(RETRY_MS)
                     }
                 }
@@ -145,6 +159,11 @@ class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<B
     fun covers(point: GeoPoint): Boolean {
         val state = _state.value
         return state.manifest?.localTileAt(point)?.let { it in state.present } == true
+    }
+
+    /** Follows the server of [document] unless already following one: for a start with no screen open. */
+    fun useUnlessFollowing(document: DiscoveryDocument) {
+        if (tilesUrl == null) use(document)
     }
 
     /** Follows the server of [document]: its tiles, its search packs and their updates. Trips long over go. */
@@ -171,7 +190,7 @@ class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<B
         changes.update { it + 1 }
     }
 
-    private suspend fun sync(online: Boolean) {
+    private suspend fun sync(online: Boolean, mayDownload: Boolean) {
         val url = tilesUrl
         val manifest = (if (online && url != null) fetchManifest(url) else null)?.let(::parseRoutingManifest) ?: _state.value.manifest ?: return
         _state.update { it.copy(manifest = manifest) }
@@ -180,8 +199,8 @@ class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<B
         if (wanted.isEmpty()) {
             builds.deleteRecursively()
             currentFile.delete()
-            _state.update { it.copy(current = null, present = emptySet(), update = null, downloading = false, problem = null) }
-            syncSearch(online, emptySet())
+            _state.update { it.copy(current = null, present = emptySet(), update = null, downloading = false, problem = null, roadsToDownload = 0) }
+            syncSearch(online, mayDownload, emptySet())
             return
         }
 
@@ -195,12 +214,17 @@ class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<B
         }
         val inUse = if (current == target) have else wanted.filterTo(HashSet()) { File(File(builds, current), manifest.pathOf(it)).isFile }
         fun publish() = _state.update {
-            it.copy(current = current, present = if (current == target) HashSet(have) else inUse, update = manifest.coverage(wanted, have).takeIf { current != target })
+            it.copy(
+                current = current,
+                present = if (current == target) HashSet(have) else inUse,
+                update = manifest.coverage(wanted, have).takeIf { current != target },
+                roadsToDownload = manifest.sizeOf(wanted - have).download,
+            )
         }
         publish()
 
         val missing = wanted - have
-        if (missing.isNotEmpty() && online && url != null) {
+        if (missing.isNotEmpty() && mayDownload && url != null) {
             _state.update { it.copy(downloading = true, problem = null) }
             val slots = Semaphore(PARALLEL_DOWNLOADS)
             coroutineScope {
@@ -219,11 +243,11 @@ class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<B
         // Builds neither in use nor downloading.
         val keep = setOf(_state.value.current, target)
         builds.listFiles()?.filter { it.name !in keep }?.forEach { it.deleteRecursively() }
-        syncSearch(online, wanted.mapNotNullTo(HashSet()) { tile -> tile.id.takeIf { tile.level == manifest.localLevel } })
+        syncSearch(online, mayDownload, wanted.mapNotNullTo(HashSet()) { tile -> tile.id.takeIf { tile.level == manifest.localLevel } })
     }
 
     /** Search data for the local roads' [cells]: what's missing or out of date downloads, what nothing needs goes. */
-    private suspend fun syncSearch(online: Boolean, cells: Set<Long>) {
+    private suspend fun syncSearch(online: Boolean, mayDownload: Boolean, cells: Set<Long>) {
         val urls = searchUrls
         val packs = (urls.keys + _state.value.search.keys).mapNotNull { region ->
             val text = urls[region]?.takeIf { online }?.let { fetchCached("$it/${SearchPackManifest.MANIFEST}", "search-$region") }
@@ -233,19 +257,27 @@ class RoadData(private val root: File, client: OkHttpClient, online: StateFlow<B
         for ((region, regionCells) in present) for (cell in regionCells.keys) {
             if (cell !in cells || packs[region]?.downloadOf(cell) == null && region in packs) search.delete(region, cell)
         }
-        fun publish() = _state.update { it.copy(search = packs, searchCells = search.cells(), searchBytes = search.bytes) }
-        publish()
-        if (!online) return
         // Only from the server in use: a pack kept from another one stays as it is.
         val missing = packs.filterKeys { it in urls }.flatMap { (region, pack) ->
             cells.filter { pack.downloadOf(it) != null && present[region]?.get(it) != pack.build }.map { Triple(region, pack, it) }
         }
-        if (missing.isEmpty()) return
+        val done = ConcurrentHashMap.newKeySet<Triple<String, SearchPackManifest, Long>>()
+        fun publish() = _state.update {
+            it.copy(
+                search = packs,
+                searchCells = search.cells(),
+                searchBytes = search.bytes,
+                searchToDownload = missing.filterNot(done::contains).sumOf { (_, pack, cell) -> pack.downloadOf(cell) ?: 0L },
+            )
+        }
+        publish()
+        if (!mayDownload || missing.isEmpty()) return
         _state.update { it.copy(downloading = true, problem = null) }
         val slots = Semaphore(PARALLEL_DOWNLOADS)
         coroutineScope {
             for ((region, pack, cell) in missing) launch {
                 slots.withPermit { runInterruptible(Dispatchers.IO) { downloadCell(region, urls.getValue(region), pack, cell) } }
+                done += Triple(region, pack, cell)
                 publish()
             }
         }

@@ -122,12 +122,13 @@ private fun WholeRegions(regions: List<String>, state: RoadData.State, online: B
 @Composable
 private fun ServerWideOption(title: String, detail: String, chosen: Boolean, coverage: Coverage?, online: Boolean, onDownload: () -> Unit) {
     val context = LocalContext.current
+    val waitingForWifi by context.appGraph.offlineDownloads.waitingForWifi.collectAsState()
     val colors = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, fontWeight = FontWeight.SemiBold)
         Text(detail, color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         when {
-            chosen && coverage?.complete != true -> Text("Downloading, see below", color = colors.secondary)
+            chosen && coverage?.complete != true -> Text(if (waitingForWifi) "Waiting for Wi-Fi, see below" else "Downloading, see below", color = colors.secondary)
             coverage == null -> Unit
             coverage.complete -> Text("On the phone", color = colors.secondary)
             else -> OutlinedButton(onClick = onDownload, enabled = online) { Text("Download · ${size(context, coverage.missingDownload)}") }
@@ -167,7 +168,11 @@ private fun AreaOnScreen(visible: BoundingBox, state: RoadData.State, online: Bo
                 enabled = online && !started,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
             ) { Text(if (started) "Downloading…" else "Download") }
-            if (!online) Text("Connect to the internet to download.", color = colors.onSurfaceVariant)
+            val waitingForWifi by context.appGraph.offlineDownloads.waitingForWifi.collectAsState()
+            when {
+                !online -> Text("Connect to the internet to download.", color = colors.onSurfaceVariant)
+                waitingForWifi -> Text("Downloads when you're on Wi-Fi.", color = colors.onSurfaceVariant)
+            }
         }
     }
 }
@@ -175,6 +180,7 @@ private fun AreaOnScreen(visible: BoundingBox, state: RoadData.State, online: Bo
 @Composable
 private fun SelectionRow(selection: RoadSelection, state: RoadData.State, online: Boolean, roadData: RoadData) {
     val context = LocalContext.current
+    val waitingForWifi by context.appGraph.offlineDownloads.waitingForWifi.collectAsState()
     val colors = MaterialTheme.colorScheme
     var confirmDelete by remember { mutableStateOf(false) }
     val coverage = state.coverage(selection)
@@ -182,7 +188,7 @@ private fun SelectionRow(selection: RoadSelection, state: RoadData.State, online
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(selection.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
-            listOfNotNull(kindLabel(selection), coverage?.let { status(context, it, state.downloading, online) }).joinToString(" · "),
+            listOfNotNull(kindLabel(selection), coverage?.let { status(context, it, state.downloading, online, waitingForWifi) }).joinToString(" · "),
             color = colors.onSurfaceVariant,
         )
         if (coverage != null && !coverage.complete) LinearProgressIndicator(progress = { coverage.fraction }, modifier = Modifier.fillMaxWidth())
@@ -228,9 +234,10 @@ private fun kindLabel(selection: RoadSelection): String = when (selection.kind) 
     RoadSelectionKind.MAIN_ROADS -> "Main roads"
 }
 
-/** Where some road data stands: ready, downloading, or waiting. */
-internal fun status(context: Context, coverage: Coverage, downloading: Boolean, online: Boolean): String = when {
+/** Where some road data stands: ready, downloading, or waiting (for a connection, or for Wi-Fi). */
+internal fun status(context: Context, coverage: Coverage, downloading: Boolean, online: Boolean, waitingForWifi: Boolean = false): String = when {
     coverage.complete -> "Ready · ${size(context, coverage.bytes)}"
+    waitingForWifi -> "Waiting for Wi-Fi · ${(coverage.fraction * 100).toInt()} %"
     downloading -> "Downloading · ${(coverage.fraction * 100).toInt()} %"
     !online -> "Waiting for a connection · ${(coverage.fraction * 100).toInt()} %"
     else -> "Waiting · ${(coverage.fraction * 100).toInt()} %"

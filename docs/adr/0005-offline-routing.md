@@ -38,6 +38,6 @@ On the emulator, with the local stack's Finland graph, the phone's Valhalla answ
 - **Storage.** Road data outweighs map tiles in cities. Central Helsinki takes 72 MB on the phone (25 MB to download), the capital region 136 MB (48 MB), and Rovaniemi to Inari 21 MB (9 MB). All of Finland is 841 MB (332 MB).
 - **Servers** publish one more set of static files, about 40 % of the graph's size, and keep the previous build for clients still downloading it.
 - **Engine versions.** The tiles must be readable by the app's Valhalla, so only the same major version (3) is used. A server-side Valhalla upgrade that changes the tile format needs an app update first.
-- **Release builds.** valhalla-mobile reads its config and errors with Moshi's reflection and ships no R8 rules for that, so release builds need keep rules and a test.
+- **Release builds.** valhalla-mobile reads its config and errors with Moshi's reflection and ships no R8 rules for that, so `proguard-rules.pro` keeps those classes. Checked in October 2026: the device test (`RoadDataTest`) passed against a minified, obfuscated, non-debuggable build with release's R8 settings.
 - **Pinning.** valhalla-mobile is young (0.6), so it's pinned and upgraded deliberately, like Ferrostar.
 - **Search** stays online for now. An index on the phone is a separate decision.
