@@ -17,11 +17,16 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import app.nullpointr.foxnav.convoy.JoinInviteDialog
 import app.nullpointr.foxnav.drive.DriveRoute
 import app.nullpointr.foxnav.shared.convoy.Invite
 import app.nullpointr.foxnav.ui.ServerGate
 import app.nullpointr.foxnav.ui.theme.FoxNavTheme
+import app.nullpointr.foxnav.ui.theme.LocalHudScale
+import app.nullpointr.foxnav.ui.theme.themeColors
 import app.nullpointr.foxnav.ui.format.LocalSpeedometerStyle
 import app.nullpointr.foxnav.ui.format.LocalUnits
 import app.nullpointr.foxnav.ui.components.LocalJapaneseAccents
@@ -56,8 +61,18 @@ class MainActivity : ComponentActivity(), AndroidTtsStatusListener {
                 val bars = if (night) SystemBarStyle.dark(AndroidColor.TRANSPARENT) else SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
             }
-            FoxNavTheme(night = night, accent = settings.accent) {
-                CompositionLocalProvider(LocalUnits provides settings.units, LocalSpeedometerStyle provides settings.speedometer, LocalJapaneseAccents provides settings.japaneseAccents) {
+            val palette = remember(settings.palette) { appGraph.palette(settings.palette) }
+            val colors = remember(palette, night, settings) { themeColors(palette, night, settings) }
+            FoxNavTheme(night = night, colors = colors) {
+                // The text size: the phone's, times the driver's own setting.
+                val density = LocalDensity.current
+                CompositionLocalProvider(
+                    LocalDensity provides Density(density.density, density.fontScale * settings.textScale),
+                    LocalHudScale provides settings.hudScale,
+                    LocalUnits provides settings.units,
+                    LocalSpeedometerStyle provides settings.speedometer,
+                    LocalJapaneseAccents provides settings.japaneseAccents,
+                ) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     ServerGate(appGraph.serverSettings) { document -> DriveRoute(document) }
                     val opened by openedInvite.collectAsState()

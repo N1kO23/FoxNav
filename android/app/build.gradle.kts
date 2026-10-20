@@ -6,6 +6,28 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+/** The design tokens (design/tokens.json) as an asset: the colour palettes drivers choose from. */
+abstract class CopyDesignTokens : DefaultTask() {
+    @get:InputFile
+    abstract val tokens: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        tokens.get().asFile.copyTo(outputDir.get().file("tokens.json").asFile, overwrite = true)
+    }
+}
+
+val copyDesignTokens = tasks.register<CopyDesignTokens>("copyDesignTokens") {
+    tokens.set(rootProject.layout.projectDirectory.file("design/tokens.json"))
+}
+
+androidComponents {
+    onVariants { variant -> variant.sources.assets?.addGeneratedSourceDirectory(copyDesignTokens, CopyDesignTokens::outputDir) }
+}
+
 // On CI: "<run number>+<commit>", e.g. "57+3fa2c1d"; null on other machines.
 val ciBuild: String? = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.let { run ->
     run + (providers.environmentVariable("GITHUB_SHA").orNull?.take(7)?.let { "+$it" } ?: "")

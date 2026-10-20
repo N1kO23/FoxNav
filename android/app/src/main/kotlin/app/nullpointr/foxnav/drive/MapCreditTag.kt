@@ -36,17 +36,18 @@ import java.util.concurrent.ConcurrentHashMap
 /** Each style's credits, read once a session: switching between day and night doesn't flicker. */
 private val creditsByStyle = ConcurrentHashMap<String, List<MapCredit>>()
 
-/** The credits the map style asks for. Until it's read, or when it can't be (offline), OpenStreetMap's. */
+/** The credits the map style asks for: from its copy on the phone, or else fetched. Until then, OpenStreetMap's. */
 @Composable
 fun rememberMapCredits(styleUrl: String): List<MapCredit> {
-    val client = LocalContext.current.appGraph.httpClient
+    val graph = LocalContext.current.appGraph
     val credits by produceState(creditsByStyle[styleUrl] ?: MapCredits.DEFAULT, styleUrl) {
         if (creditsByStyle.containsKey(styleUrl)) return@produceState
         val read = withContext(Dispatchers.IO) {
             runCatching {
-                client.newCall(Request.Builder().url(styleUrl).build()).execute().use { response ->
-                    if (response.isSuccessful) MapCredits.parse(response.body.string()) else null
-                }
+                graph.mapStyles.style(styleUrl)?.let(MapCredits::parse)
+                    ?: graph.httpClient.newCall(Request.Builder().url(styleUrl).build()).execute().use { response ->
+                        if (response.isSuccessful) MapCredits.parse(response.body.string()) else null
+                    }
             }.getOrNull()
         }
         if (!read.isNullOrEmpty()) {

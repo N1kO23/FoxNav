@@ -7,6 +7,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -18,8 +23,13 @@ import app.nullpointr.foxnav.data.ReportsClient
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
 import app.nullpointr.foxnav.shared.discovery.Feature
 import app.nullpointr.foxnav.shared.geo.GeoPoint
+import app.nullpointr.foxnav.shared.theme.Palettes
 import app.nullpointr.foxnav.ui.theme.LocalNight
+import app.nullpointr.foxnav.ui.theme.LocalThemeColors
+import org.maplibre.compose.style.BaseStyle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
 
@@ -75,8 +85,21 @@ fun DriveRoute(document: DiscoveryDocument) {
     LaunchedEffect(viewModel) {
         viewModel.location.collect { location -> location?.let { graph.lastArea.update(GeoPoint(it.coordinates.lat, it.coordinates.lng)) } }
     }
-    // The map's day or night style follows the app's colours (settings: by the sun, the system, or fixed).
+    // The map's day or night style follows the app's colours (settings: by the sun, the system, or fixed),
+    // from the copy on the phone, in the driver's palette and label size.
+    LaunchedEffect(document) { graph.mapStyles.use(document) }
     val theme = if (LocalNight.current) "night" else "day"
     val styleUrl = document.styles[theme] ?: document.styles.values.first()
-    DriveScreen(viewModel, document, styleUrl)
+    val settings by graph.settings.settings.collectAsState()
+    // The styles come in the default palette: only another one needs recolouring.
+    val colors = LocalThemeColors.current?.takeIf { graph.palette(settings.palette).id != Palettes.DEFAULT }
+    val styles by graph.mapStyles.styles.collectAsState()
+    val stored = styles[styleUrl] ?: remember(styleUrl) { graph.mapStyles.style(styleUrl) }
+    val labelScale = settings.textScale.toDouble()
+    fun styled(): BaseStyle = stored?.let { BaseStyle.Json(graph.mapStyles.styled(it, colors, labelScale)) } ?: BaseStyle.Uri(styleUrl)
+    // The first one at once, so the map never shows another palette first; later ones (another
+    // palette, day turning to night) off the main thread, keeping the old style meanwhile.
+    var baseStyle by remember { mutableStateOf(styled()) }
+    LaunchedEffect(styleUrl, stored, colors, labelScale) { baseStyle = withContext(Dispatchers.Default) { styled() } }
+    DriveScreen(viewModel, document, styleUrl, baseStyle)
 }

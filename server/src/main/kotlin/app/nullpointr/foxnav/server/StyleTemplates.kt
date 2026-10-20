@@ -9,6 +9,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import java.security.MessageDigest
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
 
@@ -41,8 +42,14 @@ fun Route.styleRoutes(config: ServerConfig) {
         val port = if (origin.serverPort == defaultPort) "" else ":${origin.serverPort}"
         val body = StyleTemplates.render(template.readText(), "${origin.scheme}://${origin.serverHost}$port")
         // Map apps cache styles; revalidating keeps style updates from getting stuck behind old copies.
+        // The ETag (of the style as rendered for this origin) lets them do that cheaply.
+        val etag = "\"" + MessageDigest.getInstance("SHA-256").digest(body.toByteArray()).take(16).joinToString("") { "%02x".format(it) } + "\""
         call.response.header(HttpHeaders.CacheControl, "no-cache")
+        call.response.header(HttpHeaders.ETag, etag)
         call.response.header(HttpHeaders.AccessControlAllowOrigin, "*")
+        if (call.request.headers[HttpHeaders.IfNoneMatch]?.split(',')?.any { it.trim() == etag } == true) {
+            return@get call.respond(HttpStatusCode.NotModified)
+        }
         call.respondText(body, ContentType.Application.Json)
     }
 }

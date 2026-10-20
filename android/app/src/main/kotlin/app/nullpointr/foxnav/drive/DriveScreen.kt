@@ -74,7 +74,7 @@ import org.maplibre.compose.style.BaseStyle
 
 /** The main screen: the map in free drive, search, route preview and turn-by-turn. */
 @Composable
-fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl: String) {
+fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl: String, baseStyle: BaseStyle) {
     KeepScreenOnDisposableEffect()
     RequestLocationPermission(onResult = viewModel::onLocationPermission)
 
@@ -174,7 +174,7 @@ fun DriveScreen(viewModel: DriveViewModel, document: DiscoveryDocument, styleUrl
         Box(Modifier.fillMaxSize().onSizeChanged { screenHeight = it.height }) {
             DynamicallyOrientingNavigationView(
                 modifier = Modifier.fillMaxSize(),
-                baseStyle = BaseStyle.Uri(styleUrl),
+                baseStyle = baseStyle,
                 navigationMapState = navigationMapState,
                 navigationCameraOptions = cameraOptions,
                 viewModel = rememberGlidingViewModel(viewModel),

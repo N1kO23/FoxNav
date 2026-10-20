@@ -60,6 +60,8 @@ import app.nullpointr.foxnav.ui.components.JapaneseAccent
 import app.nullpointr.foxnav.ui.components.PanelAction
 import app.nullpointr.foxnav.ui.components.maneuverAccent
 import app.nullpointr.foxnav.ui.icons.FoxIcons
+import app.nullpointr.foxnav.ui.hudDp
+import app.nullpointr.foxnav.ui.hudSp
 import com.stadiamaps.ferrostar.core.boundingBox
 import com.stadiamaps.ferrostar.maplibreui.runtime.NavigationMapState
 import uniffi.ferrostar.LaneInfo
@@ -85,31 +87,31 @@ fun ManeuverCard(uiState: NavigationUiState, modifier: Modifier = Modifier, maxW
             border = BorderStroke(1.dp, colors.outline),
         ) {
             Column {
-                Row(Modifier.padding(if (compact) 12.dp else 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(if (compact) 12.hudDp else 16.hudDp), horizontalArrangement = Arrangement.spacedBy(14.hudDp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        modifier = Modifier.size(if (compact) 56.dp else 72.dp).background(colors.secondary.copy(alpha = 0.14f), RoundedCornerShape(16.dp)),
+                        modifier = Modifier.size(if (compact) 56.hudDp else 72.hudDp).background(colors.secondary.copy(alpha = 0.14f), RoundedCornerShape(16.hudDp)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        ManeuverGlyph(instruction.primaryContent, tint = colors.secondary, size = if (compact) 40.dp else 52.dp)
+                        ManeuverGlyph(instruction.primaryContent, tint = colors.secondary, size = if (compact) 40.hudDp else 52.hudDp)
                     }
                     Column(Modifier.weight(1f)) {
                         val content = instruction.primaryContent
                         uiState.progress?.distanceToNextManeuver?.let { DistanceReadout(it, maneuverAccent(content.maneuverType, content.maneuverModifier)) }
-                        Text(content.text, fontSize = if (compact) 17.sp else 20.sp, fontWeight = FontWeight.SemiBold, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
+                        Text(content.text, fontSize = if (compact) 17.hudSp else 20.hudSp, fontWeight = FontWeight.SemiBold, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 val nextContent = next?.visualInstructions?.firstOrNull()?.primaryContent
                 if (next != null && nextContent != null) {
                     HorizontalDivider(color = colors.outline)
                     Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = if (compact) 6.dp else 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 16.hudDp, vertical = if (compact) 6.hudDp else 10.hudDp),
+                        horizontalArrangement = Arrangement.spacedBy(10.hudDp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Then", color = colors.onSurfaceVariant)
-                        ManeuverGlyph(nextContent, tint = colors.onSurfaceVariant, size = 22.dp)
-                        Text(nextContent.text, Modifier.weight(1f), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(distanceText(next.distance), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, color = colors.onSurfaceVariant)
+                        Text("Then", color = colors.onSurfaceVariant, fontSize = 15.hudSp)
+                        ManeuverGlyph(nextContent, tint = colors.onSurfaceVariant, size = 22.hudDp)
+                        Text(nextContent.text, Modifier.weight(1f), fontSize = 15.hudSp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(distanceText(next.distance), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 15.hudSp, color = colors.onSurfaceVariant)
                     }
                 }
             }
@@ -152,7 +154,7 @@ private fun LaneGuide(lanes: List<LaneInfo>?) {
         Row(Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             lanes.forEach { lane ->
                 Box(
-                    Modifier.size(width = 40.dp, height = 34.dp).background(if (lane.active) colors.secondary.copy(alpha = 0.14f) else Color.Transparent, RoundedCornerShape(9.dp)),
+                    Modifier.size(width = 40.hudDp, height = 34.hudDp).background(if (lane.active) colors.secondary.copy(alpha = 0.14f) else Color.Transparent, RoundedCornerShape(9.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     // A lane marked for several directions shows them all; the one we take on top, lit.
@@ -178,7 +180,7 @@ private fun LaneArrow(direction: String, tint: Color) {
         // "straight", and "none" for a lane with no arrows painted
         else -> ManeuverType.TURN to ManeuverModifier.STRAIGHT
     }
-    ManeuverGlyph(type, modifier, tint, 24.dp)
+    ManeuverGlyph(type, modifier, tint, 24.hudDp)
 }
 
 /** The road the car is on, as a pill above the bottom panel. */
@@ -188,7 +190,7 @@ fun RoadNamePill(roadName: String?, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Surface(shape = RoundedCornerShape(20.dp), color = colors.surface, border = BorderStroke(1.dp, colors.outline)) {
-            Text(roadName, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(roadName, Modifier.padding(horizontal = 16.hudDp, vertical = 8.hudDp), style = MaterialTheme.typography.labelLarge, fontSize = 14.hudSp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -199,9 +201,9 @@ private fun DistanceReadout(meters: Double, accent: String?) {
     val (number, unit) = distanceText(meters).split(' ', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
     val compact = LocalCompact.current
     Row {
-        Text(number, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = if (compact) 34.sp else 44.sp, lineHeight = if (compact) 34.sp else 44.sp)
-        Text(" $unit", Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = if (compact) 18.sp else 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        accent?.let { JapaneseAccent(it, Modifier.alignByBaseline().padding(start = 10.dp), fontSize = 14.sp) }
+        Text(number, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = if (compact) 34.hudSp else 44.hudSp, lineHeight = if (compact) 34.hudSp else 44.hudSp)
+        Text(" $unit", Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = if (compact) 18.hudSp else 22.hudSp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        accent?.let { JapaneseAccent(it, Modifier.alignByBaseline().padding(start = 10.hudDp), fontSize = 14.hudSp) }
     }
 }
 
@@ -303,13 +305,13 @@ fun DrivePanel(
                 Column(horizontalAlignment = Alignment.End) {
                     Row {
                         JapaneseAccent("到着", Modifier.alignByBaseline().padding(end = 6.dp))
-                        Text(arrival, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = if (LocalCompact.current) 24.sp else 32.sp, maxLines = 1)
+                        Text(arrival, Modifier.alignByBaseline(), fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = if (LocalCompact.current) 24.hudSp else 32.hudSp, maxLines = 1)
                     }
                     Text(
                         "${formatDuration(progress.durationRemaining)} · ${distanceText(progress.distanceRemaining)}",
                         fontFamily = ChakraPetch,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = if (LocalCompact.current) 14.sp else 16.sp,
+                        fontSize = if (LocalCompact.current) 14.hudSp else 16.hudSp,
                         color = colors.onSurfaceVariant,
                         maxLines = 1,
                     )

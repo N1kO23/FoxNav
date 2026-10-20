@@ -76,6 +76,24 @@ class ServerTest {
     }
 
     @Test
+    fun stylesRevalidateWithTheirETag() = serverTest {
+        val first = client.get("/styles/night.json") { header(HttpHeaders.Host, "10.0.2.2:8080") }
+        val etag = first.headers[HttpHeaders.ETag]!!
+        val again = client.get("/styles/night.json") {
+            header(HttpHeaders.Host, "10.0.2.2:8080")
+            header(HttpHeaders.IfNoneMatch, etag)
+        }
+        assertEquals(HttpStatusCode.NotModified, again.status)
+        // Rendered for another origin, it's another style.
+        val elsewhere = client.get("/styles/night.json") {
+            header(HttpHeaders.Host, "localhost:8080")
+            header(HttpHeaders.IfNoneMatch, etag)
+        }
+        assertEquals(HttpStatusCode.OK, elsewhere.status)
+        assertTrue(elsewhere.headers[HttpHeaders.ETag] != etag)
+    }
+
+    @Test
     fun stylesBehindAProxyUseTheForwardedOrigin() = serverTest {
         val response = client.get("/styles/night.json") {
             header(HttpHeaders.XForwardedProto, "https")

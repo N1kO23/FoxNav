@@ -47,7 +47,16 @@ An *endpoint* is `{ "type": "<flavour>", "url": "<URL>" }`. Known flavours:
 
 Any URL in the document may be relative. Clients resolve it against the URL the document was fetched from, as in [RFC 3986 §5.2](https://www.rfc-editor.org/rfc/rfc3986#section-5.2). A relative `realtime` URL then switches `http` to `ws` and `https` to `wss`. A server that puts everything behind one origin therefore needs no configuration of its public address.
 
-Styles are [MapLibre style spec](https://maplibre.org/maplibre-style-spec/) documents. They may use any source type MapLibre supports, including `pmtiles://` URLs. Apps download map areas for offline use through MapLibre's offline packs, which need sources with tile URLs (`{z}/{x}/{y}`) or TileJSON; with `pmtiles://` sources the map only works online. Tiles should carry cache headers (`Cache-Control`, `ETag`), since apps keep what they've shown for driving out of coverage.
+Styles are [MapLibre style spec](https://maplibre.org/maplibre-style-spec/) documents. They may use any source type MapLibre supports, including `pmtiles://` URLs. Apps download map areas for offline use through MapLibre's offline packs, which need sources with tile URLs (`{z}/{x}/{y}`) or TileJSON; with `pmtiles://` sources the map only works online. Tiles should carry cache headers (`Cache-Control`, `ETag`), since apps keep what they've shown for driving out of coverage. So should styles: apps keep them on the phone and revalidate them, and the reference server answers `If-None-Match` with `304`.
+
+A style may let apps recolour it in the driver's palette. Each layer whose paint takes a palette colour then has a template of those paint properties in its metadata, with each such colour as `"@<token>"`, a colour token of FoxNav's palettes ([`design/tokens.json`](../design/tokens.json), `color.palette`):
+
+```json
+{ "id": "water", "type": "fill", "paint": { "fill-color": "#11203F" },
+  "metadata": { "foxnav:paint": { "fill-color": "@map-water" } } }
+```
+
+Apps fill the templates with the palette's colours and use the result in place of the paint property; they leave styles without templates as they are. The reference server's styles have templates for the map's land, water, parks, buildings, roads, railways, boundaries and labels.
 
 ### Compatibility
 

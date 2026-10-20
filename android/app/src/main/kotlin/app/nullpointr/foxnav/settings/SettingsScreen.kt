@@ -42,7 +42,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,11 +51,13 @@ import androidx.compose.ui.window.DialogProperties
 import app.nullpointr.foxnav.ui.icons.FoxIcons
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
 import app.nullpointr.foxnav.ui.theme.LocalNight
-import app.nullpointr.foxnav.ui.theme.accentColors
 
 /** A full-screen page over the map: everything the user can set, in sections. Changes apply at once. */
 @Composable
 fun SettingsScreen(onClose: () -> Unit, content: @Composable SettingsScope.() -> Unit) {
+    // Out here, the place in the page survives the dialog being made again: Compose does that
+    // when the text size changes.
+    val scroll = rememberScrollState()
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         // The dialog has its own window: its status bar icons follow our colours, not the phone's.
         val view = LocalView.current
@@ -78,7 +79,7 @@ fun SettingsScreen(onClose: () -> Unit, content: @Composable SettingsScope.() ->
                         Text("Settings", style = MaterialTheme.typography.titleLarge)
                     }
                     Column(
-                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 32.dp),
+                        Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp).padding(bottom = 32.dp),
                         verticalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
                         SettingsScope.content()
@@ -157,33 +158,6 @@ object SettingsScope {
         }
     }
 
-    @OptIn(ExperimentalLayoutApi::class)
-    @Composable
-    fun AccentRow(selected: Accent, onSelect: (Accent) -> Unit) {
-        val night = LocalNight.current
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Accent colour", style = MaterialTheme.typography.titleMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Accent.entries.forEach { accent ->
-                    val chosen = accent == selected
-                    Box(
-                        Modifier
-                            .size(44.dp)
-                            .border(if (chosen) 3.dp else 1.dp, if (chosen) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline, CircleShape)
-                            .padding(6.dp)
-                            .background(accentColors(accent, night).first, CircleShape)
-                            .clickable { onSelect(accent) }
-                            .semantics {
-                                role = Role.RadioButton
-                                contentDescription = accent.label
-                            },
-                    )
-                }
-            }
-            Text(selected.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-
     @Composable
     fun Note(text: String) {
         Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
@@ -196,13 +170,3 @@ object SettingsScope {
         Box(modifier.size(14.dp).background(color, CircleShape))
     }
 }
-
-val Accent.label: String
-    get() = when (this) {
-        Accent.VERMILION -> "Vermilion (torii red)"
-        Accent.SAKURA -> "Sakura pink"
-        Accent.OCEAN -> "Ocean blue"
-        Accent.LIME -> "Lime"
-        Accent.VIOLET -> "Violet"
-        Accent.MONO -> "Monochrome"
-    }

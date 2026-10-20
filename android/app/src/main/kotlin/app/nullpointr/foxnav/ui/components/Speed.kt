@@ -43,6 +43,9 @@ import app.nullpointr.foxnav.ui.format.LocalSpeedometerStyle
 import app.nullpointr.foxnav.ui.format.LocalUnits
 import app.nullpointr.foxnav.ui.icons.FoxIcons
 import app.nullpointr.foxnav.ui.theme.ChakraPetch
+import app.nullpointr.foxnav.ui.hudDp
+import app.nullpointr.foxnav.ui.hudSp
+import app.nullpointr.foxnav.ui.hudText
 
 // Vienna Convention sign colours, the same in every theme (design/tokens.json).
 private val SignRing = Color(0xFFE3242B)
@@ -60,35 +63,35 @@ fun SpeedCluster(reading: SpeedReading, modifier: Modifier = Modifier) {
     val units = LocalUnits.current
     val segment = LocalSpeedometerStyle.current == SpeedometerStyle.SEGMENT
     val compact = LocalCompact.current
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(if (compact) 10.hudDp else 12.hudDp), verticalAlignment = Alignment.CenterVertically) {
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(18.hudDp),
             color = if (segment) SegmentPanel else colors.surface,
             border = BorderStroke(2.dp, if (warn) colors.error else colors.outline),
         ) {
             Column(
                 modifier = Modifier
-                    .size(width = if (compact) 80.dp else 96.dp, height = if (compact) 62.dp else 76.dp)
+                    .size(width = if (compact) 80.hudDp else 96.hudDp, height = if (compact) 62.hudDp else 76.hudDp)
                     .semantics { contentDescription = "Speed ${reading.speed ?: "unknown"} ${units.speedLabel}" },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
                 if (segment) {
-                    SegmentDigits(reading.speed, lit = if (warn) colors.error else SegmentLit, fontSize = if (compact) 26.sp else 32.sp)
+                    SegmentDigits(reading.speed, lit = if (warn) colors.error else SegmentLit, fontSize = if (compact) 26.hudSp else 32.hudSp)
                 } else {
                     Text(
                         text = reading.speed?.toString() ?: "–",
                         fontFamily = ChakraPetch,
                         fontWeight = FontWeight.Bold,
-                        fontSize = if (compact) 32.sp else 40.sp,
-                        lineHeight = if (compact) 32.sp else 40.sp,
+                        fontSize = if (compact) 32.hudSp else 40.hudSp,
+                        lineHeight = if (compact) 32.hudSp else 40.hudSp,
                         color = if (warn) colors.error else colors.onSurface,
                     )
                 }
-                Text(units.speedLabel, style = MaterialTheme.typography.labelSmall, color = if (segment) SegmentUnlit.copy(alpha = 1f) else colors.onSurfaceVariant)
+                Text(units.speedLabel, style = MaterialTheme.typography.labelSmall, fontSize = 11.hudSp, color = if (segment) SegmentUnlit.copy(alpha = 1f) else colors.onSurfaceVariant)
             }
         }
-        reading.limit?.let { SpeedLimitSign(it, pulsing = warn, size = if (compact) 48.dp else 56.dp, winter = reading.limitSeason == "winter") }
+        reading.limit?.let { SpeedLimitSign(it, pulsing = warn, size = if (compact) 48.hudDp else 56.hudDp, winter = reading.limitSeason == "winter") }
     }
 }
 
@@ -129,7 +132,7 @@ fun SpeedLimitSign(limit: Int, pulsing: Boolean = false, size: Dp = 56.dp, winte
                 .semantics { contentDescription = if (winter) "Winter speed limit $limit" else "Speed limit $limit" },
             contentAlignment = Alignment.Center,
         ) {
-            Text("$limit", fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.36f).sp, color = SignText)
+            Text("$limit", fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = hudText(size * 0.36f), color = SignText)
         }
         // A winter limit, from the date rather than the map: says why it isn't the summer number.
         if (winter) {

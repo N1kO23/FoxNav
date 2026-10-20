@@ -7,7 +7,7 @@ A dark, high-tech car-navigation feel with Japanese accents. Modern and restrain
 - The UI direction was approved in October 2026.
 - The values live in [`tokens.json`](tokens.json), the source of truth for the Compose theme and both map styles.
 - Branding (mark and wordmark) gets another pass later.
-- Colour palettes become user-customizable later. Every theme in the tokens defines the same keys, so a custom palette is just one more theme.
+- Drivers choose a colour theme in settings: five palettes, each with night and day sets of the same keys in the tokens (`color.palette`), so a new palette is just one more entry. The accent and the route can also take any colour, adjusted to read on the palette's backgrounds.
 
 The mockups are in a [design canvas](https://claude.ai/artifact/G7KEQUyDuin7LevwHHtcp2), visible to the project owner until shared.
 
@@ -40,6 +40,18 @@ The mockups are in a [design canvas](https://claude.ai/artifact/G7KEQUyDuin7Levw
 | Warning | Amber `#FFB020` | Amber `#FFB020` chips with dark text |
 | Danger | Red `#FF4D4D` | `#C62828` |
 | Map water | `#11203F` | `#B7CDE2` |
+
+These are Tokyo night's, the default palette. The others:
+
+| Palette | Night | Day |
+|---|---|---|
+| Tokyo night (東京の夜) | Ink, vermilion, cyan | Washi, vermilion, teal |
+| True black (漆黒) | Pure black for OLED screens: nothing glows in a dark car | Cool white |
+| High contrast (高コントラスト) | Black and white, bright cyan route, stronger borders and map labels | White and black, deep teal route |
+| Shibuya neon (渋谷ネオン) | Violet, neon pink, cyan | Lavender, magenta, teal |
+| Kyoto moss (京都の苔) | Moss greens, torii red, aqua | Washi with moss parks |
+
+Every palette keeps amber for warnings and red for danger, and no route takes either: a test checks it, with text, labels and the route against their backgrounds (`ThemeTest`). The map styles are generated in Tokyo night, with each palette colour's place recorded in the style, and the app recolours them on the phone (spec §1).
 
 **Convoy member colours:** `#4C8DFF`, `#3DDC97`, `#FF5FA2`, `#B79BFF`, plus vermilion for yourself. They stay clear of amber and red, which mean warnings.
 

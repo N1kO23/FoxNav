@@ -28,6 +28,7 @@ import app.nullpointr.foxnav.convoy.CarProfileSheet
 import app.nullpointr.foxnav.convoy.label
 import app.nullpointr.foxnav.settings.Announcements
 import app.nullpointr.foxnav.settings.AUDIO_TYPES
+import app.nullpointr.foxnav.settings.LookSettings
 import app.nullpointr.foxnav.settings.MapOrientation
 import app.nullpointr.foxnav.settings.OverLimitSound
 import app.nullpointr.foxnav.settings.SettingsScope
@@ -185,7 +186,7 @@ fun DriveSettings(document: DiscoveryDocument, viewModel: DriveViewModel, naviga
         SwitchRow("Zoom buttons", "Next to the map, besides pinching.", settings.zoomButtons) { on -> store.update { it.copy(zoomButtons = on) } }
 
         Section("Look")
-        AccentRow(settings.accent) { accent -> store.update { it.copy(accent = accent) } }
+        LookSettings(settings, graph.palettes, store::update)
         SwitchRow(
             "Japanese accents",
             "Small Japanese labels beside some English ones, like \u5230\u7740 by the arrival time, as in the design. The English is always there.",

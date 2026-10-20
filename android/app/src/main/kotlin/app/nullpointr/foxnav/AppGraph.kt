@@ -8,12 +8,15 @@ import app.nullpointr.foxnav.convoy.TowerPlacementStore
 import app.nullpointr.foxnav.data.Connectivity
 import app.nullpointr.foxnav.data.DataPacks
 import app.nullpointr.foxnav.data.DiscoveryCache
+import app.nullpointr.foxnav.data.MapStyles
 import app.nullpointr.foxnav.data.OfflineDownloads
 import app.nullpointr.foxnav.data.OfflineMaps
 import app.nullpointr.foxnav.data.OnDeviceValhalla
 import app.nullpointr.foxnav.data.PlaceSearch
 import app.nullpointr.foxnav.data.ValhallaRoutes
 import app.nullpointr.foxnav.shared.format.UnitSystem
+import app.nullpointr.foxnav.shared.theme.Palette
+import app.nullpointr.foxnav.shared.theme.Palettes
 import app.nullpointr.foxnav.voice.effectiveLanguage
 import app.nullpointr.foxnav.data.PlaceStore
 import app.nullpointr.foxnav.data.RoadData
@@ -97,6 +100,15 @@ class AppGraph(private val context: Context) {
     val lastArea = LastArea(context)
 
     val dataPacks = DataPacks(context, httpClient)
+
+    /** The colour palettes drivers choose from: design/tokens.json, bundled as an asset. */
+    val palettes: List<Palette> by lazy { Palettes.parse(context.assets.open("tokens.json").bufferedReader().use { it.readText() }) }
+
+    /** [id]'s palette, or the default one when there's no such palette (any more). */
+    fun palette(id: String): Palette = palettes.firstOrNull { it.id == id } ?: palettes.first()
+
+    /** The server's map styles on the phone, recoloured in the driver's palette. */
+    val mapStyles by lazy { MapStyles(context, httpClient, connectivity.online, scope) }
 
     val connectivity = Connectivity(context)
 

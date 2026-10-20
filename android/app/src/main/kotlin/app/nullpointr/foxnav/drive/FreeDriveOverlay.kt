@@ -86,6 +86,7 @@ import app.nullpointr.foxnav.shared.routing.RoadSelectionKind
 import app.nullpointr.foxnav.shared.routing.RoadSelections
 import app.nullpointr.foxnav.shared.search.Place
 import app.nullpointr.foxnav.settings.size
+import app.nullpointr.foxnav.ui.hudSp
 import androidx.compose.material3.TextButton
 import uniffi.ferrostar.Route
 import java.util.UUID
@@ -234,7 +235,7 @@ private fun FreeDriveContent(viewModel: DriveViewModel, convoySize: Int?, onOpen
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
         SpeedCluster(speed)
         Column(Modifier.weight(1f)) {
-            Text(arrivedAt ?: road?.name ?: "Free drive", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(arrivedAt ?: road?.name ?: "Free drive", fontSize = 19.hudSp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (arrivedAt != null) {
                 HudLabel("ARRIVED", colors.secondary, accent = "到着")
             } else {

@@ -1,6 +1,10 @@
 // Generates the map style templates in infra/styles/ from the Protomaps basemap, recoloured
-// with the FoxNav design tokens (design/tokens.json).
+// with the FoxNav design tokens (design/tokens.json): the default palette, Tokyo night.
 // `{{origin}}` is replaced by the FoxNav server with the origin each client used.
+//
+// Every paint property that takes a token colour gets a template in its layer's metadata,
+// `"foxnav:paint": {"fill-color": "@map-water", …}`, with each token colour as "@token". Apps
+// fill the templates with the driver's palette to recolour the map on the phone.
 //
 //   cd infra/scripts/styles && npm install && npm run generate
 import { readFileSync, writeFileSync } from "node:fs";
@@ -10,6 +14,7 @@ const ORIGIN = "{{origin}}";
 const LANGUAGE = "en"; // labels fall back to local names where no English name exists
 
 const tokens = JSON.parse(readFileSync(new URL("../../../design/tokens.json", import.meta.url)));
+const PALETTE = "tokyo-night";
 
 // FoxNav theme -> the Protomaps flavor it starts from (for POI and landcover details).
 const THEMES = { night: "dark", day: "light" };
@@ -56,15 +61,47 @@ function thinPois(layers) {
   return layers;
 }
 
+/**
+ * Replaces each token's placeholder colour in [layers] with its colour, and records where it was:
+ * each paint property with one gets a template in its layer's metadata.
+ */
+function tagTokens(layers, placeholders, colors) {
+  const found = new Set();
+  const fill = (value, template) => {
+    if (typeof value === "string") {
+      const token = placeholders.get(value);
+      if (!token) return value;
+      found.add(token);
+      return template ? `@${token}` : colors[token].$value;
+    }
+    return Array.isArray(value) ? value.map((part) => fill(part, template)) : value;
+  };
+  for (const layer of layers) {
+    for (const [property, value] of Object.entries(layer.paint ?? {})) {
+      const template = fill(value, true);
+      if (JSON.stringify(template) === JSON.stringify(value)) continue;
+      layer.metadata = { ...layer.metadata, "foxnav:paint": { ...layer.metadata?.["foxnav:paint"], [property]: template } };
+      layer.paint[property] = fill(value, false);
+    }
+  }
+  const unused = [...placeholders.values()].filter((token) => !found.has(token));
+  if (unused.length) throw new Error(`The Protomaps layers don't use ${unused.join(", ")} as given`);
+  return layers;
+}
+
 for (const [theme, base] of Object.entries(THEMES)) {
-  const colors = tokens.color[theme];
+  const colors = tokens.color.palette[PALETTE]?.[theme];
+  if (!colors) throw new Error(`design/tokens.json has no color.palette.${PALETTE}.${theme}`);
   const flavor = { ...namedFlavor(base) };
-  for (const [token, keys] of Object.entries(GROUPS)) {
-    const value = colors[token]?.$value;
-    if (!value) throw new Error(`design/tokens.json has no color.${theme}.${token}`);
+  // A colour of its own for each token, found again in the layers to tag them.
+  const placeholders = new Map();
+  for (const [index, [token, keys]] of Object.entries(GROUPS).entries()) {
+    if (!colors[token]?.$value) throw new Error(`design/tokens.json has no color.palette.${PALETTE}.${theme}.${token}`);
+    const placeholder = `#fe${index.toString(16).padStart(2, "0")}${index.toString(16).padStart(2, "0")}`;
+    placeholders.set(placeholder, token);
     for (const key of keys) {
       if (!(key in flavor)) throw new Error(`Protomaps flavor has no key ${key}`);
-      flavor[key] = value;
+      flavor[key] = placeholder;
     }
   }
 
@@ -84,7 +121,7 @@ for (const [theme, base] of Object.entries(THEMES)) {
           '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
       },
     },
-    layers: thinPois(layers("protomaps", flavor, { lang: LANGUAGE })),
+    layers: tagTokens(thinPois(layers("protomaps", flavor, { lang: LANGUAGE })), placeholders, colors),
   };
   const path = new URL(`../../styles/${theme}.json`, import.meta.url);
   writeFileSync(path, JSON.stringify(style, null, 2) + "\n");

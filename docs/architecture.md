@@ -216,7 +216,7 @@ On the car screen only the map is ours, so the app's look has to live in the map
 
 ## Look and feel
 
-"Tokyo night drive": a dark, high-tech car-navigation feel with Japanese accents. That means a kitsune (fox) mark, vermilion and electric cyan on near-black, digital instrument typography, and a day mode for sunlight. The design direction, mockups and design tokens live in [`design/`](../design/). Colours come from the tokens, one set per theme.
+"Tokyo night drive": a dark, high-tech car-navigation feel with Japanese accents. That means a kitsune (fox) mark, vermilion and electric cyan on near-black, digital instrument typography, and a day mode for sunlight. The design direction, mockups and design tokens live in [`design/`](../design/). Colours come from the tokens: five palettes, each with a night and a day set, which the app bundles and drivers choose from.
 
 The screens follow the mockups:
 
@@ -235,7 +235,10 @@ What drivers can change, on one settings page:
 
 - **Driving:** km/h or mph (speeds, limits, distances, Valhalla's guidance and the spoken warnings all follow); how far over the limit before the warning (0, 3, 5 or 10); the over-limit sound (see Voice); a modern or a 7-segment speedometer (DSEG7, with the unlit segments showing, like an 80s digital dash).
 - **Map:** day and night by sunrise and sunset where you are (a solar-elevation calculation, so midnight sun and kaamos work in Lapland), like the phone, or fixed; heading-up or north-up; 3D tilt while navigating; zoom buttons.
-- **Look:** an accent colour (vermilion, sakura, ocean, lime, violet or monochrome), and the Japanese accents on or off. Warnings keep amber and red, and the route keeps cyan, so they always read as what they are.
+- **Look:** the colour theme (Tokyo night, True black, High contrast, Shibuya neon or Kyoto moss), the accent (the theme's own, a preset, or any colour) and the route colour (the theme's own or any), the text size and the driving displays' size, and the Japanese accents on or off.
+  - Warnings keep amber and red in every theme. Picked colours are adjusted to read on the theme's backgrounds, night and day, and the route can't take amber or red: the picker says why.
+  - The map follows the theme: the app keeps the server's styles on the phone (`MapStyles`, revalidated by ETag) and fills each layer's colour template with the palette (`StyleRecolour`, spec §1). Kept on the phone, the styles also let day and night switch without a connection.
+  - The text size (90–130 %, on top of the phone's) scales the app's text and the map's labels. The driving display size scales the speedometer, limit sign, maneuver card, arrival time and road name; their numbers stay inside their boxes whatever the text size.
   - At night the route line glows like neon (a soft bloom, a glow and a bright core over the cyan line), as in the mockups; by day it's the plain line. Its corners are rounded off over 12 m either side (`RoutePath`), so bends drawn as a few straight pieces don't show as points, and your car follows the rounded line. The next maneuver's lanes show under the maneuver card where the map has them, the ones to take lit.
   - The map's credits are a small tag on the top edge of the bottom panel, as in the mockups, rather than MapLibre's logo and info button over the map. Its text is the map style's own attribution (any server's style credits its sources), and tapping it lists them with links.
 - **Your car:** name, make, model, colour and body style. Your own car on the map is its top-down silhouette (coupé, hatchback, sedan, wagon, convertible, kei car, SUV, van, pickup) in your colour, with an underglow at night; the convoy's cars show their own shapes.

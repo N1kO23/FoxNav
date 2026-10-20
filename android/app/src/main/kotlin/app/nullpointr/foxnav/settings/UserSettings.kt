@@ -3,6 +3,7 @@ package app.nullpointr.foxnav.settings
 import android.content.Context
 import android.content.SharedPreferences
 import app.nullpointr.foxnav.shared.format.UnitSystem
+import app.nullpointr.foxnav.shared.theme.Palettes
 import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,8 +23,11 @@ enum class MapOrientation { HEADING_UP, NORTH_UP }
 /** How much the app says about cameras and reports ahead. */
 enum class Announcements { FULL, SHORT, TONE, OFF }
 
-/** Accent colours for buttons and highlights. Warnings keep amber and red, the route keeps cyan. */
-enum class Accent { VERMILION, SAKURA, OCEAN, LIME, VIOLET, MONO }
+/** Accent colours for buttons and highlights: the palette's own, a preset, or the driver's. Warnings keep amber and red. */
+enum class Accent { THEME, VERMILION, SAKURA, OCEAN, LIME, VIOLET, MONO, CUSTOM }
+
+/** The route line's colour: the palette's own, or the driver's. */
+enum class RouteColor { THEME, CUSTOM }
 
 /** Everything the user chooses about how FoxNav looks, sounds and behaves. */
 data class Settings(
@@ -39,7 +43,18 @@ data class Settings(
     val tilt: Boolean = true,
     val zoomButtons: Boolean = false,
     // Look
-    val accent: Accent = Accent.VERMILION,
+    /** A palette in design/tokens.json; one that isn't there (any more) means the default. */
+    val palette: String = Palettes.DEFAULT,
+    val accent: Accent = Accent.THEME,
+    /** The driver's accent (0xRRGGBB) with [Accent.CUSTOM]: as picked at night, adjusted for day. */
+    val customAccent: Int = 0xE5462E,
+    val routeColor: RouteColor = RouteColor.THEME,
+    /** The driver's route colour (0xRRGGBB) with [RouteColor.CUSTOM]. */
+    val customRoute: Int = 0x35D6F0,
+    /** Interface text and map labels, this many times the phone's text size (0.9–1.3). */
+    val textScale: Float = 1f,
+    /** The speedometer, maneuver card and the other driving displays, this many times their size (0.9–1.3). */
+    val hudScale: Float = 1f,
     /** Small Japanese labels beside some English ones, as in the design (design/README.md). */
     val japaneseAccents: Boolean = true,
     // Voice
@@ -80,7 +95,13 @@ class UserSettings(context: Context) {
             orientation = enum("orientation", defaults.orientation),
             tilt = getBoolean("tilt", defaults.tilt),
             zoomButtons = getBoolean("zoom_buttons", defaults.zoomButtons),
+            palette = getString("palette", null) ?: defaults.palette,
             accent = enum("accent", defaults.accent),
+            customAccent = getInt("custom_accent", defaults.customAccent),
+            routeColor = enum("route_color", defaults.routeColor),
+            customRoute = getInt("custom_route", defaults.customRoute),
+            textScale = getFloat("text_scale", defaults.textScale),
+            hudScale = getFloat("hud_scale", defaults.hudScale),
             japaneseAccents = getBoolean("japanese_accents", defaults.japaneseAccents),
             voiceLanguage = getString("voice_language", null) ?: defaults.voiceLanguage,
             voiceName = getString("voice_name", null) ?: defaults.voiceName,
@@ -101,7 +122,13 @@ class UserSettings(context: Context) {
         putString("orientation", settings.orientation.name)
         putBoolean("tilt", settings.tilt)
         putBoolean("zoom_buttons", settings.zoomButtons)
+        putString("palette", settings.palette)
         putString("accent", settings.accent.name)
+        putInt("custom_accent", settings.customAccent)
+        putString("route_color", settings.routeColor.name)
+        putInt("custom_route", settings.customRoute)
+        putFloat("text_scale", settings.textScale)
+        putFloat("hud_scale", settings.hudScale)
         putBoolean("japanese_accents", settings.japaneseAccents)
         putString("voice_language", settings.voiceLanguage)
         putString("voice_name", settings.voiceName)

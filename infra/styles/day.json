@@ -20,6 +20,11 @@
       "type": "background",
       "paint": {
         "background-color": "#EEEAE0"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "background-color": "@map-land"
+        }
       }
     },
     {
@@ -34,6 +39,11 @@
       "source-layer": "earth",
       "paint": {
         "fill-color": "#EEEAE0"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-land"
+        }
       }
     },
     {
@@ -199,6 +209,93 @@
           "#D7E2CC",
           "#EEEAE0"
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "national_park",
+                  "park",
+                  "cemetery",
+                  "protected_area",
+                  "nature_reserve",
+                  "forest",
+                  "golf_course"
+                ]
+              ]
+            ],
+            "@map-park",
+            [
+              "==",
+              [
+                "get",
+                "kind"
+              ],
+              "wood"
+            ],
+            "@map-park",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "scrub",
+                  "grassland",
+                  "grass"
+                ]
+              ]
+            ],
+            "@map-park",
+            [
+              "==",
+              [
+                "get",
+                "kind"
+              ],
+              "glacier"
+            ],
+            "@map-land",
+            [
+              "==",
+              [
+                "get",
+                "kind"
+              ],
+              "sand"
+            ],
+            "@map-land",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "military",
+                  "naval_base",
+                  "airfield"
+                ]
+              ]
+            ],
+            "@map-park",
+            "@map-land"
+          ]
+        }
       }
     },
     {
@@ -216,6 +313,11 @@
       "paint": {
         "fill-color": "#D7E2CC",
         "fill-opacity": 0.7
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-park"
+        }
       }
     },
     {
@@ -230,6 +332,11 @@
       ],
       "paint": {
         "fill-color": "#EEEAE0"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-land"
+        }
       }
     },
     {
@@ -244,6 +351,11 @@
       ],
       "paint": {
         "fill-color": "#EEEAE0"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-land"
+        }
       }
     },
     {
@@ -260,6 +372,11 @@
       ],
       "paint": {
         "fill-color": "#EEEAE0"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-land"
+        }
       }
     },
     {
@@ -274,6 +391,11 @@
       ],
       "paint": {
         "fill-color": "#EEEAE0"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-land"
+        }
       }
     },
     {
@@ -288,6 +410,11 @@
       ],
       "paint": {
         "fill-color": "#D7E2CC"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-park"
+        }
       }
     },
     {
@@ -302,6 +429,11 @@
       ],
       "paint": {
         "fill-color": "#EEEAE0"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-land"
+        }
       }
     },
     {
@@ -332,6 +464,11 @@
           18,
           30
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -363,6 +500,11 @@
           15,
           6
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -381,6 +523,11 @@
       ],
       "paint": {
         "fill-color": "#FFFFFF"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-road"
+        }
       }
     },
     {
@@ -395,6 +542,11 @@
       "source-layer": "water",
       "paint": {
         "fill-color": "#B7CDE2"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-water"
+        }
       }
     },
     {
@@ -411,6 +563,11 @@
       "paint": {
         "line-color": "#B7CDE2",
         "line-width": 0.5
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-water"
+        }
       }
     },
     {
@@ -442,6 +599,11 @@
           18,
           12
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-water"
+        }
       }
     },
     {
@@ -457,6 +619,11 @@
       ],
       "paint": {
         "fill-color": "#EEEAE0"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-land"
+        }
       }
     },
     {
@@ -471,6 +638,11 @@
       ],
       "paint": {
         "fill-color": "#FFFFFF"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-road"
+        }
       }
     },
     {
@@ -507,6 +679,11 @@
           20,
           7
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -564,6 +741,11 @@
           12.5,
           1
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -618,6 +800,11 @@
           12.5,
           1
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -677,6 +864,11 @@
           9.5,
           1
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -742,6 +934,11 @@
           20,
           15
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -782,6 +979,11 @@
           20,
           7
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -821,6 +1023,11 @@
           18,
           11
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -857,6 +1064,11 @@
           18,
           11
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -896,6 +1108,11 @@
           18,
           13
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-major"
+        }
       }
     },
     {
@@ -947,6 +1164,11 @@
           18,
           15
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-highway"
+        }
       }
     },
     {
@@ -963,6 +1185,11 @@
       "paint": {
         "fill-color": "#E3DDD0",
         "fill-opacity": 0.5
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "fill-color": "@map-building"
+        }
       }
     },
     {
@@ -993,6 +1220,11 @@
           20,
           16
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -1052,6 +1284,11 @@
           13.5,
           0.8
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1114,6 +1351,11 @@
           12.5,
           1
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1158,6 +1400,11 @@
           13.5,
           1.5
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1216,6 +1463,11 @@
           9.5,
           1
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1278,6 +1530,11 @@
           20,
           15
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1323,6 +1580,11 @@
           20,
           12
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -1352,6 +1614,11 @@
           18,
           11
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -1396,6 +1663,11 @@
           18,
           8
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -1457,6 +1729,24 @@
           18,
           11
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": [
+            "interpolate",
+            [
+              "exponential",
+              1.6
+            ],
+            [
+              "zoom"
+            ],
+            11,
+            "@map-road",
+            16,
+            "@map-road"
+          ]
+        }
       }
     },
     {
@@ -1513,6 +1803,11 @@
           9.5,
           1
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1556,6 +1851,11 @@
           18,
           13
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-major"
+        }
       }
     },
     {
@@ -1616,6 +1916,11 @@
           7.5,
           1
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1665,6 +1970,11 @@
           18,
           15
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-highway"
+        }
       }
     },
     {
@@ -1700,6 +2010,11 @@
           18,
           9
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-railway"
+        }
       }
     },
     {
@@ -1736,6 +2051,11 @@
             ]
           ]
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-boundary"
+        }
       }
     },
     {
@@ -1772,6 +2092,11 @@
             ]
           ]
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-boundary"
+        }
       }
     },
     {
@@ -1809,6 +2134,11 @@
           20,
           7
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1860,6 +2190,11 @@
           12.5,
           1.5
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1914,6 +2249,11 @@
           13.5,
           0.8
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -1966,6 +2306,11 @@
           9.5,
           1.5
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -2007,6 +2352,11 @@
           20,
           7
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -2047,6 +2397,11 @@
           18,
           11
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -2084,6 +2439,11 @@
           18,
           11
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road"
+        }
       }
     },
     {
@@ -2124,6 +2484,11 @@
           18,
           13
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-major"
+        }
       }
     },
     {
@@ -2182,6 +2547,11 @@
           20,
           15
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-casing"
+        }
       }
     },
     {
@@ -2227,6 +2597,11 @@
           18,
           15
         ]
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "line-color": "@map-road-highway"
+        }
       }
     },
     {
@@ -2255,6 +2630,12 @@
         "text-color": "#6E7381",
         "text-halo-color": "#F4F1EA",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label",
+          "text-halo-color": "@map-label-halo"
+        }
       }
     },
     {
@@ -3151,6 +3532,12 @@
         "text-color": "#6E7381",
         "text-halo-color": "#B7CDE2",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label",
+          "text-halo-color": "@map-water"
+        }
       }
     },
     {
@@ -4072,6 +4459,12 @@
         "text-color": "#6E7381",
         "text-halo-color": "#F4F1EA",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label",
+          "text-halo-color": "@map-label-halo"
+        }
       }
     },
     {
@@ -4983,6 +5376,12 @@
         "text-color": "#6E7381",
         "text-halo-width": 1,
         "text-halo-color": "#B7CDE2"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label",
+          "text-halo-color": "@map-water"
+        }
       }
     },
     {
@@ -5877,6 +6276,12 @@
         "text-color": "#6E7381",
         "text-halo-color": "#F4F1EA",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label",
+          "text-halo-color": "@map-label-halo"
+        }
       }
     },
     {
@@ -6786,6 +7191,12 @@
         "text-color": "#6E7381",
         "text-halo-color": "#B7CDE2",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label",
+          "text-halo-color": "@map-water"
+        }
       }
     },
     {
@@ -6886,6 +7297,11 @@
       },
       "paint": {
         "text-color": "#6E7381"
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label"
+        }
       }
     },
     {
@@ -7785,6 +8201,12 @@
         "text-color": "#6E7381",
         "text-halo-color": "#F4F1EA",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label",
+          "text-halo-color": "@map-label-halo"
+        }
       }
     },
     {
@@ -8866,6 +9288,129 @@
         ],
         "text-halo-color": "#EEEAE0",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "beach",
+                  "forest",
+                  "marina",
+                  "park",
+                  "peak",
+                  "zoo",
+                  "garden",
+                  "bench"
+                ]
+              ]
+            ],
+            "#20834D",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "aerodrome",
+                  "station",
+                  "bus_stop",
+                  "ferry_terminal"
+                ]
+              ]
+            ],
+            "#315BCF",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "stadium",
+                  "university",
+                  "library",
+                  "school",
+                  "animal",
+                  "toilets",
+                  "drinking_water",
+                  "post_office",
+                  "building",
+                  "townhall"
+                ]
+              ]
+            ],
+            "#6A5B8F",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "supermarket",
+                  "convenience",
+                  "books",
+                  "beauty",
+                  "electronics",
+                  "clothes"
+                ]
+              ]
+            ],
+            "#1A8CBD",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "restaurant",
+                  "fast_food",
+                  "cafe",
+                  "bar"
+                ]
+              ]
+            ],
+            "#CB6704",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "attraction",
+                  "museum",
+                  "theatre",
+                  "artwork"
+                ]
+              ]
+            ],
+            "#EF56BA",
+            "@map-land"
+          ],
+          "text-halo-color": "@map-land"
+        }
       }
     },
     {
@@ -9809,6 +10354,12 @@
         "text-color": "#6E7381",
         "text-halo-color": "#F4F1EA",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label",
+          "text-halo-color": "@map-label-halo"
+        }
       }
     },
     {
@@ -10738,6 +11289,12 @@
         "text-color": "#6E7381",
         "text-halo-color": "#F4F1EA",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label",
+          "text-halo-color": "@map-label-halo"
+        }
       }
     },
     {
@@ -11891,6 +12448,12 @@
         "text-color": "#5B6070",
         "text-halo-color": "#F4F1EA",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label-major",
+          "text-halo-color": "@map-label-halo"
+        }
       }
     },
     {
@@ -12040,6 +12603,12 @@
         "text-color": "#5B6070",
         "text-halo-color": "#EEEAE0",
         "text-halo-width": 1
+      },
+      "metadata": {
+        "foxnav:paint": {
+          "text-color": "@map-label-major",
+          "text-halo-color": "@map-land"
+        }
       }
     }
   ]
