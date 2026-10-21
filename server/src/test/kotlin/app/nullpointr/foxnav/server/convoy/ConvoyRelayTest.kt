@@ -135,6 +135,21 @@ class ConvoyRelayTest {
     }
 
     @Test
+    fun framesKeptInTheSameMillisecondStayInTheOrderTheyArrived() = runTest {
+        // A card and a position a client sends together often arrive within one millisecond; they
+        // still go out oldest first, whatever the sender's ID. Many owners: an order that came from
+        // hashing their IDs would be the wrong one for some.
+        repeat(32) {
+            val owner = Client()
+            val convoy = create(owner)
+            owner.publish(FrameKind.CARD, "card")
+            owner.publish(FrameKind.POSITION, "position")
+            val seat = Client().join(convoy)!!
+            assertEquals(listOf("card", "position"), seat.frames.map { it.frame.text() }, "owner ${owner.id}")
+        }
+    }
+
+    @Test
     fun onlyFramesGoThrough() = runTest {
         val owner = Client()
         create(owner)

@@ -83,9 +83,13 @@ class ConvoyRelay(
         val recentOthers = HashMap<Int, ArrayDeque<Long>>()
     }
 
-    internal class Kept(val frame: ByteString, val from: Int, val receivedAt: Long)
+    /** A frame kept for late joiners; [arrival] counts up with every frame, for their order. */
+    internal class Kept(val frame: ByteString, val from: Int, val receivedAt: Long, val arrival: Long)
 
     private val mutex = Mutex()
+
+    /** Frames received so far. Milliseconds don't order them: a client's card and position often arrive in the same one. */
+    private var arrivals = 0L
     private val rooms = HashMap<ByteString, Room>()
     private val seats = HashMap<ByteString, Pair<Room, Member>>()
 
@@ -189,7 +193,7 @@ class ConvoyRelay(
         } else if (!member.recentOthers.getOrPut(header.sender) { ArrayDeque() }.admit(now, limits.otherBurst, limits.otherWindowMs)) {
             return connection.error(ProtocolError.Code.CODE_RATE_LIMITED, "Too many frames")
         }
-        val kept = Kept(frame, member.id, now)
+        val kept = Kept(frame, member.id, now, arrivals++)
         when {
             kind == FrameKind.OWNER -> {
                 if (header.sender != room.ownerId) return connection.error(ProtocolError.Code.CODE_FORBIDDEN, "Only the owner's frames go out as the owner's")
@@ -270,7 +274,7 @@ class ConvoyRelay(
     private fun joinedMessage(room: Room, member: Member): Joined {
         val now = clock()
         val kept = (room.members.values.filter { it !== member }.flatMap { it.kept.values } + room.ownerFrames.filter { it.from != member.id })
-            .sortedBy { it.receivedAt }
+            .sortedBy { it.arrival }
         return Joined(
             convoy_id = room.id,
             member_id = member.id,
