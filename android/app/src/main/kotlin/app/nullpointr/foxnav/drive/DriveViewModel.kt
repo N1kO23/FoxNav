@@ -348,7 +348,8 @@ class DriveViewModel(
                     Camera.AVERAGE_SPEED -> "average_speed_check"
                     else -> "speed_camera"
                 }
-                warn(kind, ahead.distanceM, ahead.spoken(settings.value.units), ahead.short())
+                val units = settings.value.units
+                warn(kind, ahead.distanceM, ahead.spoken(units), ahead.short(), limit = ahead.camera.maxspeed?.let { limitIn(it, units) })
             }
         }
         if (reportsClient != null) {
@@ -565,13 +566,13 @@ class DriveViewModel(
 
     /**
      * A camera or report ahead ([kind] as in [Phrases.warning]), said as the settings say: the
-     * full sentence, the short one, a tone, or nothing.
+     * full sentence (with a camera's [limit]), the short one, a tone, or nothing.
      */
-    private fun warn(kind: String, distanceM: Double, full: String, short: String) {
+    private fun warn(kind: String, distanceM: Double, full: String, short: String, limit: Int? = null) {
         if (core.spokenInstructionObserver?.isMuted == true) return
         val units = settings.value.units
         when (settings.value.announcements) {
-            Announcements.FULL -> say(Utterance(Phrases.warning(kind, distanceM, units, short = false), full))
+            Announcements.FULL -> say(Utterance(Phrases.warning(kind, distanceM, units, short = false, limit = limit), full))
             Announcements.SHORT -> say(Utterance(Phrases.warning(kind, distanceM, units, short = true), short))
             Announcements.TONE -> playAlert()
             Announcements.OFF -> Unit

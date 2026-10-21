@@ -2,6 +2,8 @@ package app.nullpointr.foxnav.shared.voice
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class GuidanceTextTest {
     @Test
@@ -23,5 +25,16 @@ class GuidanceTextTest {
             "Käänny vasemmalle kadulle Annankatu.",
             "Jatka 2 kilometriä.",
         ).forEach { assertEquals(it, mendedGuidance(it)) }
+    }
+
+    @Test
+    fun twoManoeuvresInOneInstruction() {
+        assertTrue(chainsNext("Turn right onto Toinen linja. Then, in 20 meters, Turn left onto Porthaninkatu."))
+        assertTrue(chainsNext("Käänny oikealle kadulle Viides linja. Sitten Käänny vasemmalle kadulle Porthaninkatu."))
+        assertTrue(chainsNext("Sväng höger in på Annankatu. Därefter Sväng vänster."))
+        assertTrue(chainsNext("Ta til høyre. Deretter, om 20 meter, Ta til venstre."))
+        assertTrue(chainsNext("Drej til højre. Derefter Drej til venstre."))
+        assertFalse(chainsNext("Turn left onto Thenstreet."))
+        assertFalse(chainsNext("In 200 meters, Turn left onto Annankatu."))
     }
 }

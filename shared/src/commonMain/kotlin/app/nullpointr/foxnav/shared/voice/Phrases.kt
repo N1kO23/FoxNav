@@ -14,7 +14,10 @@ object Phrases {
     /** One recordable phrase: its key in a pack, and what to say when recording it. */
     data class Phrase(val key: String, val prompt: String, val group: Group)
 
-    enum class Group(val title: String) { DISTANCES("Distances"), MANEUVERS("Turns and lanes"), WARNINGS("Warnings") }
+    enum class Group(val title: String) { DISTANCES("Distances"), MANEUVERS("Turns and lanes"), WARNINGS("Warnings"), LIMITS("Speed limits") }
+
+    /** A manoeuvre as Ferrostar names it, after OSRM: type and modifier, like "TURN" and "SLIGHT_LEFT"; a roundabout's [exit]. */
+    data class Maneuver(val type: String, val modifier: String? = null, val exit: Int? = null)
 
     private val METRIC = listOf(100 to "In 100 metres", 200 to "In 200 metres", 300 to "In 300 metres", 400 to "In 400 metres", 500 to "In 500 metres", 800 to "In 800 metres", 1000 to "In 1 kilometre", 1500 to "In 1.5 kilometres", 2000 to "In 2 kilometres", 3000 to "In 3 kilometres", 5000 to "In 5 kilometres")
     private val IMPERIAL = listOf(152 to "In 500 feet", 305 to "In 1000 feet", 402 to "In a quarter mile", 805 to "In half a mile", 1609 to "In 1 mile", 3219 to "In 2 miles", 8047 to "In 5 miles")
@@ -31,9 +34,19 @@ object Phrases {
         "u_turn" to "Make a U-turn", "merge" to "Merge",
         "ramp_left" to "Take the ramp on the left", "ramp_right" to "Take the ramp on the right",
         "exit_left" to "Take the exit on the left", "exit_right" to "Take the exit on the right",
-        "roundabout" to "Enter the roundabout", "exit_roundabout" to "Exit the roundabout",
-        "arriving" to "Your destination is ahead", "arrive" to "You have arrived",
+        "roundabout" to "Enter the roundabout",
+    ) + listOf("first", "second", "third", "fourth", "fifth", "sixth").mapIndexed { index, ordinal -> roundaboutExit(index + 1) to "Take the $ordinal exit" } + listOf(
+        "exit_roundabout" to "Exit the roundabout",
+        "arriving" to "Your destination is ahead",
+        "arriving_left" to "Your destination is on the left", "arriving_right" to "Your destination is on the right",
+        "arrive" to "You have arrived",
+        "then" to "Then",
     )
+
+    private fun roundaboutExit(number: Int) = "roundabout_exit_$number"
+
+    /** Limits as warnings say them, "limit 80": the number alone, so in km/h mostly, and in mph where it's one of these. */
+    private val LIMITS = (20..120 step 10).map { "limit_$it" to "Limit $it" }
 
     private val WARNINGS = listOf(
         "speed_camera" to "Speed camera", "red_light_camera" to "Red light camera", "average_speed_check" to "Average speed check",
@@ -47,7 +60,8 @@ object Phrases {
         METRIC.map { (metres, prompt) -> Phrase(metricKey(metres), prompt, Group.DISTANCES) } +
             IMPERIAL.map { (_, prompt) -> Phrase(imperialKey(prompt), prompt, Group.DISTANCES) } +
             MANEUVERS.map { (key, prompt) -> Phrase(key, prompt, Group.MANEUVERS) } +
-            WARNINGS.map { (key, prompt) -> Phrase(key, prompt, Group.WARNINGS) }
+            WARNINGS.map { (key, prompt) -> Phrase(key, prompt, Group.WARNINGS) } +
+            LIMITS.map { (key, prompt) -> Phrase(key, prompt, Group.LIMITS) }
 
     /** "In 300 metres": the recorded distance nearest to [metres] (on a log scale), or null when it's too near or too far to say. */
     fun distance(metres: Double, units: UnitSystem): String? {
@@ -97,10 +111,45 @@ object Phrases {
         return listOfNotNull(distance(metres, units), maneuver)
     }
 
-    /** A camera or report ahead: what it is, and in the full style how far. */
-    fun warning(kind: String, metres: Double, units: UnitSystem, short: Boolean): List<String>? {
+    /**
+     * Guidance for [maneuver] at [metres], as [guidance] says it, and with what the manoeuvre adds:
+     * which exit of a roundabout ("Take the second exit"; one past the sixth has no phrase, so the
+     * phone says it), on which side the destination is, and [then], the one right after when the
+     * router says them together. Null for a manoeuvre a pack doesn't cover.
+     */
+    fun guidance(maneuver: Maneuver, metres: Double, units: UnitSystem, then: Maneuver? = null): List<String>? {
+        val key = maneuver(maneuver.type, maneuver.modifier) ?: return null
+        val said = guidance(key, metres, units).map { if (it == "arriving") arriving(maneuver) else it } + details(key, maneuver)
+        val next = then?.let { maneuver(it.type, it.modifier) }?.let { if (it == "arrive") arriving(then) else it } ?: return said
+        return said + "then" + next + details(next, then)
+    }
+
+    private fun details(key: String, maneuver: Maneuver): List<String> = listOfNotNull(maneuver.exit?.takeIf { key == "roundabout" }?.let(::roundaboutExit))
+
+    private fun arriving(maneuver: Maneuver) = when (maneuver.modifier) {
+        "LEFT", "SLIGHT_LEFT", "SHARP_LEFT" -> "arriving_left"
+        "RIGHT", "SLIGHT_RIGHT", "SHARP_RIGHT" -> "arriving_right"
+        else -> "arriving"
+    }
+
+    /**
+     * [phrases] without what a pack can do without: the turn after ("then" and on), the
+     * destination's side, a camera's limit. For packs made before they had those phrases. A
+     * roundabout's exit stays: without it, the phone says the sentence. Null when there's nothing
+     * to leave out.
+     */
+    fun plainer(phrases: List<String>): List<String>? {
+        val plain = phrases.takeWhile { it != "then" }
+            .filterNot { key -> LIMITS.any { it.first == key } }
+            .map { if (it == "arriving_left" || it == "arriving_right") "arriving" else it }
+        return plain.takeIf { it != phrases }
+    }
+
+    /** A camera or report ahead: what it is, and in the full style how far and the camera's [limit], when it's one with a phrase. */
+    fun warning(kind: String, metres: Double, units: UnitSystem, short: Boolean, limit: Int? = null): List<String>? {
         if (WARNINGS.none { it.first == kind }) return null
-        return if (short) listOf(kind) else listOfNotNull(kind, distance(metres, units))
+        if (short) return listOf(kind)
+        return listOfNotNull(kind, distance(metres, units), limit?.let { "limit_$it" }?.takeIf { key -> LIMITS.any { it.first == key } })
     }
 
     /** Closer than this, the manoeuvre is now: no distance. */

@@ -3,12 +3,15 @@ package app.nullpointr.foxnav.voice
 import app.nullpointr.foxnav.settings.Settings
 import app.nullpointr.foxnav.shared.navigation.Cue
 import app.nullpointr.foxnav.shared.navigation.GuidanceTiming
+import app.nullpointr.foxnav.shared.voice.Phrases
+import app.nullpointr.foxnav.shared.voice.chainsNext
 import com.stadiamaps.ferrostar.core.FerrostarCore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import uniffi.ferrostar.RouteDeviation
+import uniffi.ferrostar.RouteStep
 import uniffi.ferrostar.TripState
 
 /**
@@ -40,9 +43,18 @@ class RouteAnnouncer(private val voice: GuidanceVoice, private val settings: Sta
             units = current.units,
             speechRate = current.speechRate.toDouble(),
         ) ?: return
-        // What the step's banner shows coming up: the manoeuvre its instructions are about.
-        val maneuver = step.visualInstructions.firstOrNull()?.primaryContent
-            ?.let { content -> content.maneuverType?.name?.let { it to content.maneuverModifier?.name } }
-        voice.announce(announcement.cue.text, maneuver, announcement.heardAtM)
+        val steps = navigating.remainingSteps
+        val text = announcement.cue.text
+        voice.announce(text, maneuverAfter(steps, 0), announcement.heardAtM, then = if (chainsNext(text)) maneuverAfter(steps, 1) else null)
+    }
+
+    /**
+     * The manoeuvre at the end of [steps]' [index]th, as its banner shows it coming up. A
+     * roundabout's exit is on the step that goes round it, the next.
+     */
+    private fun maneuverAfter(steps: List<RouteStep>, index: Int): Phrases.Maneuver? {
+        val content = steps.getOrNull(index)?.visualInstructions?.firstOrNull()?.primaryContent ?: return null
+        val type = content.maneuverType?.name ?: return null
+        return Phrases.Maneuver(type, content.maneuverModifier?.name, steps.getOrNull(index + 1)?.roundaboutExitNumber?.toInt())
     }
 }

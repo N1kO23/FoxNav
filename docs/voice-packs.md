@@ -22,7 +22,7 @@ My voice.zip
 - **Length:** up to 10 seconds per clip. Leading and trailing silence is trimmed, and the volume is evened out, so clips recorded at different levels sound alike.
 - **Folders** inside the zip don't matter; only file names count.
 - **`voice.json`** names the pack. Without it, the pack takes the zip's name.
-- Other files are ignored. A pack doesn't need every phrase; whatever it lacks is spoken by the phone.
+- Other files are ignored. A pack doesn't need every phrase; whatever it lacks is spoken by the phone. Without `then`, the destination's sides or the speed limits, a pack says the rest and leaves those out; without a roundabout's exit, the phone says that instruction.
 
 An exported pack is in this format, with WAV clips, so it imports unchanged.
 
@@ -57,28 +57,39 @@ Guidance rounds the distance to the nearest of these. Packs used with miles need
 
 ### Turns and lanes
 
-| File name         | Say                        |
-| ----------------- | -------------------------- |
-| `turn_left`       | Turn left                  |
-| `turn_right`      | Turn right                 |
-| `bear_left`       | Bear left                  |
-| `bear_right`      | Bear right                 |
-| `sharp_left`      | Turn sharp left            |
-| `sharp_right`     | Turn sharp right           |
-| `keep_left`       | Keep left                  |
-| `keep_right`      | Keep right                 |
-| `go_straight`     | Go straight ahead          |
-| `continue`        | Continue on this road      |
-| `u_turn`          | Make a U-turn              |
-| `merge`           | Merge                      |
-| `ramp_left`       | Take the ramp on the left  |
-| `ramp_right`      | Take the ramp on the right |
-| `exit_left`       | Take the exit on the left  |
-| `exit_right`      | Take the exit on the right |
-| `roundabout`      | Enter the roundabout       |
-| `exit_roundabout` | Exit the roundabout        |
-| `arriving`        | Your destination is ahead  |
-| `arrive`          | You have arrived           |
+Some go together: a roundabout says which exit ("Enter the roundabout" + "Take the second exit"), and two turns close together are said as one ("Turn right" + "Then" + "Turn left").
+
+| File name           | Say                              |
+| ------------------- | -------------------------------- |
+| `turn_left`         | Turn left                        |
+| `turn_right`        | Turn right                       |
+| `bear_left`         | Bear left                        |
+| `bear_right`        | Bear right                       |
+| `sharp_left`        | Turn sharp left                  |
+| `sharp_right`       | Turn sharp right                 |
+| `keep_left`         | Keep left                        |
+| `keep_right`        | Keep right                       |
+| `go_straight`       | Go straight ahead                |
+| `continue`          | Continue on this road            |
+| `u_turn`            | Make a U-turn                    |
+| `merge`             | Merge                            |
+| `ramp_left`         | Take the ramp on the left        |
+| `ramp_right`        | Take the ramp on the right       |
+| `exit_left`         | Take the exit on the left        |
+| `exit_right`        | Take the exit on the right       |
+| `roundabout`        | Enter the roundabout             |
+| `roundabout_exit_1` | Take the first exit              |
+| `roundabout_exit_2` | Take the second exit             |
+| `roundabout_exit_3` | Take the third exit              |
+| `roundabout_exit_4` | Take the fourth exit             |
+| `roundabout_exit_5` | Take the fifth exit              |
+| `roundabout_exit_6` | Take the sixth exit              |
+| `exit_roundabout`   | Exit the roundabout              |
+| `arriving`          | Your destination is ahead        |
+| `arriving_left`     | Your destination is on the left  |
+| `arriving_right`    | Your destination is on the right |
+| `arrive`            | You have arrived                 |
+| `then`              | Then                             |
 
 ### Warnings
 
@@ -98,5 +109,23 @@ Spoken alone ("Speed camera") or followed by a distance ("Speed camera" + "In 40
 | `slippery_road`       | Slippery road       |
 | `animal`              | Animal on the road  |
 | `road_closed`         | Road closed         |
+
+### Speed limits
+
+Added to a camera's warning in the full style: "Speed camera" + "In 400 metres" + "Limit 80". The number alone, like the phone's speech says it; with miles, a limit that's none of these (100 km/h is 62 mph) is left out.
+
+| File name   | Say       |
+| ----------- | --------- |
+| `limit_20`  | Limit 20  |
+| `limit_30`  | Limit 30  |
+| `limit_40`  | Limit 40  |
+| `limit_50`  | Limit 50  |
+| `limit_60`  | Limit 60  |
+| `limit_70`  | Limit 70  |
+| `limit_80`  | Limit 80  |
+| `limit_90`  | Limit 90  |
+| `limit_100` | Limit 100 |
+| `limit_110` | Limit 110 |
+| `limit_120` | Limit 120 |
 
 The list is defined in `shared/src/commonMain/kotlin/app/nullpointr/foxnav/shared/voice/Phrases.kt`. New phrases may be added; existing names won't change.

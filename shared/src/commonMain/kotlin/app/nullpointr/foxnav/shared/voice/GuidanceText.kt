@@ -21,3 +21,9 @@ private val FINNISH_GENITIVE = mapOf(
     "maili" to "mailin",
     "jalkaa" to "jalan",
 )
+
+/** Whether Valhalla says [text] as two manoeuvres, one right after the other: "Turn right onto Toinen linja. Then turn left." */
+fun chainsNext(text: String): Boolean = THEN.containsMatchIn(text)
+
+/** Valhalla's "Then" between the two, in the languages FoxNav guides in. */
+private val THEN = Regex("""\.\s+(Then|Sitten|Därefter|Deretter|Derefter)\b""")

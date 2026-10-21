@@ -43,6 +43,46 @@ class PhrasesTest {
     }
 
     @Test
+    fun whatAManoeuvreAdds() {
+        val metric = UnitSystem.METRIC
+        assertEquals(listOf("in_200_m", "roundabout", "roundabout_exit_2"), Phrases.guidance(Phrases.Maneuver("ROUNDABOUT", "RIGHT", exit = 2), 210.0, metric))
+        // No phrase that far round: the phone says it.
+        assertTrue("roundabout_exit_7" in Phrases.guidance(Phrases.Maneuver("ROUNDABOUT", "RIGHT", exit = 7), 210.0, metric).orEmpty())
+        assertEquals(listOf("arriving_left"), Phrases.guidance(Phrases.Maneuver("ARRIVE", "LEFT"), 200.0, metric))
+        assertEquals(listOf("arriving"), Phrases.guidance(Phrases.Maneuver("ARRIVE", null), 200.0, metric))
+        assertEquals(listOf("arrive"), Phrases.guidance(Phrases.Maneuver("ARRIVE", "LEFT"), 10.0, metric))
+        assertNull(Phrases.guidance(Phrases.Maneuver("DEPART"), 200.0, metric))
+    }
+
+    @Test
+    fun twoTurnsCloseTogetherAreSaidAsOne() {
+        val right = Phrases.Maneuver("TURN", "RIGHT")
+        assertEquals(listOf("turn_right", "then", "turn_left"), Phrases.guidance(right, 50.0, UnitSystem.METRIC, then = Phrases.Maneuver("TURN", "LEFT")))
+        assertEquals(listOf("turn_right", "then", "arriving_right"), Phrases.guidance(right, 50.0, UnitSystem.METRIC, then = Phrases.Maneuver("ARRIVE", "RIGHT")))
+        assertEquals(listOf("turn_right", "then", "roundabout", "roundabout_exit_3"), Phrases.guidance(right, 50.0, UnitSystem.METRIC, then = Phrases.Maneuver("ROUNDABOUT", "STRAIGHT", exit = 3)))
+        // Nothing to say for the second: the first alone.
+        assertEquals(listOf("turn_right"), Phrases.guidance(right, 50.0, UnitSystem.METRIC, then = Phrases.Maneuver("NOTIFICATION")))
+    }
+
+    @Test
+    fun aCamerasLimit() {
+        assertEquals(listOf("speed_camera", "in_400_m", "limit_80"), Phrases.warning("speed_camera", 410.0, UnitSystem.METRIC, short = false, limit = 80))
+        assertEquals(listOf("speed_camera"), Phrases.warning("speed_camera", 410.0, UnitSystem.METRIC, short = true, limit = 80))
+        // 100 km/h in mph: no phrase for 62.
+        assertEquals(listOf("speed_camera", "in_a_quarter_mile"), Phrases.warning("speed_camera", 410.0, UnitSystem.IMPERIAL, short = false, limit = 62))
+    }
+
+    @Test
+    fun aPackWithoutTheNewerPhrasesSaysTheRest() {
+        assertEquals(listOf("in_100_m", "turn_left"), Phrases.plainer(listOf("in_100_m", "turn_left", "then", "turn_right")))
+        assertEquals(listOf("speed_camera", "in_400_m"), Phrases.plainer(listOf("speed_camera", "in_400_m", "limit_80")))
+        assertEquals(listOf("arriving"), Phrases.plainer(listOf("arriving_left")))
+        // Without which exit, the phone says it.
+        assertNull(Phrases.plainer(listOf("in_200_m", "roundabout", "roundabout_exit_2")))
+        assertNull(Phrases.plainer(listOf("in_300_m", "turn_left")))
+    }
+
+    @Test
     fun everyPhraseHasAUniqueKey() {
         val keys = Phrases.ALL.map { it.key }
         assertEquals(keys.size, keys.toSet().size)
@@ -53,5 +93,8 @@ class PhrasesTest {
         assertTrue(produced.all { it in keys }, (produced - keys.toSet()).toString())
         val distances = (70..6_500 step 10).flatMap { listOfNotNull(Phrases.distance(it.toDouble(), UnitSystem.METRIC), Phrases.distance(it.toDouble(), UnitSystem.IMPERIAL)) }
         assertTrue(distances.all { it in keys }, (distances.toSet() - keys.toSet()).toString())
+        val details = (1..6).flatMap { Phrases.guidance(Phrases.Maneuver("ROUNDABOUT", "RIGHT", exit = it), 50.0, UnitSystem.METRIC, then = Phrases.Maneuver("ARRIVE", "LEFT")).orEmpty() } +
+            (20..120 step 10).flatMap { Phrases.warning("speed_camera", 400.0, UnitSystem.METRIC, short = false, limit = it).orEmpty() }
+        assertTrue(details.all { it in keys }, (details.toSet() - keys.toSet()).toString())
     }
 }

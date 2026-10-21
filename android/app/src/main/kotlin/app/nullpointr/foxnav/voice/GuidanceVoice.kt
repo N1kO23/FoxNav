@@ -31,14 +31,13 @@ class GuidanceVoice(
     override fun onSpokenInstructionTrigger(spokenInstruction: SpokenInstruction) = Unit
 
     /**
-     * Says a route instruction, [heardAtM] before its [maneuver] (type and modifier names, like
-     * ("TURN", "LEFT")): from the pack with the distance as it will be heard, or [text] aloud.
+     * Says a route instruction, [heardAtM] before its [maneuver] and [then] the one right after
+     * it, if the instruction tells both: from the pack with the distance as it will be heard, or
+     * [text] aloud.
      */
-    fun announce(text: String, maneuver: Pair<String, String?>?, heardAtM: Double) {
+    fun announce(text: String, maneuver: Phrases.Maneuver?, heardAtM: Double, then: Phrases.Maneuver? = null) {
         if (isMuted) return
-        val phrases = maneuver
-            ?.let { (type, modifier) -> Phrases.maneuver(type, modifier) }
-            ?.let { Phrases.guidance(it, heardAtM, settings.value.units) }
+        val phrases = maneuver?.let { Phrases.guidance(it, heardAtM, settings.value.units, then) }
         val spoken = mendedGuidance(text)
         Log.i(TAG, "Heard ${heardAtM.roundToInt()} m before: $spoken")
         if (!playFromPack(phrases, spoken, maneuver)) tts.onSpokenInstructionTrigger(SpokenInstruction(spoken, null, heardAtM, UUID.randomUUID()))
@@ -50,7 +49,7 @@ class GuidanceVoice(
         if (!playFromPack(utterance.phrases, utterance.text, null)) tts.onSpokenInstructionTrigger(SpokenInstruction(utterance.text, null, 0.0, UUID.randomUUID()))
     }
 
-    private fun playFromPack(phrases: List<String>?, text: String, maneuver: Pair<String, String?>?): Boolean {
+    private fun playFromPack(phrases: List<String>?, text: String, maneuver: Phrases.Maneuver?): Boolean {
         val pack = settings.value.voicePack.takeIf { it.isNotEmpty() }?.let(packs::find) ?: return false
         // Why the phone's speech says this one: no phrases for it (a departure, a manoeuvre the
         // pack doesn't cover), or phrases the pack hasn't recorded.
@@ -58,21 +57,22 @@ class GuidanceVoice(
             Log.i(TAG, "Phone's speech, no phrases for ${maneuver ?: "this"}: $text")
             return false
         }
-        val missing = phrases.filter { pack.clip(it) == null }
-        if (missing.isNotEmpty()) {
-            Log.i(TAG, "Phone's speech, the pack lacks ${missing.joinToString()}: $text")
+        // All of it, or what a pack made before some phrases existed can say of it.
+        val sayable = listOfNotNull(phrases, Phrases.plainer(phrases)).firstOrNull { candidate -> candidate.all { pack.clip(it) != null } }
+        if (sayable == null) {
+            Log.i(TAG, "Phone's speech, the pack lacks ${phrases.filter { pack.clip(it) == null }.joinToString()}: $text")
             return false
         }
         // A very short first step, or arriving, brings the same words twice in a moment: once is enough.
         val now = System.currentTimeMillis()
-        if (phrases == lastPhrases && now - lastPlayedMs < REPEAT_MS) {
-            Log.i(TAG, "Voice pack, said a moment ago: ${phrases.joinToString(" + ")}")
+        if (sayable == lastPhrases && now - lastPlayedMs < REPEAT_MS) {
+            Log.i(TAG, "Voice pack, said a moment ago: ${sayable.joinToString(" + ")}")
             return true
         }
-        Log.i(TAG, "Voice pack: ${phrases.joinToString(" + ")}")
-        lastPhrases = phrases
+        Log.i(TAG, "Voice pack: ${sayable.joinToString(" + ")}")
+        lastPhrases = sayable
         lastPlayedMs = now
-        return clips.play(phrases.map { pack.clip(it)!! })
+        return clips.play(sayable.map { pack.clip(it)!! })
     }
 
     @Volatile
