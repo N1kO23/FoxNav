@@ -4,14 +4,14 @@ The page invite links open: it offers the FoxNav app, or follows the convoy righ
 
 Plain JavaScript modules, no build step, no dependencies besides [MapLibre GL JS](https://maplibre.org) and [PMTiles](https://github.com/protomaps/PMTiles). The reference server serves it at `/join` and `/web/`; its build fetches those two libraries pinned and checked against npm's integrity hashes (`server/build.gradle.kts`).
 
-| File | What it does |
-|---|---|
-| `join.html`, `join.css` | The page, in the app's night look |
-| `js/protobuf.js` | Encodes and decodes the convoy messages (`protocol/proto/…/convoy.proto`) |
-| `js/convoy.js` | The convoy protocol and its end-to-end encryption, like the app's `ConvoySession` |
-| `js/invite.js`, `js/server.js` | Invite links and the server's discovery document |
-| `js/motion.js` | Cars gliding between position reports, like the app's `MotionTrack` |
-| `js/join.js` | The page itself |
+| File                           | What it does                                                                      |
+| ------------------------------ | --------------------------------------------------------------------------------- |
+| `join.html`, `join.css`        | The page, in the app's night look                                                 |
+| `js/protobuf.js`               | Encodes and decodes the convoy messages (`protocol/proto/.../convoy.proto`)       |
+| `js/convoy.js`                 | The convoy protocol and its end-to-end encryption, like the app's `ConvoySession` |
+| `js/invite.js`, `js/server.js` | Invite links and the server's discovery document                                  |
+| `js/motion.js`                 | Cars gliding between position reports, like the app's `MotionTrack`               |
+| `js/join.js`                   | The page itself                                                                   |
 
 ## Tests
 
@@ -19,7 +19,7 @@ Plain JavaScript modules, no build step, no dependencies besides [MapLibre GL JS
 cd web && npm test     # Node 22's built-in test runner; no install needed
 ```
 
-`test/vectors.test.js` checks the encoding and encryption against bytes from the app's own code (`shared/src/jvmTest/…/convoy/WebVectorsTest.kt`), so the two can't drift apart unnoticed.
+`test/vectors.test.js` checks the encoding and encryption against bytes from the app's own code (`shared/src/jvmTest/.../convoy/WebVectorsTest.kt`), so the two can't drift apart unnoticed.
 
 To check a live convoy without a browser, `tools/watch.mjs` joins it as a viewer and prints who's in it:
 

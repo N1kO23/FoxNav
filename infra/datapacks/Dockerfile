@@ -8,5 +8,5 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends osmium-tool python3-pyosmium zstd \
         python3-numpy python3-shapely python3-pyproj python3-pyshp \
     && rm -rf /var/lib/apt/lists/*
-COPY build.py digiroad.py routing_tiles.py search_pack.py /opt/datapacks/
+COPY build.py official_limits.py digiroad.py nvdb.py routing_tiles.py search_pack.py /opt/datapacks/
 ENTRYPOINT ["python3", "/opt/datapacks/build.py"]

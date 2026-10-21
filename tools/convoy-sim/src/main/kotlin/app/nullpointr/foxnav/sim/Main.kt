@@ -62,8 +62,8 @@ Bots that join a FoxNav convoy and drive one behind the other, for testing convo
   --invite-file FILE  Join the convoy whose invite link is in FILE. A file keeps the
                       convoy's key out of your shell history.
   --bots N            How many bots (default 3).
-  --from LAT,LON      Drive the server's route from here (default: central Helsinki)…
-  --to LAT,LON        …to here (default: Leppävaara, Espoo), and back.
+  --from LAT,LON      Drive the server's route from here (default: central Helsinki)...
+  --to LAT,LON        ...to here (default: Leppävaara, Espoo), and back.
   --gpx FILE          Or drive the track in a GPX file, there and back.
   --kmh N             Cruising speed (default 60); each bot varies it a little.
   --spacing M         Metres between bots (default 150).

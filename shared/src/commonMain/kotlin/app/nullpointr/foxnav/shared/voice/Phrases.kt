@@ -36,7 +36,7 @@ object Phrases {
     )
 
     private val WARNINGS = listOf(
-        "speed_camera" to "Speed camera", "red_light_camera" to "Red light camera",
+        "speed_camera" to "Speed camera", "red_light_camera" to "Red light camera", "average_speed_check" to "Average speed check",
         "police" to "Police", "speed_check" to "Speed check", "accident" to "Accident", "hazard" to "Hazard",
         "stopped_vehicle" to "Stopped vehicle", "roadworks" to "Roadworks", "slippery_road" to "Slippery road", "animal" to "Animal on the road",
         "road_closed" to "Road closed",

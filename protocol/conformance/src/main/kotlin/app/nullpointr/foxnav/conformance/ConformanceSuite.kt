@@ -26,6 +26,7 @@ import app.nullpointr.foxnav.shared.reports.ReportFeed
 import app.nullpointr.foxnav.shared.routing.RoutingTileManifest
 import app.nullpointr.foxnav.shared.search.SearchEntry
 import app.nullpointr.foxnav.shared.search.SearchPackManifest
+import app.nullpointr.foxnav.shared.safety.Camera
 import app.nullpointr.foxnav.shared.safety.CameraPack
 import app.nullpointr.foxnav.shared.speed.SpeedLimitPack
 import io.ktor.client.HttpClient
@@ -149,6 +150,9 @@ class ConformanceSuite(
                 val pack = runCatching { CameraPack.parse(response.bodyAsText()) }.getOrElse { fail("$url isn't a valid camera pack: ${it.message}") }
                 expect(pack.region == code) { "$url says it's for ${pack.region}" }
                 expect(pack.cameras.all { it.lat in -90.0..90.0 && it.lon in -180.0..180.0 && it.bearings.all { b -> b in 0.0..360.0 } }) { "$url has cameras out of range" }
+                expect(pack.cameras.filter { it.kind == Camera.AVERAGE_SPEED }.all { section -> section.line.size >= 2 && section.line.all { it.size == 2 && it[0] in -180.0..180.0 && it[1] in -90.0..90.0 } }) {
+                    "$url has an average speed section whose line isn't [lon, lat] pairs"
+                }
             }
         }
         check(Group.MAP_SERVICES, "serves valid speed limit packs") {
@@ -166,6 +170,8 @@ class ConformanceSuite(
                     // Clients ignore ranges they can't read, so a server shouldn't publish them.
                     expect(limit.maxspeed in 5..200) { "$url has way ${way.way} with a limit of ${limit.maxspeed}" }
                     expect(DAY.matches(limit.from) && DAY.matches(limit.to)) { "$url has way ${way.way} with dates ${limit.from}–${limit.to}" }
+                    expect(limit.days.all { it in WEEKDAYS }) { "$url has way ${way.way} with days ${limit.days}" }
+                    expect(limit.times.all { span -> span.size == 2 && span.all { TIME.matches(it) } }) { "$url has way ${way.way} with hours ${limit.times}" }
                 }
                 for (way in pack.ways) {
                     way.limit?.let { expect(it in 5..200) { "$url has way ${way.way} with a limit of $it" } }
@@ -543,6 +549,8 @@ class ConformanceSuite(
         // A build names a directory of tiles (spec §3.3).
         val BUILD = Regex("^[A-Za-z0-9._-]+$")
         val DAY = Regex("""^(\d{4}-)?(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$""")
+        val TIME = Regex("""^(([01]\d|2[0-3]):[0-5]\d|24:00)$""")
+        val WEEKDAYS = setOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
 
         /** A short drive and a place to search for, in each region a server may list. */
         val TEST_TRIPS = mapOf(

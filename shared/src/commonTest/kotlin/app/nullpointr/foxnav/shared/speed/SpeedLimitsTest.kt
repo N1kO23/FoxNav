@@ -57,6 +57,61 @@ class SpeedLimitsTest {
     }
 
     @Test
+    fun weekdaysComeFromTheDate() {
+        // 2026-10-21 is a Wednesday, 2027-01-01 a Friday, 2024-02-29 a Thursday.
+        assertEquals(2, Day(2026, 10, 21).weekday())
+        assertEquals(4, Day(2027, 1, 1).weekday())
+        assertEquals(3, Day(2024, 2, 29).weekday())
+        assertEquals(6, Day(2026, 10, 25).weekday())
+    }
+
+    @Test
+    fun schoolZonesHoldOnSchoolDaysDuringTheDay() {
+        // 30 on weekdays, 07:00–17:00, all year, on a 50 street (NVDB's Skole).
+        val school = ConditionalLimit(30, from = "01-01", to = "12-31", days = listOf("Mo", "Tu", "We", "Th", "Fr"), times = listOf(listOf("07:00", "17:00")))
+        val limits = SpeedLimits(listOf(WayLimits(way = 9, maxspeed = 50, conditional = listOf(school))))
+        val wednesday = Day(2026, 10, 21)
+        assertEquals(Limit(30), limits.limit(9, 50, wednesday, minuteOfDay = 8 * 60))
+        assertEquals(Limit(30), limits.limit(9, 50, wednesday, minuteOfDay = 7 * 60))
+        assertEquals(Limit(50), limits.limit(9, 50, wednesday, minuteOfDay = 17 * 60))
+        assertEquals(Limit(50), limits.limit(9, 50, wednesday, minuteOfDay = 6 * 60 + 59))
+        assertEquals(Limit(50), limits.limit(9, 50, Day(2026, 10, 24), minuteOfDay = 10 * 60))
+        // Without the time of day, a rule for set hours can't be known to hold.
+        assertEquals(Limit(50), limits.limit(9, 50, wednesday))
+    }
+
+    @Test
+    fun hoursPastMidnightBelongToTheDayTheyStart() {
+        // Friday and Saturday nights, 22:00–06:00.
+        val nights = ConditionalLimit(40, from = "01-01", to = "12-31", days = listOf("Fr", "Sa"), times = listOf(listOf("22:00", "06:00")))
+        assertTrue(nights.appliesOn(Day(2026, 10, 23), minuteOfDay = 23 * 60))
+        // Early on Saturday and Sunday: the nights that started on Friday and Saturday.
+        assertTrue(nights.appliesOn(Day(2026, 10, 24), minuteOfDay = 2 * 60))
+        assertTrue(nights.appliesOn(Day(2026, 10, 25), minuteOfDay = 5 * 60 + 59))
+        // Early on Friday: Thursday night, not one of them.
+        assertFalse(nights.appliesOn(Day(2026, 10, 23), minuteOfDay = 2 * 60))
+        assertFalse(nights.appliesOn(Day(2026, 10, 25), minuteOfDay = 23 * 60))
+    }
+
+    @Test
+    fun theLowerOfTwoRulesComesFirst() {
+        // A school zone in a winter limit: builders list the lower first, and the first that applies wins.
+        val school = ConditionalLimit(30, from = "01-01", to = "12-31", days = listOf("Mo", "Tu", "We", "Th", "Fr"), times = listOf(listOf("07:00", "17:00")))
+        val limits = SpeedLimits(listOf(WayLimits(way = 10, maxspeed = 80, conditional = listOf(school, ConditionalLimit(60, "10-15", "04-30", "winter")))))
+        val wednesday = Day(2026, 12, 2)
+        assertEquals(Limit(30), limits.limit(10, 80, wednesday, minuteOfDay = 9 * 60))
+        assertEquals(Limit(60, "winter"), limits.limit(10, 80, wednesday, minuteOfDay = 20 * 60))
+    }
+
+    @Test
+    fun unreadableDaysAndHoursNeverApply() {
+        assertFalse(ConditionalLimit(30, "01-01", "12-31", days = listOf("Mon")).appliesOn(Day(2026, 10, 19), 600))
+        assertFalse(ConditionalLimit(30, "01-01", "12-31", times = listOf(listOf("7:00", "17:00"))).appliesOn(Day(2026, 10, 19), 600))
+        assertFalse(ConditionalLimit(30, "01-01", "12-31", times = listOf(listOf("07:00"))).appliesOn(Day(2026, 10, 19), 600))
+        assertTrue(ConditionalLimit(30, "01-01", "12-31", times = listOf(listOf("07:00", "24:00"))).appliesOn(Day(2026, 10, 19), 23 * 60 + 59))
+    }
+
+    @Test
     fun packsParse() {
         val pack = SpeedLimitPack.parse(
             """{"format":1,"region":"FI","ways":[{"way":2287183,"maxspeed":120,"conditional":[{"maxspeed":100,"from":"10-15","to":"04-30","season":"winter"}]}],"extra":true}""",

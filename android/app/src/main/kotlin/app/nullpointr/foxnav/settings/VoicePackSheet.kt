@@ -136,7 +136,7 @@ private fun PackList(packs: List<VoicePack>, onEdit: (VoicePack) -> Unit) {
         onClick = { importPack.launch(ZIP_TYPES) },
         enabled = !importing,
         modifier = Modifier.fillMaxWidth().height(48.dp),
-    ) { Text(if (importing) "Importing…" else "Import a voice pack (zip)") }
+    ) { Text(if (importing) "Importing..." else "Import a voice pack (zip)") }
 
     confirmDelete?.let { pack ->
         AlertDialog(
@@ -185,7 +185,7 @@ private fun PackEditor(pack: VoicePack, onBack: () -> Unit) {
     }
     val addFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        notice = "Reading ${uris.size} ${if (uris.size == 1) "file" else "files"}…"
+        notice = "Reading ${uris.size} ${if (uris.size == 1) "file" else "files"}..."
         scope.launch {
             val count = graph.voicePacks.importFiles(current, uris)
             notice = if (count == 0) {

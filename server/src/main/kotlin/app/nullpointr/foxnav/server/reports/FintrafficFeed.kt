@@ -34,12 +34,12 @@ class FintrafficFeed(private val store: ReportStore, private val clock: () -> Lo
     /** Fetches the current messages and replaces the previous ones. On failure the previous ones stay. */
     suspend fun refresh() {
         val now = clock()
-        val reports = withContext(Dispatchers.IO) { SITUATION_TYPES.flatMap { type -> FintrafficMessages.parse(fetch(type), now) } }
+        val reports = withContext(Dispatchers.IO) { FEEDS.flatMap { feed -> FintrafficMessages.parse(fetch(feed), now) } }
         store.replaceOfficial(SOURCE.name, reports)
     }
 
-    private fun fetch(situationType: String): String {
-        val request = HttpRequest.newBuilder(URI("$API?inactiveHours=0&includeAreaGeometry=false&situationType=$situationType"))
+    private fun fetch(feed: String): String {
+        val request = HttpRequest.newBuilder(URI("$API/$feed"))
             .header("Digitraffic-User", "FoxNav-server")
             .header("Accept-Encoding", "gzip")
             .timeout(Duration.ofSeconds(30))
@@ -52,8 +52,11 @@ class FintrafficFeed(private val store: ReportStore, private val clock: () -> Lo
 
     companion object {
         val SOURCE = ReportSource(name = "Fintraffic", licence = "CC BY 4.0", url = "https://www.digitraffic.fi")
-        private const val API = "https://tie.digitraffic.fi/api/traffic-message/v1/messages"
-        private val SITUATION_TYPES = listOf("TRAFFIC_ANNOUNCEMENT", "ROAD_WORK")
+
+        // The situations going on now, and those that ended within the hour (left out when parsing).
+        // v1's /messages was switched off after 20 October 2026.
+        private const val API = "https://tie.digitraffic.fi/api/traffic-message/v2"
+        private val FEEDS = listOf("traffic-announcements", "roadworks")
     }
 }
 
@@ -70,23 +73,23 @@ object FintrafficMessages {
     private fun report(feature: JsonObject, nowMs: Long): Pair<Report, Long>? {
         val properties = feature["properties"]?.jsonObject ?: return null
         val announcement = properties["announcements"]?.jsonArray?.firstOrNull()?.jsonObject ?: return null
-        val kind = properties.string("trafficAnnouncementType").orEmpty()
+        val kind = properties.enumValue("trafficAnnouncementType").orEmpty()
         if (kind == "ENDED" || kind == "RETRACTED") return null
         val names = announcement["features"]?.jsonArray.orEmpty().mapNotNull { it.jsonObject.string("name")?.lowercase() }
-        val roadWork = properties.string("situationType") == "ROAD_WORK"
+        val roadWork = properties.enumValue("situationType") == "ROAD_WORK"
         val type = when {
             roadWork -> ReportType.ROADWORKS
             "ACCIDENT" in kind || names.any { "onnettomuus" in it } -> ReportType.ACCIDENT
             names.any { it.startsWith("tie on suljettu") } -> ReportType.ROAD_CLOSED
             names.any { "eläin" in it || "hirvi" in it || "poro" in it } -> ReportType.ANIMAL
             names.any { "liuka" in it || "liukk" in it } -> ReportType.SLIPPERY_ROAD
-            else -> return null // congestion, ferries, detours…
+            else -> return null // congestion, ferries, detours...
         }
         // Roadworks go on for months in phases; only a phase going on now, and one that
         // restricts traffic (not just a survey by the roadside), counts.
         val timing = if (roadWork) {
             announcement["roadWorkPhases"]?.jsonArray.orEmpty().map { it.jsonObject }
-                .filter { it.string("severity") != "LOW" }
+                .filter { it.enumValue("severity") != "LOW" }
                 .mapNotNull { it["timeAndDuration"] as? JsonObject }
                 .firstOrNull { it.isGoingOn(nowMs) }
                 ?: return null
@@ -122,6 +125,9 @@ object FintrafficMessages {
     }
 
     private fun JsonObject.string(key: String) = (this[key] as? JsonPrimitive)?.contentOrNull
+
+    /** An enum value as v1 spelled it: v2 sends `road work` for `ROAD_WORK`, `low` for `LOW`. */
+    private fun JsonObject.enumValue(key: String) = string(key)?.trim()?.uppercase()?.replace(' ', '_')
 
     /** Whether a `timeAndDuration` has started and not ended at [nowMs]; open ends count as going on. */
     private fun JsonObject.isGoingOn(nowMs: Long): Boolean {

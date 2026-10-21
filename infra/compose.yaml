@@ -14,8 +14,8 @@
 # The first start builds the routing graph and search index; see infra/README.md.
 name: foxnav
 
-x-host-user: &host-user
-  # Run as your user so everything written to infra/data/ stays yours.
+x-host-user:
+  &host-user # Run as your user so everything written to infra/data/ stays yours.
   user: "${FOXNAV_UID:-1000}:${FOXNAV_GID:-1000}"
 
 services:
@@ -50,15 +50,21 @@ services:
     build:
       context: ..
       dockerfile: server/Dockerfile
+    # FOXNAV_REGIONS: the regions fetch-data.sh downloaded, e.g. FI,NO,SE.
+    env_file:
+      - path: ./data/regions.env
+        required: false
     environment:
       FOXNAV_NAME: FoxNav (local)
-      FOXNAV_REGIONS: FI
       FOXNAV_STYLES_DIR: /srv/styles
       FOXNAV_DATAPACKS_URL: /datapacks
       FOXNAV_ROUTING_TILES_URL: /routing-tiles
-      # Drivers' reports survive restarts; Fintraffic's traffic messages seed them (Finland).
+      # Drivers' reports survive restarts; Fintraffic's traffic messages seed them (Finland), and
+      # Statens vegvesen's (Norway) with an account, set in infra/.env.
       FOXNAV_REPORTS_FILE: /var/lib/foxnav/reports.json
       FOXNAV_FINTRAFFIC: "true"
+      FOXNAV_VEGVESEN_USERNAME: ${FOXNAV_VEGVESEN_USERNAME:-}
+      FOXNAV_VEGVESEN_PASSWORD: ${FOXNAV_VEGVESEN_PASSWORD:-}
     volumes:
       - ./styles:/srv/styles:ro
       - reports:/var/lib/foxnav
@@ -72,8 +78,11 @@ services:
       build_admins: "True"
       build_time_zones: "True"
       build_elevation: "False"
+      # Build the graph again when the extracts change: a new region, or newer data.
+      use_tiles_ignore_pbf: "False"
     volumes:
-      # Builds the routing graph from the .pbf files here on first start.
+      # Builds the routing graph from the .pbf file here (fetch-data.sh merges the regions' extracts
+      # into one) on first start, and again when it changes.
       - ./data/valhalla:/custom_files
     restart: unless-stopped
 
@@ -81,28 +90,55 @@ services:
     build: ./photon
     <<: *host-user
     environment:
-      PHOTON_LANGUAGES: fi,sv,en
-      JAVA_TOOL_OPTIONS: -Xmx2g
+      # Names in Finnish, Swedish, Norwegian (Bokmål, Nynorsk), Northern Sami and English.
+      PHOTON_LANGUAGES: fi,sv,nb,nn,se,en
+      JAVA_TOOL_OPTIONS: -Xmx3g
     volumes:
-      # Imports data/photon/import.jsonl.zst into data/photon/photon_data on first start.
+      # Imports every data/photon/<region>.jsonl.zst into data/photon/photon_data on first start,
+      # and again when the dumps change.
       - ./data/photon:/photon
     restart: unless-stopped
 
-  # Builds the data packs from the OpenStreetMap extract. Not a long-running service: run it after
-  # fetching new data (fetch-data.sh does), e.g. nightly on a public server:
-  #   docker compose -f infra/compose.yaml run --rm datapacks
-  # Where OpenStreetMap and Digiroad (Finland's official limits, from Fintraffic) both have a speed
-  # limit and disagree, Digiroad wins, winter limits included. For OpenStreetMap's instead:
-  # FOXNAV_SPEED_LIMITS_PREFER=osm docker compose … run --rm datapacks
+  # Builds a region's data packs from its OpenStreetMap extract and national database. Not a
+  # long-running service: run it after fetching new data (fetch-data.sh does, for each region), e.g.
+  #   docker compose -f infra/compose.yaml run --rm datapacks                     (Finland)
+  #   docker compose -f infra/compose.yaml run --rm datapacks --region NO --nvdb /nvdb /osm/norway-latest.osm.pbf /out
+  # Where OpenStreetMap and the official limits (Digiroad in Finland, NVDB in Norway) both have a
+  # speed limit and disagree, the official one wins, winter limits included. For OpenStreetMap's
+  # instead: FOXNAV_SPEED_LIMITS_PREFER=osm docker compose ... run --rm datapacks
   datapacks:
     build: ./datapacks
     <<: *host-user
     profiles: [tools]
     volumes:
-      - ./data/valhalla:/osm:ro
+      - ./data/osm:/osm:ro
       - ./data/digiroad:/digiroad:ro
+      - ./data/nvdb:/nvdb:ro
       - ./data/datapacks:/out
-    command: ["--region", "${FOXNAV_REGION_CODE:-FI}", "--digiroad", "/digiroad", "--prefer", "${FOXNAV_SPEED_LIMITS_PREFER:-digiroad}", "/osm/${FOXNAV_REGION:-finland}-latest.osm.pbf", "/out"]
+    command:
+      [
+        "--region",
+        "${FOXNAV_REGION_CODE:-FI}",
+        "--digiroad",
+        "/digiroad",
+        "--nvdb",
+        "/nvdb",
+        "--prefer",
+        "${FOXNAV_SPEED_LIMITS_PREFER:-official}",
+        "/osm/${FOXNAV_REGION:-finland}-latest.osm.pbf",
+        "/out",
+      ]
+
+  # Merges the regions' OpenStreetMap extracts into one for Valhalla, which can't take extracts that
+  # overlap at their borders. fetch-data.sh runs it whenever the extracts change.
+  osm-merge:
+    build: ./datapacks
+    <<: *host-user
+    profiles: [tools]
+    entrypoint: ["osmium", "merge", "--overwrite"]
+    volumes:
+      - ./data/osm:/osm:ro
+      - ./data/valhalla:/valhalla
 
   # Publishes Valhalla's graph as tiles for routing on the phone without a connection (protocol/SPEC.md
   # §3.3). Not a long-running service either: run it whenever Valhalla has built a new graph, e.g.
@@ -118,9 +154,10 @@ services:
       - ./data/routing-tiles:/out
     command: ["/valhalla/valhalla_tiles", "/out"]
 
-  # Builds the search pack from Photon's dump, for searching on the phone without a connection
-  # (protocol/SPEC.md §3.4). Run it after fetching a new dump (fetch-data.sh does):
-  #   docker compose -f infra/compose.yaml run --rm search-pack
+  # Builds a region's search pack from its Photon dump, for searching on the phone without a
+  # connection (protocol/SPEC.md §3.4). Run it after fetching a new dump (fetch-data.sh does), e.g.
+  #   docker compose -f infra/compose.yaml run --rm search-pack                   (Finland)
+  #   docker compose -f infra/compose.yaml run --rm search-pack --region NO /photon/norway.jsonl.zst /out
   # Building from the same dump again changes nothing; a new pack keeps the previous build next to it.
   search-pack:
     build: ./datapacks
@@ -130,7 +167,13 @@ services:
     volumes:
       - ./data/photon:/photon:ro
       - ./data/datapacks:/out
-    command: ["--region", "${FOXNAV_REGION_CODE:-FI}", "/photon/import.jsonl.zst", "/out"]
+    command:
+      [
+        "--region",
+        "${FOXNAV_REGION_CODE:-FI}",
+        "/photon/${FOXNAV_REGION:-finland}.jsonl.zst",
+        "/out",
+      ]
 
 volumes:
   reports:

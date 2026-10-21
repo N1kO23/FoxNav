@@ -53,7 +53,7 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
   - `ConvoyService`, a second foreground service (type `location`, again started from the UI), keeps the convoy going with the screen off. Its notification has a Leave action.
   - On the map, other cars glide between their once-a-second reports (`MotionTrack`) as tinted arrows. A timing tower and a convoy sheet sit on top.
   - The tower floats between the screen's top and bottom panels, which report where they are, so it fits any screen and font size. It can be dragged to either side, folded to its header and steps aside while searching; its place is remembered.
-  - Invites are `foxnav://join#…` links and QR codes. The app opens these links and scans the codes itself (CameraX and ZXing), since camera apps may not open `foxnav://` links.
+  - Invites are `foxnav://join#...` links and QR codes. The app opens these links and scans the codes itself (CameraX and ZXing), since camera apps may not open `foxnav://` links.
   - It reconnects at once when the phone switches networks or gets one back, out of a tunnel for instance, instead of waiting for a timeout.
   - Removing someone changes the join token and rotates the key, so they can neither read along nor come back with their old link.
   - Navigation and the convoy each have their own service for now. One FoxNav service that owns navigation, the convoy and voice comes with Android Auto, which needs exactly that; the phone UI and the car screen then become views of it.
@@ -62,11 +62,13 @@ shared/ (Kotlin Multiplatform): protocol · convoy logic · crypto · safety-dat
   - the free-drive overlay with search and route preview.
 
   The colours and fonts come from the design tokens.
+
 - **Leaving the route reroutes** from where the car is, heading the way it's going. Ferrostar fetches the new route; `RouteDeviationCheck` tells it when, using `OffRouteCheck` in `shared/`:
   - more than 50 m off the line, by a fix accurate to 25 m or better;
   - or driving against the route for four seconds and 40 m at 15 km/h or more. A distance check alone never sees a driver who has turned round, since they stay on the line. Where the route itself comes back along the same road, both ways count as right.
 
   Course and speed come from the fixes, or from their movement when a phone doesn't report them. The maneuver card says "Off route" until the new route is in. A route started from somewhere else reroutes on the first fix.
+
 - **The route preview follows the car.** Its routes are worked out again after every 50 m moved, at most every 10 s, so the route starts where you are when you press Start. A preview opened before the first fix waits for it.
 - **Arriving ends the trip**, also when parking up to 30 m short of the destination (Ferrostar alone needs a few metres). The route line clears and the panel says where you arrived.
 - **Over the limit** (3 km/h of tolerance), the speedometer turns red and the over-limit sound (the kin-kon unless chosen otherwise) plays once. It re-arms only after you're back at the limit.
@@ -164,16 +166,21 @@ Details are in the [protocol spec](../protocol/SPEC.md#2-realtime-draft); this i
   - While navigating, a winter limit replaces the route's limit only when the route reports the way's summer value there, so a lookup a few seconds behind can't put the motorway's winter limit on its exit ramp.
   - OpenStreetMap mostly says just "winter". The dates move every year and region, so the pack builder errs long (Finland: 15 October to 30 April): a winter limit shown early is a slower drive, a summer limit shown late is a fine.
   - **Finland's official limits** come from **Digiroad**, the national road and street database, which Fintraffic took over from Väylävirasto in 2026 (Digitraffic Road Network). They cover the roads without a limit in OpenStreetMap (about 40 % of main-road length, and most streets) and, being kept up to date by the road authorities, replace OpenStreetMap's where the two disagree, winter limits included. The pack builder matches Digiroad's segments to OpenStreetMap ways by position and direction. A way gets its most common limit; stretches of 60 m or more with another limit, like a village's 50 on a 10 km rural road, become **sections** with their own line, and the app uses a section's limit while the car is on it. About 108,000 ways are filled whole and 5,600 in sections (513 kB compressed, with the winter limits). Where both sources have a limit they agree on 90 % of road length; most differences are 30 vs 40 or 40 vs 50.
+  - **Norway's official limits** come from **NVDB**, Statens vegvesen's road database (NLOD 2.0), through its open API, matched the same way: the limits on European, national, county and municipal roads, and the limits for part of the year or the day, which NVDB has its own dates and hours for: winter and summer limits, and school zones.
+  - **Fintraffic's own format** replaces Digiroad's from spring 2027 (DATEX II, after the EU's RTTI regulation), with neither the data nor its model published yet. The matching is source-neutral (`infra/datapacks/official_limits.py`), with a reader per database (`digiroad.py`, `nvdb.py`), so the new format is one more reader; until it's written, Finland keeps Digiroad's last release (2/2026), and `fetch-data.sh` says when newer data is there.
   - **Which source wins** where both have a limit is the server operator's choice: the official one by default, or OpenStreetMap (`FOXNAV_SPEED_LIMITS_PREFER=osm` when building the packs), which routing uses for its times.
+  - **Limits at set hours**, such as school zones on school days, hold by the phone's clock: OpenStreetMap's `30 @ (Mo-Fr 07:00-17:00)` and NVDB's school zones alike. Where two limits apply at once, a school zone in a winter limit, the lower wins.
   - **Not legal defaults.** "50 in built-up areas, 80 outside" sounds like a fallback, but on Finnish roads that have a limit mapped, town streets are 95 % 30 or 40 zones and rural roads only 40–60 % at 80. A default would usually be a confident wrong number. Countries without official data could still get them later, shown as a guess.
-  - Not yet: Swedish and Norwegian national data (NVDB); time-of-day limits such as school zones.
+  - Not yet: Swedish national data (Trafikverket's NVDB, which needs an API key).
   - Never show a confident wrong number.
 - **Speed cameras** arrive as regional **data packs** ([spec §3](../protocol/SPEC.md#3-data-packs-draft)): the app downloads them and matches cameras on the phone.
   - This works offline, and no server learns your route. The app keeps each pack and revalidates it with its ETag.
   - The local stack builds the packs from OpenStreetMap (`infra/datapacks/`). An enforcement relation's `from` and `to` give the direction a camera checks; otherwise its `direction` tag does. For Finland that's about 1,000 cameras, two thirds with a known direction.
+  - Norway's come from NVDB: about 465 cameras, nearly all with the direction they check (from the road link each stands on), and about 85 **average speed sections** (_streknings-ATK_), which time cars between two cameras. Mapped cameras within 50 m of an official one are left out, so they don't warn twice.
   - Warnings come about 25 s before a camera (at least 300 m, at most 1.5 km), once per camera, as a pill above the bottom panel and by voice: "Speed camera in 400 metres, limit 80".
+  - An average speed section is announced the same way as its start comes up ("Average speed check in 400 metres"). In it, the pill shows the driver's average so far, distance along the section over time since entering it, and the distance to its end, red while the average is over the limit. The average stays on the phone, like the speed.
   - Only cameras on our road count, and only those checking our direction. While navigating that means along the route; in free drive, within a narrow cone around our heading. Cameras without a known direction count in both. No warnings when parked.
-  - National camera data (Trafikverket, NVDB) comes next, see [data-sources.md](data-sources.md).
+  - Sweden's national camera data (Trafikverket) comes next, see [data-sources.md](data-sources.md).
 - **Legality differs by country.** Camera warnings are legal in the Nordics, but Germany forbids drivers from using them, Switzerland bans them, and France allows only vague "danger zones". So:
   - the app stays quiet in those countries whatever the setting (`CameraRules`), knowing the country from the road lookup;
   - everywhere else there's a switch in the settings.
@@ -185,7 +192,7 @@ Details are in the [protocol spec](../protocol/SPEC.md#2-realtime-draft); this i
   - police and speed checks follow the camera rules: hidden in Germany, Switzerland and France;
   - the app polls the feed once a minute with its ETag. For the Nordics the whole feed is a few hundred reports, about 15 kB compressed. Pushing new reports over the realtime connection comes later.
 
-  Fintraffic's traffic messages seed them in Finland (accidents, closed roads, animals, slippery roads, and roadworks while they restrict traffic), so the map is useful before there are many users. Trafikverket's and Statens vegvesen's feeds can follow.
+  Fintraffic's traffic messages seed them in Finland (accidents, closed roads, animals, slippery roads, and roadworks while they restrict traffic), so the map is useful before there are many users. In Norway, Statens vegvesen's DATEX II feed does the same for a server with an account for it, adding broken-down vehicles and hazards such as rockfalls. Trafikverket's can follow.
 
 Data sources per country are in [data-sources.md](data-sources.md).
 
@@ -195,9 +202,9 @@ Data sources per country are in [data-sources.md](data-sources.md).
   - They play as navigation-guidance audio, which lowers other audio while they play, so music gets quieter and guidance goes to the car speakers.
   - Drivers choose the guidance language (Finnish, Swedish, Norwegian, Danish, English, or the phone's), one of the phone's offline voices for it, and the speaking speed. Routes are requested with the language and units of that moment, so a change applies from the next route without restarting anything.
   - Camera and report warnings are spoken in full ("Speed camera in 400 metres, limit 80"), briefly ("Speed camera"), as a tone (two rising pips, `design/sounds/alert.py`), or not at all.
-- **Voice packs** (`android/…/voice/`): guidance and warnings in a recorded voice. A pack is about 50 phrases, one WAV clip each: distances ("In 300 metres", "In half a mile"), manoeuvres ("turn left", "keep right", "enter the roundabout", "your destination is ahead"), and warnings ("speed camera", "police", "animal on the road"). The phrase rules are in `shared/…/voice/Phrases.kt`.
+- **Voice packs** (`android/.../voice/`): guidance and warnings in a recorded voice. A pack is about 50 phrases, one WAV clip each: distances ("In 300 metres", "In half a mile"), manoeuvres ("turn left", "keep right", "enter the roundabout", "your destination is ahead"), and warnings ("speed camera", "police", "animal on the road"). The phrase rules are in `shared/.../voice/Phrases.kt`.
   - The voice between Ferrostar and the speaker (`GuidanceVoice`) builds each instruction from the step's structured manoeuvre and its trigger distance, rounded to the nearest recorded distance: "In 300 metres" + "turn left". Clips play joined, as one navigation-guidance sound that lowers music like the speech does.
-  - Each instruction is matched to the route step it belongs to by its ID, waiting a moment for the core where a new route's first instruction comes before the core says it's on that route; the departure ("Drive east, then bear left onto…") becomes the first manoeuvre. Instructions are said in order, and the same phrases twice within a few seconds (a very short first step, arriving) are said once.
+  - Each instruction is matched to the route step it belongs to by its ID, waiting a moment for the core where a new route's first instruction comes before the core says it's on that route; the departure ("Drive east, then bear left onto...") becomes the first manoeuvre. Instructions are said in order, and the same phrases twice within a few seconds (a very short first step, arriving) are said once.
   - Whatever a pack can't say (a phrase not recorded yet, a manoeuvre without a phrase, convoy messages with their names) falls back to the phone's speech, sentence by sentence, so guidance never goes missing. Street names are left out with a pack. The log (`FoxNavVoice`) says why each fallback happened.
   - Drivers record their own in the app, phrase by phrase, or choose an audio file for a phrase, or add many files at once, matched to phrases by name (`turn_left.mp3`). Either way the clip has the silence before and after trimmed, so the joins sound natural, and its volume evened out with the rest. The app asks for the microphone only when recording, and uses it for nothing else.
   - Files in any format the phone plays (MP3, AAC, Ogg Vorbis and Opus, FLAC, WAV) are decoded with Android's own codecs (`AudioDecoder`), mixed down to mono and resampled to 22.05 kHz with a windowed-sinc filter (`Pcm`), so packs stay small and simple to join.
@@ -259,7 +266,7 @@ What drivers can change, on one settings page:
    - live cars with motion prediction and the timing tower;
    - quick messages, a shared destination and a regroup point;
    - the convoy simulator and conformance tests.
-4. **Safety data:** _(in progress: camera packs from OpenStreetMap, camera warnings, winter speed limits, and reports with Fintraffic's messages in Finland work)_
+4. **Safety data:** _(in progress: camera packs and warnings, winter and time-of-day speed limits, official limits for Finland and Norway, Norway's cameras and average speed sections, and reports seeded from Fintraffic's and Statens vegvesen's messages work. Still missing: Sweden's national data, and a reader for Fintraffic's new Road Network format once it's published)_
    - camera packs and warnings, from OpenStreetMap and national data;
    - national speed-limit data including winter limits;
    - crowd reports, seeded from national traffic feeds.

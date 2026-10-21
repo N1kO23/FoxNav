@@ -102,7 +102,7 @@ data class SearchEntry(
     fun toPlace() = Place(title = title, detail = detail, latitude = latitude, longitude = longitude)
 
     companion object {
-        /** The entries of one cell's file: `{"format": 1, "entries": [[kind, title, detail, lat, lon, weight, names?], …]}`. */
+        /** The entries of one cell's file: `{"format": 1, "entries": [[kind, title, detail, lat, lon, weight, names?], ...]}`. */
         fun parseCell(json: String): List<SearchEntry> {
             val root = FoxNavJson.parseToJsonElement(json).jsonObject
             if (root["format"]?.jsonPrimitive?.content != SearchPackManifest.FORMAT.toString()) return emptyList()

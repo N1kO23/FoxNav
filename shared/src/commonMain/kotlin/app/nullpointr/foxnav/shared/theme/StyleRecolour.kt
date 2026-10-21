@@ -65,7 +65,7 @@ object StyleRecolour {
         }
         if (size is JsonArray && size.isNotEmpty()) {
             val operator = (size[0] as? JsonPrimitive)?.takeIf { it.isString }?.content
-            // ["interpolate", type, input, stop, output, …] and ["step", input, output, stop, output, …].
+            // ["interpolate", type, input, stop, output, ...] and ["step", input, output, stop, output, ...].
             val firstOutput = when (operator) {
                 "interpolate", "interpolate-hcl", "interpolate-lab" -> 4
                 "step" -> 2

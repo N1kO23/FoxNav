@@ -1,4 +1,4 @@
-// Convoy cars between their position reports, as the app draws them (shared/…/convoy/MotionTrack.kt
+// Convoy cars between their position reports, as the app draws them (shared/.../convoy/MotionTrack.kt
 // and RoadOrder.kt): extrapolated along their heading, gliding to each new report.
 
 const EARTH_RADIUS_M = 6_371_008.8;
@@ -18,15 +18,27 @@ export function moved(point, meters, bearing) {
   const theta = radians(bearing);
   const lat1 = radians(point.lat);
   const lon1 = radians(point.lon);
-  const lat2 = Math.asin(Math.sin(lat1) * Math.cos(angular) + Math.cos(lat1) * Math.sin(angular) * Math.cos(theta));
-  const lon2 = lon1 + Math.atan2(Math.sin(theta) * Math.sin(angular) * Math.cos(lat1), Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2));
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angular) +
+      Math.cos(lat1) * Math.sin(angular) * Math.cos(theta),
+  );
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(theta) * Math.sin(angular) * Math.cos(lat1),
+      Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2),
+    );
   return { lat: degrees(lat2), lon: degrees(lon2) };
 }
 
 export function distance(a, b) {
   const dLat = radians(b.lat - a.lat);
   const dLon = radians(b.lon - a.lon);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(radians(a.lat)) * Math.cos(radians(b.lat)) * Math.sin(dLon / 2) ** 2;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(radians(a.lat)) *
+      Math.cos(radians(b.lat)) *
+      Math.sin(dLon / 2) ** 2;
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
@@ -35,7 +47,9 @@ export function bearing(from, to) {
   const lat2 = radians(to.lat);
   const dLon = radians(to.lon - from.lon);
   const y = Math.sin(dLon) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
   return (degrees(Math.atan2(y, x)) + 360) % 360;
 }
 
@@ -47,9 +61,12 @@ export function fixOf(point, time, speed, heading, previous) {
   if (derived !== null && derived > MAX_PLAUSIBLE_MPS) derived = null; // a jump, not a drive
   const fixSpeed = speed ?? derived ?? 0;
   let fixHeading;
-  if (fixSpeed < STILL_MPS && previous) fixHeading = previous.heading; // standing still: GPS bearings are noise
-  else if (heading !== null && heading !== undefined && !Number.isNaN(heading)) fixHeading = heading;
-  else if (previous && travelled >= 1) fixHeading = bearing(previous.point, point);
+  if (fixSpeed < STILL_MPS && previous)
+    fixHeading = previous.heading; // standing still: GPS bearings are noise
+  else if (heading !== null && heading !== undefined && !Number.isNaN(heading))
+    fixHeading = heading;
+  else if (previous && travelled >= 1)
+    fixHeading = bearing(previous.point, point);
   else fixHeading = previous?.heading ?? 0;
   return { point, speed: fixSpeed, heading: fixHeading, time };
 }
@@ -75,10 +92,20 @@ export class MotionTrack {
   /** Where to draw the car at [now], or null before its first fix. */
   positionAt(now) {
     if (!this.fix) return null;
-    const elapsed = Math.min(Math.max(now - this.fix.time, 0), this.maxExtrapolationMs);
-    const estimate = moved(this.fix.point, (this.fix.speed * elapsed) / 1000, this.fix.heading);
+    const elapsed = Math.min(
+      Math.max(now - this.fix.time, 0),
+      this.maxExtrapolationMs,
+    );
+    const estimate = moved(
+      this.fix.point,
+      (this.fix.speed * elapsed) / 1000,
+      this.fix.heading,
+    );
     if (!this.blendFrom) return estimate;
-    const progress = Math.min(Math.max((now - this.blendStart) / this.blendMs, 0), 1);
+    const progress = Math.min(
+      Math.max((now - this.blendStart) / this.blendMs, 0),
+      1,
+    );
     if (progress >= 1) return estimate;
     return {
       lat: this.blendFrom.lat + (estimate.lat - this.blendFrom.lat) * progress,

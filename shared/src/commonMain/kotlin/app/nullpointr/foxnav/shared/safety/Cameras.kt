@@ -40,6 +40,8 @@ data class Camera(
     val bearings: List<Double> = emptyList(),
     /** km/h, when known. */
     val maxspeed: Int? = null,
+    /** For an average speed section: the stretch it measures, `[lon, lat]` pairs in the direction it checks. */
+    val line: List<List<Double>> = emptyList(),
 ) {
     val point: GeoPoint get() = GeoPoint(lat, lon)
 
@@ -49,18 +51,41 @@ data class Camera(
     companion object {
         const val SPEED = "speed"
         const val RED_LIGHT = "red_light"
-        val KINDS = setOf(SPEED, RED_LIGHT)
+        /** Average speed checks over a section of road: [lat] and [lon] are where it starts. */
+        const val AVERAGE_SPEED = "average_speed"
+        val KINDS = setOf(SPEED, RED_LIGHT, AVERAGE_SPEED)
     }
 }
 
 /** A camera coming up, and how far it is along the road. */
 data class CameraAhead(val camera: Camera, val distanceM: Double)
 
-/** The next camera on the road ahead that checks our direction; see [AheadWatch]. */
+/**
+ * The next camera on the road ahead that checks our direction; see [AheadWatch]. Where an average
+ * speed section starts at a camera, as NVDB lists the first camera of a section as a camera of its
+ * own, the warning is for the section: it's what the driver needs to know there.
+ */
 class CameraWatch(cameras: List<Camera>) {
     private val watch = AheadWatch(cameras, pointOf = Camera::point, concerns = Camera::watches)
 
-    fun ahead(me: Fix, route: List<GeoPoint>? = null): CameraAhead? = watch.ahead(me, route)?.let { (camera, distance) -> CameraAhead(camera, distance) }
+    private val sectionAt: Map<String, Camera> = run {
+        val sections = cameras.filter { it.kind == Camera.AVERAGE_SPEED }
+        cameras.filter { it.kind != Camera.AVERAGE_SPEED }.mapNotNull { camera ->
+            sections.firstOrNull { section ->
+                camera.point.distanceTo(section.point) <= SECTION_START_M &&
+                    (camera.bearings.isEmpty() || section.bearings.any { camera.watches(it) })
+            }?.let { camera.id to it }
+        }.toMap()
+    }
+
+    fun ahead(me: Fix, route: List<GeoPoint>? = null): CameraAhead? = watch.ahead(me, route)?.let { (camera, distance) ->
+        CameraAhead(sectionAt[camera.id] ?: camera, distance)
+    }
+
+    private companion object {
+        /** A camera this close to where a section starts is the section's first. */
+        const val SECTION_START_M = 100.0
+    }
 }
 
 /**

@@ -40,7 +40,7 @@ object Reachability {
                 val index = fields["to_index"]?.toString()?.toIntOrNull() ?: continue
                 if (index in 0 until count) reached[index] = fields["distance"].let { it != null && it !is JsonNull }
             }
-            // Concise: {"distances": [[…]]}, null where there's no way.
+            // Concise: {"distances": [[...]]}, null where there's no way.
             is JsonObject -> matrix["distances"]?.jsonArray?.firstOrNull()?.jsonArray?.forEachIndexed { index, distance ->
                 if (index < count) reached[index] = distance !is JsonNull
             }

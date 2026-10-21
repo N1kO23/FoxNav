@@ -6,6 +6,7 @@ import app.nullpointr.foxnav.server.convoy.convoyRoutes
 import app.nullpointr.foxnav.server.reports.FintrafficFeed
 import app.nullpointr.foxnav.server.reports.REPORTS_PATH
 import app.nullpointr.foxnav.server.reports.ReportStore
+import app.nullpointr.foxnav.server.reports.VegvesenFeed
 import app.nullpointr.foxnav.server.reports.reportRoutes
 import app.nullpointr.foxnav.shared.FoxNavJson
 import app.nullpointr.foxnav.shared.discovery.DiscoveryDocument
@@ -68,6 +69,15 @@ fun Application.foxNavModule(
         launch {
             while (isActive) {
                 runCatching { feed.refresh() }.onFailure { environment.log.warn("Fintraffic traffic messages: ${it.message}") }
+                delay(5.minutes)
+            }
+        }
+    }
+    if (config.vegvesenUsername != null && config.vegvesenPassword != null) {
+        val feed = VegvesenFeed(reports, config.vegvesenUsername, config.vegvesenPassword)
+        launch {
+            while (isActive) {
+                runCatching { feed.refresh() }.onFailure { environment.log.warn("Statens vegvesen traffic messages: ${it.message}") }
                 delay(5.minutes)
             }
         }

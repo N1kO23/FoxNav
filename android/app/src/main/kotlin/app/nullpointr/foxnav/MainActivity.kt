@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity(), AndroidTtsStatusListener {
         handleIntent(intent)
     }
 
-    /** Invite links (`foxnav://join#…`). Never log them: they carry the convoy's key. */
+    /** Invite links (`foxnav://join#...`). Never log them: they carry the convoy's key. */
     private fun handleIntent(intent: Intent?) {
         val link = intent?.data?.takeIf { it.scheme == "foxnav" && it.host == "join" } ?: return
         openedInvite.value = OpenedInvite(Invite.parse(link.toString()))

@@ -3,7 +3,8 @@
 Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras, and **live convoys** where you see your friends' cars and speeds on the map as you drive. Open source, built on OpenStreetMap, and you can run your own server.
 
 > **Status:** early development. Against the local backend, the Android app does:
-> - free drive with speed limits, including winter limits: Finland's official ones (Digiroad, from Fintraffic) first, OpenStreetMap's elsewhere;
+>
+> - free drive with speed limits, including winter limits and school zones: the official ones first in Finland (Digiroad, from Fintraffic) and Norway (NVDB, from Statens vegvesen), OpenStreetMap's elsewhere;
 > - offline map areas, and starting without a connection;
 > - settings for units, warnings, the over-limit sound, voice, map behaviour and looks, and your car's shape on the map;
 > - voice packs: recorded in the app or made from audio files, shared as zip files;
@@ -11,8 +12,8 @@ Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras
 > - turn-by-turn with voice;
 > - convoys: live cars and speeds, invite links and QR codes, quick messages, a shared destination, lead and tail roles, sharing and playing along to each other's music, and following a convoy from any browser;
 > - phones, landscape and tablets, from 360 dp wide, with large text;
-> - speed camera warnings, from OpenStreetMap;
-> - reports (police, accidents, roadworks, moose…) with spoken warnings and "still there?" votes, seeded from Fintraffic in Finland.
+> - speed camera warnings, from OpenStreetMap, and in Norway the official cameras and average speed sections, with your average through them;
+> - reports (police, accidents, roadworks, moose...) with spoken warnings and "still there?" votes, seeded from Fintraffic in Finland and Statens vegvesen in Norway.
 >
 > Convoys have been tested on the emulator with bots, not yet on a real drive. See the [roadmap](docs/architecture.md#roadmap).
 
@@ -33,16 +34,16 @@ Navigation for car enthusiasts: turn-by-turn with speed limits and speed cameras
 
 ## Repository
 
-| Path | What |
-|---|---|
-| [`android/`](android/) | Android app (Kotlin, Jetpack Compose, [Ferrostar](https://github.com/stadiamaps/ferrostar), [MapLibre](https://maplibre.org)) |
-| [`shared/`](shared/) | Kotlin Multiplatform code shared by the app and the server |
-| [`server/`](server/) | Reference FoxNav server (Kotlin, Ktor) |
-| [`protocol/`](protocol/) | The [protocol spec](protocol/SPEC.md) for compatible clients and servers, and a conformance suite that checks any server against it |
-| [`infra/`](infra/) | Local backend: routing, search, map tiles and the server in Docker Compose |
-| [`tools/`](tools/) | [Convoy simulator](tools/convoy-sim/): bot cars for testing convoys |
-| [`design/`](design/) | [Design direction](design/README.md) and the design tokens that drive the app theme and map styles |
-| [`docs/`](docs/) | [Architecture](docs/architecture.md), [decision records](docs/adr/), [threat model](docs/threat-model.md), [data sources](docs/data-sources.md) |
+| Path                     | What                                                                                                                                            |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`android/`](android/)   | Android app (Kotlin, Jetpack Compose, [Ferrostar](https://github.com/stadiamaps/ferrostar), [MapLibre](https://maplibre.org))                   |
+| [`shared/`](shared/)     | Kotlin Multiplatform code shared by the app and the server                                                                                      |
+| [`server/`](server/)     | Reference FoxNav server (Kotlin, Ktor)                                                                                                          |
+| [`protocol/`](protocol/) | The [protocol spec](protocol/SPEC.md) for compatible clients and servers, and a conformance suite that checks any server against it             |
+| [`infra/`](infra/)       | Local backend: routing, search, map tiles and the server in Docker Compose                                                                      |
+| [`tools/`](tools/)       | [Convoy simulator](tools/convoy-sim/): bot cars for testing convoys                                                                             |
+| [`design/`](design/)     | [Design direction](design/README.md) and the design tokens that drive the app theme and map styles                                              |
+| [`docs/`](docs/)         | [Architecture](docs/architecture.md), [decision records](docs/adr/), [threat model](docs/threat-model.md), [data sources](docs/data-sources.md) |
 
 ## Getting started
 

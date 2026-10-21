@@ -19,8 +19,8 @@ class Invite(
     val handovers: Int = 0,
 ) {
     /**
-     * A link anyone can open: `foxnav://join#v=0&s=…&c=…&t=…&k=…&o=…`, plus `&e=…` after a key
-     * rotation and `&h=…` after a handover.
+     * A link anyone can open: `foxnav://join#v=0&s=...&c=...&t=...&k=...&o=...`, plus `&e=...` after a key
+     * rotation and `&h=...` after a handover.
      */
     fun toLink(base: String = DEFAULT_BASE): String =
         "$base#v=$VERSION&s=${percentEncode(server)}&c=${base64Url(convoyId)}&t=${base64Url(joinToken)}&k=${base64Url(key)}&o=${base64Url(ownerKey)}" +

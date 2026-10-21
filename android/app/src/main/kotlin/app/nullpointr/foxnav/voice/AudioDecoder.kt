@@ -10,7 +10,7 @@ import java.io.File
 import java.nio.ByteOrder
 
 /**
- * Any audio file the phone can play (MP3, AAC and M4A, Ogg Vorbis and Opus, FLAC, WAV…) as
+ * Any audio file the phone can play (MP3, AAC and M4A, Ogg Vorbis and Opus, FLAC, WAV...) as
  * FoxNav's sound format: mono 16-bit at [WavClip.SAMPLE_RATE].
  */
 object AudioDecoder {

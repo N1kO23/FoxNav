@@ -165,14 +165,16 @@ fun ReportStack(viewModel: DriveViewModel) {
     }
 }
 
-/** What's ahead on the road, top left as in the mockups: the camera, then the report. */
+/** What's ahead on the road, top left as in the mockups: the camera, the average speed section we're in, then the report. */
 @Composable
 fun RoadWarnings(viewModel: DriveViewModel, modifier: Modifier = Modifier) {
     val cameraAhead by viewModel.cameraAhead.collectAsState()
+    val section by viewModel.section.collectAsState()
     val reportAhead by viewModel.reportAhead.collectAsState()
     val stillThere by viewModel.stillThere.collectAsState()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         CameraWarning(cameraAhead)
+        SectionWarning(section)
         // Asking about a report we passed: the next one can wait its turn.
         ReportWarning(reportAhead.takeIf { stillThere == null })
     }

@@ -125,7 +125,7 @@ val LocalNight = compositionLocalOf { true }
 /** The colours the app is in: its palette's for day or night, with the driver's accent and route colour. */
 val LocalThemeColors = compositionLocalOf<PaletteColors?> { null }
 
-/** The driving displays' size (speedometer, maneuver card…), a multiple of their design size. */
+/** The driving displays' size (speedometer, maneuver card...), a multiple of their design size. */
 val LocalHudScale = compositionLocalOf { 1f }
 
 @Composable

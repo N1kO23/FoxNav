@@ -167,7 +167,7 @@ private fun AreaOnScreen(visible: BoundingBox, state: RoadData.State, online: Bo
                 },
                 enabled = online && !started,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
-            ) { Text(if (started) "Downloading…" else "Download") }
+            ) { Text(if (started) "Downloading..." else "Download") }
             val waitingForWifi by context.appGraph.offlineDownloads.waitingForWifi.collectAsState()
             when {
                 !online -> Text("Connect to the internet to download.", color = colors.onSurfaceVariant)

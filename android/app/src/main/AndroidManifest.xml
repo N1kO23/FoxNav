@@ -18,27 +18,15 @@
     <!-- Android 17+: needed to reach servers on the local network (home servers, the emulator host). -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
-    <application
-        android:name=".FoxNavApplication"
-        android:allowBackup="false"
-        android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.FoxNav">
+    <application android:name=".FoxNavApplication" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:fullBackupContent="@xml/backup_rules" android:icon="@mipmap/ic_launcher" android:label="@string/app_name" android:roundIcon="@mipmap/ic_launcher" android:supportsRtl="true" android:theme="@style/Theme.FoxNav">
 
         <!-- One instance: invite links open in the running app rather than a second copy. -->
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTask">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Convoy invites, foxnav://join#…; the fragment carries the invite (protocol/SPEC.md §2.2). -->
+            <!-- Convoy invites, foxnav://join#...; the fragment carries the invite (protocol/SPEC.md §2.2). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -47,20 +35,12 @@
             </intent-filter>
         </activity>
 
-        <service
-            android:name="com.stadiamaps.ferrostar.core.service.FerrostarForegroundService"
-            android:foregroundServiceType="location" />
+        <service android:name="com.stadiamaps.ferrostar.core.service.FerrostarForegroundService" android:foregroundServiceType="location" />
 
         <!-- Keeps sharing your position with the convoy while the screen is off. -->
-        <service
-            android:name=".convoy.ConvoyService"
-            android:exported="false"
-            android:foregroundServiceType="location" />
+        <service android:name=".convoy.ConvoyService" android:exported="false" android:foregroundServiceType="location" />
         <!-- Lets FoxNav see what music apps play, for sharing it in a convoy. It reads no notifications. -->
-        <service
-            android:name=".convoy.NowPlayingListener"
-            android:exported="true"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+        <service android:name=".convoy.NowPlayingListener" android:exported="true" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>

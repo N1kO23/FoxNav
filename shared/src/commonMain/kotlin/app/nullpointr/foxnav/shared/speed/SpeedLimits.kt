@@ -92,9 +92,38 @@ data class ConditionalLimit(
     val to: String,
     /** `winter` or `summer` when the limit is seasonal, for showing it. */
     val season: String? = null,
+    /** The weekdays it holds on, `Mo` to `Su`; empty: every day. */
+    val days: List<String> = emptyList(),
+    /**
+     * The hours it holds, `[["07:00", "17:00"]]`, from the first minute to just before the second;
+     * empty: all day. Hours that end before they start run past midnight, into the next day.
+     */
+    val times: List<List<String>> = emptyList(),
 ) {
-    /** Whether it applies on [date]. A range it can't read never applies. */
-    fun appliesOn(date: Day): Boolean {
+    /**
+     * Whether it applies on [date] at [minuteOfDay] (0–1439, local time). A rule for set hours
+     * doesn't apply when the time isn't known, and a rule it can't read never applies.
+     */
+    fun appliesOn(date: Day, minuteOfDay: Int? = null): Boolean {
+        if (!inDates(date)) return false
+        val weekday = date.weekday()
+        val onDays = days.mapNotNull { WEEKDAYS.indexOf(it).takeIf { index -> index >= 0 } }.toSet()
+        if (days.isNotEmpty() && onDays.size != days.size) return false
+        fun on(day: Int) = onDays.isEmpty() || day in onDays
+        if (times.isEmpty()) return on(weekday)
+        val minute = minuteOfDay ?: return false
+        return times.any { span ->
+            val start = span.getOrNull(0)?.let(::minutes) ?: return@any false
+            val end = span.getOrNull(1)?.let(::minutes) ?: return@any false
+            when {
+                start < end -> on(weekday) && minute in start until end
+                // Past midnight: the evening of a listed day, or the early hours after one.
+                else -> (on(weekday) && minute >= start) || (on((weekday + 6) % 7) && minute < end)
+            }
+        }
+    }
+
+    private fun inDates(date: Day): Boolean {
         val start = DayPattern.parse(from) ?: return false
         val end = DayPattern.parse(to) ?: return false
         if (start.year != null && end.year != null) return date.ordinal() in start.ordinal(date.year)..end.ordinal(date.year)
@@ -104,11 +133,30 @@ data class ConditionalLimit(
         val last = end.month * 100 + end.day
         return if (first <= last) today in first..last else today >= first || today <= last
     }
+
+    private companion object {
+        val WEEKDAYS = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
+        private val TIME = Regex("""^([01]\d|2[0-4]):([0-5]\d)$""")
+
+        /** Minutes from midnight of `HH:MM`; `24:00` is the end of the day. */
+        fun minutes(text: String): Int? {
+            val (hours, minutes) = TIME.matchEntire(text)?.destructured ?: return null
+            return (hours.toInt() * 60 + minutes.toInt()).takeIf { it <= 24 * 60 }
+        }
+    }
 }
 
 /** A calendar day where the phone is. */
 data class Day(val year: Int, val month: Int, val day: Int) {
     internal fun ordinal() = year * 10_000 + month * 100 + day
+
+    /** 0 for Monday to 6 for Sunday (Sakamoto's method). */
+    internal fun weekday(): Int {
+        val offsets = intArrayOf(0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4)
+        val y = if (month < 3) year - 1 else year
+        val sundayFirst = (y + y / 4 - y / 100 + y / 400 + offsets[month - 1] + day) % 7
+        return (sundayFirst + 6) % 7
+    }
 }
 
 private data class DayPattern(val year: Int?, val month: Int, val day: Int) {
@@ -136,18 +184,18 @@ class SpeedLimits(ways: List<WayLimits> = emptyList(), private val fill: Map<Lon
     constructor(packs: Collection<SpeedLimitPack>) : this(packs.flatMap { it.ways }, packs.fold(emptyMap<Long, Int>()) { all, pack -> all + pack.fillLimits() })
 
     /**
-     * The limit at [at] on [wayId] on [date], where the routing engine reports [mapKmh]. The
-     * pack's entry for the way counts only while the engine reports what the pack says it does
-     * there: otherwise the engine is on a different road (say, an exit ramp, while the last road
-     * lookup still says motorway) or the map has changed since the pack was built.
+     * The limit at [at] on [wayId] on [date] at [minuteOfDay], where the routing engine reports
+     * [mapKmh]. The pack's entry for the way counts only while the engine reports what the pack
+     * says it does there: otherwise the engine is on a different road (say, an exit ramp, while
+     * the last road lookup still says motorway) or the map has changed since the pack was built.
      */
-    fun limit(wayId: Long?, mapKmh: Int?, date: Day, at: GeoPoint? = null): Limit? {
+    fun limit(wayId: Long?, mapKmh: Int?, date: Day, at: GeoPoint? = null, minuteOfDay: Int? = null): Limit? {
         val filled = wayId?.let(fill::get)
         val way = wayId?.let(byWay::get)?.takeIf { mapKmh == null || mapKmh == it.maxspeed }
             ?: return (mapKmh ?: filled)?.let { Limit(it) }
         at?.let { point -> way.sections.firstOrNull { it.contains(point) } }?.let { return Limit(it.maxspeed) }
         val plain = way.limit ?: mapKmh ?: filled ?: way.maxspeed
-        val conditional = way.conditional.firstOrNull { it.appliesOn(date) }
+        val conditional = way.conditional.firstOrNull { it.appliesOn(date, minuteOfDay) }
             // A replaced limit came from elsewhere: the map's winter limit only counts below it.
             ?.takeIf { way.limit == null || plain == null || it.maxspeed < plain }
         return conditional?.let { Limit(it.maxspeed, it.season) } ?: plain?.let { Limit(it) }

@@ -31,6 +31,8 @@ class PhraseFileNamesTest {
     fun everyPhraseIsInTheDocs() {
         // Pack makers name their files from docs/voice-packs.md.
         val docs = File("../../docs/voice-packs.md").readText()
-        Phrases.ALL.forEach { phrase -> assertTrue("`${phrase.key}` | ${phrase.prompt} |" in docs, "${phrase.key} is missing from docs/voice-packs.md") }
+        // Table rows as `| key | prompt |`, whether or not a formatter has padded the cells.
+        val rows = Regex("""^\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|\s*$""", RegexOption.MULTILINE).findAll(docs).associate { it.groupValues[1] to it.groupValues[2] }
+        Phrases.ALL.forEach { phrase -> assertTrue(rows[phrase.key] == phrase.prompt, "${phrase.key} is missing from docs/voice-packs.md") }
     }
 }

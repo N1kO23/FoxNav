@@ -22,7 +22,7 @@ class AlertSettings(context: Context) {
 
     private val _reportWarnings = MutableStateFlow(preferences.getBoolean(KEY_REPORTS, true))
 
-    /** Spoken warnings about reports ahead (police, accidents…), and "still there?" questions. */
+    /** Spoken warnings about reports ahead (police, accidents...), and "still there?" questions. */
     val reportWarnings: StateFlow<Boolean> = _reportWarnings.asStateFlow()
 
     fun setReportWarnings(on: Boolean) {

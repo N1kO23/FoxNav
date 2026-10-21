@@ -355,7 +355,7 @@ private fun RoutePreviewContent(preview: RoutePreview, viewModel: DriveViewModel
         when {
             preview.loading -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                Text("Finding routes…")
+                Text("Finding routes...")
             }
             preview.error != null -> Text(preview.error, color = colors.error)
             else -> preview.routes.forEachIndexed { index, route ->

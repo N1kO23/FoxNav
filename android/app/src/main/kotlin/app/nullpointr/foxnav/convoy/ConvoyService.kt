@@ -47,7 +47,7 @@ class ConvoyService : Service() {
         )
         try {
             val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification("Connecting…"), type)
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification("Connecting..."), type)
         } catch (e: Exception) {
             // Android refuses a location service without the permission; the convoy then lasts while the app is open.
             Log.w(TAG, "Couldn't keep the convoy running in the background", e)
@@ -78,7 +78,7 @@ class ConvoyService : Service() {
     }
 
     private fun describe(status: ConvoyStatus, others: Int): String = when (status) {
-        ConvoyStatus.Connecting -> "Connecting…"
+        ConvoyStatus.Connecting -> "Connecting..."
         is ConvoyStatus.Live -> when (others) {
             0 -> "Sharing your position · waiting for others"
             1 -> "Sharing your position with 1 driver"

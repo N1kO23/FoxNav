@@ -33,6 +33,9 @@ data class ServerConfig(
     val reportsFile: Path? = null,
     /** Whether to add Fintraffic's traffic messages (Finland) to the reports. */
     val fintraffic: Boolean = false,
+    /** The account for Statens vegvesen's traffic messages (Norway), which add to the reports when set. */
+    val vegvesenUsername: String? = null,
+    val vegvesenPassword: String? = null,
 ) {
     /** Theme names of the available style templates, e.g. `day` and `night`. */
     fun styleNames(): List<String> = stylesDir
@@ -61,6 +64,8 @@ data class ServerConfig(
                 datapacksUrl = env["FOXNAV_DATAPACKS_URL"]?.takeIf { it.isNotBlank() },
                 reportsFile = env["FOXNAV_REPORTS_FILE"]?.takeIf { it.isNotBlank() }?.let { Path(it) },
                 fintraffic = env["FOXNAV_FINTRAFFIC"]?.lowercase() in setOf("1", "true", "yes"),
+                vegvesenUsername = env["FOXNAV_VEGVESEN_USERNAME"]?.takeIf { it.isNotBlank() },
+                vegvesenPassword = env["FOXNAV_VEGVESEN_PASSWORD"]?.takeIf { it.isNotBlank() },
             )
         }
     }

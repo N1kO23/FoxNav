@@ -4,11 +4,11 @@ Thanks for helping. This guide covers setting up, the rules the project holds it
 
 ## Setting up
 
-| You want to work on | You need |
-|---|---|
-| `shared/`, `server/` | JDK 21. Gradle picks it up automatically, or downloads one if you don't have it. |
-| `android/` | [Android Studio](https://developer.android.com/studio), which installs the Android SDK |
-| `infra/` (the local backend) | Docker with Compose v2, and about 8 GB of disk |
+| You want to work on          | You need                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------------- |
+| `shared/`, `server/`         | JDK 21. Gradle picks it up automatically, or downloads one if you don't have it.       |
+| `android/`                   | [Android Studio](https://developer.android.com/studio), which installs the Android SDK |
+| `infra/` (the local backend) | Docker with Compose v2, and about 8 GB of disk                                         |
 
 ```sh
 ./gradlew check            # tests for everything that's part of the build
@@ -36,7 +36,7 @@ android/scripts/emulator-location.py set 60.1699 24.9384           # stand in ce
 android/scripts/emulator-location.py replay android/scripts/tracks/helsinki-centre.gpx --speedup 3
 ```
 
-If an Android build fails with `jlink executable … does not exist`, Gradle is running on an IDE's bundled Java runtime. Point the IDE's Gradle at a full JDK 21. For VS Code's Java extension that's `"java.import.gradle.java.home"` in `.vscode/settings.json`.
+If an Android build fails with `jlink executable ... does not exist`, Gradle is running on an IDE's bundled Java runtime. Point the IDE's Gradle at a full JDK 21. For VS Code's Java extension that's `"java.import.gradle.java.home"` in `.vscode/settings.json`.
 
 ## Product rules
 

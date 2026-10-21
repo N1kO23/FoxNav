@@ -21,7 +21,7 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
-// `./gradlew :tools:convoy-sim:run --args="…"` runs from the repository root, so relative paths work as typed.
+// `./gradlew :tools:convoy-sim:run --args="..."` runs from the repository root, so relative paths work as typed.
 tasks.named<JavaExec>("run") {
     workingDir = rootProject.projectDir
     standardInput = System.`in`

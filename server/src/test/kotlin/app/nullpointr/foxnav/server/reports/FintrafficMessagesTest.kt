@@ -76,6 +76,19 @@ class FintrafficMessagesTest {
     }
 
     @Test
+    fun v2SpellsItsValuesInLowerCase() {
+        // As /api/traffic-message/v2/traffic-announcements and /roadworks send them (October 2026).
+        val accident = """{"type":"Feature","geometry":{"type":"MultiLineString","coordinates":[[[22.384237,60.435421],[22.384282,60.434988]]]},"properties":{"situationId":"GUID50472601","situationType":"traffic announcement","trafficAnnouncementType":"preliminary accident report","version":1,"releaseTime":"2026-10-10T19:40:48.156Z","announcements":[{"language":"fi","title":"Tie 2200, Kaarina. Ensitiedote liikenneonnettomuudesta. ","locationOpenLr":{"binary":"Cw/q5Cr6HhpvGv5I+rwSfwAU"},"features":[{"name":"Onnettomuus"}],"roadWorkPhases":[],"timeAndDuration":{"startTime":"2026-10-10T19:40:00.000Z","endTime":"2026-10-10T20:10:48.095Z"}}],"dataUpdatedTime":null}}"""
+        val ended = accident.replace("GUID50472601", "GUID50472602").replace("preliminary accident report", "ended")
+
+        fun roadWork(id: String, severity: String) = """{"type":"Feature","geometry":{"type":"Point","coordinates":[25.0,60.4]},"properties":{"situationId":"$id","situationType":"road work","trafficAnnouncementType":null,"releaseTime":"2026-10-01T08:00:00.000Z","announcements":[{"language":"fi","title":"Tie 11556, eli Tuusulantie, Tuusula. Tietyö. ","features":[],"roadWorkPhases":[{"id":"GUID50475431","severity":"$severity","workTypes":[],"timeAndDuration":{"startTime":"2026-10-01T00:00:00.000Z","endTime":"2026-10-20T00:00:00.000Z"}}],"timeAndDuration":{"startTime":"2026-10-01T00:00:00.000Z","endTime":"2026-10-20T00:00:00.000Z"}}]}}"""
+
+        val reports = parse(accident, ended, roadWork("GUID13", "high"), roadWork("GUID14", "low"))
+        assertEquals(listOf("fintraffic:GUID50472601" to ReportType.ACCIDENT, "fintraffic:GUID13" to ReportType.ROADWORKS), reports.map { it.first.id to it.first.type })
+        assertEquals(Instant.parse("2026-10-10T20:10:48.095Z").toEpochMilli(), reports[0].second)
+    }
+
+    @Test
     fun theLiveFeedsShapeParses() {
         // Unknown fields and nested structure as Digitraffic sends them don't break parsing.
         val reports = parse(

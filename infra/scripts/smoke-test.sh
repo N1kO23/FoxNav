@@ -21,10 +21,20 @@ json() { # url, python expression over `d` -> printed value (empty/false fails)
     curl -fsS --max-time 30 "$1" | python3 -c "import json, sys; d = json.load(sys.stdin); v = $2; print(v) if v else sys.exit(1)"
 }
 
-route_helsinki_tampere() {
-    curl -fsS --max-time 30 "$BASE/valhalla/route" -H 'Content-Type: application/json' \
-        -d '{"locations":[{"lat":60.1699,"lon":24.9384},{"lat":61.4978,"lon":23.7610}],"costing":"auto"}' \
+route() { # from-lat from-lon to-lat to-lon
+    curl -fsS --max-time 60 "$BASE/valhalla/route" -H 'Content-Type: application/json' \
+        -d "{\"locations\":[{\"lat\":$1,\"lon\":$2},{\"lat\":$3,\"lon\":$4}],\"costing\":\"auto\"}" \
         | python3 -c 'import json, sys; s = json.load(sys.stdin)["trip"]["summary"]; print("%.0f km, %.0f min" % (s["length"], s["time"] / 60))'
+}
+
+# A route and a place to search for in each region the stack can serve.
+region_samples() { # code -> ROUTE (name, from-lat, from-lon, to-lat, to-lon) and PLACE
+    case "$1" in
+        FI) ROUTE=("Helsinki -> Tampere" 60.1699 24.9384 61.4978 23.7610) PLACE=Tampere ;;
+        NO) ROUTE=("Oslo -> Lillehammer" 59.9139 10.7522 61.1153 10.4662) PLACE=Bergen ;;
+        SE) ROUTE=("Stockholm -> Uppsala" 59.3293 18.0686 59.8586 17.6389) PLACE=Göteborg ;;
+        *) ROUTE=() PLACE= ;;
+    esac
 }
 
 # The convoy endpoint must upgrade to a WebSocket through the gateway (101 Switching Protocols).
@@ -50,12 +60,26 @@ check "map tile" curl -fsS --max-time 30 -o /dev/null "$BASE/tiles/region/14/933
 check "map tiles (range request)" range_request
 check "fonts" curl -fsS --max-time 30 -o /dev/null "$BASE/assets/fonts/Noto%20Sans%20Regular/0-255.pbf"
 check "sprites" json "$BASE/assets/sprites/v4/dark.json" 'f"{len(d)} icons"'
-check "routing: Helsinki -> Tampere" route_helsinki_tampere
-check "search: Tampere" json "$BASE/photon/api?q=Tampere&limit=1" 'd["features"][0]["properties"]["name"]'
 check "convoy realtime endpoint" realtime_upgrade
-check "camera pack: FI" json "$BASE/datapacks/FI/cameras.json" 'str(len(d["cameras"])) + " cameras"'
-check "speed limit pack: FI" json "$BASE/datapacks/FI/speedlimits.json" 'str(len(d["ways"])) + " ways with limits for part of the year"'
-check "search pack: FI" json "$BASE/datapacks/FI/search/manifest.json" 'str(sum(c[1] for c in d["cells"])) + " places in " + str(len(d["cells"])) + " cells"'
+
+# Each region the discovery document lists: routing, search and its data packs.
+REGIONS=$(json "$BASE/.well-known/foxnav" '" ".join(d.get("regions", [])) or "-"' 2>/dev/null || echo -)
+for code in $REGIONS; do
+    [ "$code" = - ] && break
+    region_samples "$code"
+    if [ ${#ROUTE[@]} -gt 0 ]; then
+        check "routing: ${ROUTE[0]}" route "${ROUTE[@]:1}"
+        check "search: $PLACE" json "$BASE/photon/api?q=$PLACE&limit=1" 'd["features"][0]["properties"]["name"]'
+    fi
+    check "camera pack: $code" json "$BASE/datapacks/$code/cameras.json" \
+        'str(len(d["cameras"])) + " cameras, " + str(sum(1 for c in d["cameras"] if c["kind"] == "average_speed")) + " average speed sections"'
+    check "speed limit pack: $code" json "$BASE/datapacks/$code/speedlimits.json" 'str(len(d["ways"])) + " ways with their own limits"'
+    check "search pack: $code" json "$BASE/datapacks/$code/search/manifest.json" 'str(sum(c[1] for c in d["cells"])) + " places in " + str(len(d["cells"])) + " cells"'
+done
+# Across a border, where the regions' extracts were merged for the routing graph.
+if [[ " $REGIONS " == *" NO "* && " $REGIONS " == *" SE "* ]]; then
+    check "routing: Oslo -> Stockholm" route 59.9139 10.7522 59.3293 18.0686
+fi
 check "routing tiles" json "$BASE/routing-tiles/manifest.json" '"build " + d["build"] + ", " + str(sum(len(t) for t in d["tiles"].values())) + " tiles"'
 check "reports" json "$BASE/v1/reports" 'str(len(d["reports"])) + " reports (" + str(sum(1 for r in d["reports"] if r.get("source"))) + " official)"'
 

@@ -140,7 +140,7 @@ private fun NewArea(visible: BoundingBox, styleUrls: Collection<String>, placeSe
                 enabled = online && !tooBig && !started,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
             ) {
-                Text(if (started) "Downloading…" else "Download")
+                Text(if (started) "Downloading..." else "Download")
             }
             val waitingForWifi by context.appGraph.offlineDownloads.waitingForWifi.collectAsState()
             when {

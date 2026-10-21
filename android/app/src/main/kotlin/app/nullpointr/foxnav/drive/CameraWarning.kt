@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,14 +31,44 @@ fun CameraWarning(ahead: CameraAhead?, modifier: Modifier = Modifier) {
 
     AnimatedVisibility(visible = ahead != null, modifier = modifier, enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut() + scaleOut(targetScale = 0.9f)) {
         val warning = shown ?: return@AnimatedVisibility
-        val speedCamera = warning.camera.kind != Camera.RED_LIGHT
+        val kind = warning.camera.kind
         WarningChip(
             icon = FoxIcons.Camera,
-            label = if (speedCamera) "Speed camera" else "Red light camera",
+            label = when (kind) {
+                Camera.RED_LIGHT -> "Red light camera"
+                Camera.AVERAGE_SPEED -> "Average speed check"
+                else -> "Speed camera"
+            },
             distance = distanceText(warning.distanceM),
-            // オービス is what Japanese drivers call a speed camera; a red light one is something else.
-            accent = if (speedCamera) "オービス" else null,
+            // オービス is what Japanese drivers call a speed camera; red light and average speed cameras are something else.
+            accent = if (kind == Camera.SPEED) "オービス" else null,
             trailing = { warning.camera.maxspeed?.let { SpeedLimitSign(limitIn(it, LocalUnits.current), size = 30.dp) } },
+        )
+    }
+}
+
+/** Where we are in an average speed section: [remainingM] to its end, our [average] so far, and whether it's over the limit. */
+data class SectionShown(val remainingM: Double, val average: Int?, val over: Boolean)
+
+/**
+ * In an average speed section: our average so far, in the speedometer's units, and how far it is
+ * to the end. Amber as the other warnings, red while the average is over the limit.
+ */
+@Composable
+fun SectionWarning(section: SectionShown?, modifier: Modifier = Modifier) {
+    var shown by remember { mutableStateOf(section) }
+    if (section != null) shown = section
+
+    AnimatedVisibility(visible = section != null, modifier = modifier, enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut() + scaleOut(targetScale = 0.9f)) {
+        val now = shown ?: return@AnimatedVisibility
+        val units = LocalUnits.current
+        WarningChip(
+            icon = FoxIcons.Camera,
+            label = now.average?.let { "Average $it ${units.speedLabel}" } ?: "Average speed check",
+            detail = if (now.average != null) "Average speed check" else null,
+            distance = distanceText(now.remainingM),
+            color = if (now.over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
+            onColor = if (now.over) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onTertiary,
         )
     }
 }

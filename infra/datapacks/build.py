@@ -26,6 +26,8 @@ import tempfile
 
 import osmium
 
+import official_limits
+
 MONTHS = {name: index + 1 for index, name in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
 MONTH_LENGTHS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
@@ -34,6 +36,10 @@ MONTH_LENGTHS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 # shown a little early is a slower drive, a summer limit shown too long is a fine.
 SEASONS = {
     "FI": {"winter": ("10-15", "04-30"), "summer": ("05-01", "10-14")},
+    # NVDB gives most Norwegian winter limits their own dates, from November to mid-April.
+    "NO": {"winter": ("10-15", "04-30"), "summer": ("05-01", "10-14")},
+    # Swedish winter limits start as early as October.
+    "SE": {"winter": ("10-01", "04-30"), "summer": ("05-01", "09-30")},
 }
 
 DRIVABLE = {"motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential",
@@ -58,7 +64,7 @@ def parse_direction(value):
 
 
 def parse_maxspeed(value):
-    """km/h from "50", "50 km/h" or "30 mph"; None for anything else (zones, "signals", …)."""
+    """km/h from "50", "50 km/h" or "30 mph"; None for anything else (zones, "signals", ...)."""
     match = re.match(r"^\s*(\d+)\s*(mph)?", value or "")
     if not match:
         return None
@@ -103,7 +109,7 @@ class Collector(osmium.SimpleHandler):
 
 
 def kind_of(enforcement):
-    """speed, red_light, or None for enforcement we don't warn about (checks, tolls, …)."""
+    """speed, red_light, or None for enforcement we don't warn about (checks, tolls, ...)."""
     kinds = set((enforcement or "").split(";"))
     if "maxspeed" in kinds or "average_speed" in kinds:
         return "speed"
@@ -159,6 +165,31 @@ def cameras(collected):
     return result
 
 
+def merge_cameras(official, mapped):
+    """The official cameras, and OpenStreetMap's that aren't one of them: a mapped camera within
+    MERGE_DISTANCE_M of an official one is taken to be the same, which shouldn't warn twice."""
+    cells = collections.defaultdict(list)
+    for camera in official:
+        cells[(round(camera["lat"] * 100), round(camera["lon"] * 50))].append(camera)
+
+    def near_official(camera):
+        row, column = round(camera["lat"] * 100), round(camera["lon"] * 50)
+        return any(distance_m(camera, other) <= MERGE_DISTANCE_M
+                   for r in (row - 1, row, row + 1) for c in (column - 1, column, column + 1) for other in cells[(r, c)])
+
+    return sorted(official + [camera for camera in mapped if not near_official(camera)], key=lambda camera: camera["id"])
+
+
+MERGE_DISTANCE_M = 50.0
+
+
+def distance_m(a, b):
+    """Metres between two {lat, lon}, near enough for short distances."""
+    x = math.radians(b["lon"] - a["lon"]) * math.cos(math.radians((a["lat"] + b["lat"]) / 2))
+    y = math.radians(b["lat"] - a["lat"])
+    return 6_371_000 * math.hypot(x, y)
+
+
 def split_conditions(value):
     """ "100 @ summer; 80 @ (Nov-Apr)" -> ["100 @ summer", "80 @ (Nov-Apr)"]: semicolons in brackets stay."""
     parts, depth, current = [], 0, ""
@@ -179,24 +210,81 @@ def month_day(month, day, end):
     return f"{number:02d}-{day:02d}"
 
 
-def date_range(condition, seasons):
-    """(from, to, season) for the date conditions FoxNav understands; None for the rest (times of day, weekdays, wet…)."""
-    condition = condition.strip()
-    if condition.startswith("(") and condition.endswith(")"):
-        condition = condition[1:-1].strip()
-    if condition in ("winter", "summer"):
-        span = seasons.get(condition)
-        return (span[0], span[1], condition) if span else None
-    month = "(" + "|".join(MONTHS) + ")"
-    match = re.fullmatch(month + r"(?:\s+(\d{1,2}))?\s*-\s*" + month + r"(?:\s+(\d{1,2}))?", condition)
+MONTH = "(" + "|".join(MONTHS) + ")"
+MONTH_RANGE = MONTH + r"(?:\s+(\d{1,2}))?\s*-\s*" + MONTH + r"(?:\s+(\d{1,2}))?"
+WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+WEEKDAY = "(?:" + "|".join(WEEKDAYS) + ")"
+WEEKDAY_LIST = WEEKDAY + r"(?:\s*-\s*" + WEEKDAY + r")?(?:\s*,\s*" + WEEKDAY + r"(?:\s*-\s*" + WEEKDAY + r")?)*"
+HOURS = r"(?:[01]\d|2[0-3]):[0-5]\d\s*-\s*(?:(?:[01]\d|2[0-3]):[0-5]\d|24:00)"
+HOURS_LIST = HOURS + r"(?:\s*,\s*" + HOURS + r")*"
+DATES = r"winter|summer|\d{4}\s+" + MONTH + r"\s+\d{1,2}\s*-\s*\d{4}\s+" + MONTH + r"\s+\d{1,2}|" + MONTH_RANGE
+
+
+def date_range(condition):
+    """(from, to, season) for a date condition, without seasons; None for anything else."""
+    match = re.fullmatch(MONTH_RANGE, condition)
     if match:
         start, end = month_day(match[1], match[2], False), month_day(match[3], match[4], True)
         # Across the new year in the Nordics: a winter limit by another name.
         return start, end, "winter" if start > end else None
-    match = re.fullmatch(r"(\d{4})\s+" + month + r"\s+(\d{1,2})\s*-\s*(\d{4})\s+" + month + r"\s+(\d{1,2})", condition)
+    match = re.fullmatch(r"(\d{4})\s+" + MONTH + r"\s+(\d{1,2})\s*-\s*(\d{4})\s+" + MONTH + r"\s+(\d{1,2})", condition)
     if match:
         return f"{match[1]}-{month_day(match[2], match[3], False)}", f"{match[4]}-{month_day(match[5], match[6], True)}", None
     return None
+
+
+def weekdays(text):
+    """["Mo", "Tu", ...] from "Mo-Fr" or "Mo,We,Fr-Su", in week order."""
+    days = set()
+    for part in re.split(r"\s*,\s*", text):
+        first, _, last = (day.strip() for day in part.partition("-"))
+        start, end = WEEKDAYS.index(first), WEEKDAYS.index(last or first)
+        days.update(WEEKDAYS[(start + step) % 7] for step in range((end - start) % 7 + 1))
+    return [day for day in WEEKDAYS if day in days]
+
+
+def condition_rule(condition, seasons):
+    """The rule for a condition FoxNav understands (protocol/SPEC.md §3.2): dates or a season,
+    and weekdays and hours, as in "Nov-Apr", "winter" or "(Sep-Jun Mo-Fr 07:00-17:00)". None for
+    the rest (public holidays, wet roads, vehicles...)."""
+    condition = condition.strip()
+    if condition.startswith("(") and condition.endswith(")"):
+        condition = condition[1:-1].strip()
+    # "Not on public or school holidays", or the day before one ("PH -1 day off", as Swedish school
+    # zones say): holding on them too errs towards the lower limit.
+    while (shorter := re.sub(r"\s*[;,]\s*(PH|SH)(\s*[+-]\d+\s*days?)?\s+off\s*$", "", condition)) != condition:
+        condition = shorter
+    # Dates first, then weekdays, then hours, each optional.
+    match = re.match(r"(" + DATES + r")(?=\s|$)", condition)
+    dates, rest = (match[1], condition[match.end():].strip()) if match else (None, condition)
+    match = re.match(WEEKDAY_LIST + r"(?=\s|$)", rest)
+    days, rest = (match[0], rest[match.end():].strip()) if match else (None, rest)
+    if rest and not re.fullmatch(HOURS_LIST, rest):
+        return None
+    hours = rest or None
+    if not dates and not days and not hours:
+        return None
+    rule = {}
+    if dates in ("winter", "summer"):
+        span = seasons.get(dates)
+        if not span:
+            return None
+        rule.update({"from": span[0], "to": span[1], "season": dates})
+    elif dates:
+        span = date_range(dates)
+        if span is None:
+            return None
+        rule.update({"from": span[0], "to": span[1]})
+        # Across the new year with hours or weekdays is a school year, not a winter.
+        if span[2] and not days and not hours:
+            rule["season"] = span[2]
+    else:
+        rule.update({"from": "01-01", "to": "12-31"})
+    if days:
+        rule["days"] = weekdays(days)
+    if hours:
+        rule["times"] = [[part.strip() for part in span.split("-")] for span in re.split(r"\s*,\s*", hours)]
+    return rule
 
 
 class ConditionalLimits(osmium.SimpleHandler):
@@ -214,21 +302,21 @@ class ConditionalLimits(osmium.SimpleHandler):
         if not value or way.tags.get("highway") not in DRIVABLE:
             return
         conditional = []
+        maxspeed = parse_maxspeed(way.tags.get("maxspeed"))
         for part in split_conditions(value):
             limit, _, condition = part.partition("@")
-            span = date_range(condition, self.seasons) if condition else None
+            rule = condition_rule(condition, self.seasons) if condition else None
             speed = parse_maxspeed(limit)
-            if span is None or speed is None:
+            # Hours and weekdays lower a limit (school zones, rush hours); one that raises it,
+            # such as "80 @ (10:00-06:00)" on a 60 road, is more likely a mapping slip than a
+            # limit, and a wrong higher limit is the worse mistake.
+            raises = rule is not None and ("days" in rule or "times" in rule) and maxspeed and speed and speed >= maxspeed
+            if rule is None or speed is None or raises:
                 self.skipped += 1
                 continue
-            start, end, season = span
-            rule = {"maxspeed": speed, "from": start, "to": end}
-            if season:
-                rule["season"] = season
-            conditional.append(rule)
+            conditional.append({"maxspeed": speed, **rule})
         if conditional:
             entry = {"way": way.id}
-            maxspeed = parse_maxspeed(way.tags.get("maxspeed"))
             if maxspeed:
                 entry["maxspeed"] = maxspeed
             entry["conditional"] = conditional
@@ -245,6 +333,32 @@ def write_pack(output, region, name, pack):
     return target
 
 
+def official_source(region, args):
+    """The national database whose limits go in, if one was given for the region and has data."""
+    def has_data(directory):
+        return directory and os.path.isdir(directory) and os.listdir(directory)
+
+    if region == "FI" and has_data(args.digiroad):
+        from digiroad import Digiroad
+        return Digiroad(args.digiroad)
+    if region == "NO" and has_data(args.nvdb):
+        from nvdb import Nvdb
+        return Nvdb(args.nvdb)
+    return None
+
+
+def dated(rule, seasons):
+    """An official rule with its dates: those it came with, or its season's in this region. None if
+    neither is known. Rules for times of day but not dates hold all year."""
+    rule = dict(rule)
+    if "from" not in rule:
+        span = seasons.get(rule.get("season")) if rule.get("season") else ("01-01", "12-31")
+        if span is None:
+            return None
+        rule["from"], rule["to"] = span
+    return {key: rule[key] for key in ("from", "to", "season", "days", "times") if key in rule}
+
+
 def parse_season(text):
     """winter=10-15:04-30 -> ("winter", ("10-15", "04-30"))"""
     match = re.fullmatch(r"(winter|summer)=(\d{2}-\d{2}):(\d{2}-\d{2})", text)
@@ -259,11 +373,15 @@ def main():
     parser.add_argument("extract", help="OpenStreetMap extract (.osm.pbf) covering the region")
     parser.add_argument("output", help="directory for the packs")
     parser.add_argument("--digiroad", help="directory of Digiroad speed limit layers (Finland), see digiroad.py")
-    parser.add_argument("--prefer", choices=("digiroad", "osm"), default="digiroad",
-                        help="which source wins where both have a limit (default: digiroad, the official one)")
+    parser.add_argument("--nvdb", help="directory of NVDB road objects (Norway), see nvdb.py")
+    # "digiroad" was the official source's name when Finland was the only region with one.
+    parser.add_argument("--prefer", choices=("official", "osm", "digiroad"), default="official",
+                        help="which source wins where both have a limit (default: official, the national database)")
     parser.add_argument("--season", type=parse_season, action="append", default=[],
                         help="when winter or summer is in this region, e.g. winter=10-15:04-30 (repeatable)")
     args = parser.parse_args()
+    if args.prefer == "digiroad":
+        args.prefer = "official"
     region = args.region.upper()
     seasons = dict(SEASONS.get(region, {}))
     seasons.update(dict(args.season))
@@ -282,11 +400,11 @@ def main():
         limits = ConditionalLimits(seasons)
         limits.apply_file(conditional_ways)
 
-        digiroad_limits, digiroad_winter, extra_attribution = {}, {}, None
-        if region == "FI" and args.digiroad and os.path.isdir(args.digiroad) and os.listdir(args.digiroad):
-            import digiroad
-            digiroad_limits, digiroad_winter = digiroad.conflate(args.digiroad, args.extract, tmp)
-            extra_attribution = digiroad.ATTRIBUTION
+        official, official_conditional, extra_attribution = {}, {}, None
+        source = official_source(region, args)
+        if source is not None:
+            official, official_conditional = official_limits.conflate(source, args.extract, tmp)
+            extra_attribution = source.attribution
 
     header = {
         "format": 1,
@@ -295,15 +413,21 @@ def main():
         "attribution": "© OpenStreetMap contributors, ODbL",
     }
     camera_list = cameras(collected)
-    target = write_pack(args.output, region, "cameras.json", {**header, "cameras": camera_list})
+    camera_header = dict(header)
+    official_cameras = source.cameras() if source is not None and hasattr(source, "cameras") else []
+    if official_cameras:
+        camera_list = merge_cameras(official_cameras, camera_list)
+        camera_header["attribution"] += "; " + source.camera_attribution
+    target = write_pack(args.output, region, "cameras.json", {**camera_header, "cameras": camera_list})
     with_bearings = sum(1 for camera in camera_list if "bearings" in camera)
-    print(f"{target}: {len(camera_list)} cameras, {with_bearings} with known directions")
+    sections = sum(1 for camera in camera_list if camera["kind"] == "average_speed")
+    print(f"{target}: {len(camera_list)} cameras, {with_bearings} with known directions, {sections} average speed sections")
 
-    # One entry per way: OpenStreetMap's conditional limits, then what Digiroad adds or replaces.
+    # One entry per way: OpenStreetMap's conditional limits, then what the official source adds or replaces.
     entries = {entry["way"]: entry for entry in limits.ways}
     fill = {}
-    for way, found in digiroad_limits.items():
-        if found["tagged"] and not (args.prefer == "digiroad" and found["osm"] is not None):
+    for way, found in official.items():
+        if found["tagged"] and not (args.prefer == "official" and found["osm"] is not None):
             continue
         if found["osm"] == found["main"] and not found["sections"]:
             continue
@@ -317,24 +441,31 @@ def main():
             entry["limit"] = found["main"]
         if found["sections"]:
             entry["sections"] = found["sections"]
-    winter = seasons.get("winter")
-    if digiroad_winter and not winter:
-        print(f"No winter dates for {region}: Digiroad's winter limits were left out. Pass --season.")
-    official_winter = {"from": winter[0], "to": winter[1], "season": "winter"} if winter else None
-    for way, (limit, osm) in sorted(digiroad_winter.items()) if winter else []:
-        entry = entries.get(way, {})
-        other = entry.get("limit") or osm or fill.get(way)
-        if not other or limit >= other:
+    for key, found in sorted(official_conditional.items(), key=lambda item: str(item[0])):
+        rule = dated(official_limits.rule_of(key), seasons)
+        if rule is None:
+            print(f"No {official_limits.rule_of(key).get('season')} dates for {region}: {len(found)} of the official limits for it were left out. Pass --season.")
             continue
-        # OpenStreetMap's own winter limit for the way gives way to the official one, unless it's preferred.
-        own_winter = [rule for rule in entry.get("conditional", []) if rule.get("season") == "winter"]
-        if own_winter and args.prefer == "osm":
-            continue
-        entry = entries.setdefault(way, {"way": way})
-        if osm is not None:
-            entry["maxspeed"] = osm
-        others = [rule for rule in entry.get("conditional", []) if rule.get("season") != "winter"]
-        entry["conditional"] = others + [{"maxspeed": limit, **official_winter}]
+        for way, (limit, osm) in sorted(found.items()):
+            entry = entries.get(way, {})
+            other = entry.get("limit") or osm or fill.get(way)
+            # Limits for part of the year or the day are lower ones: winter, summer, school hours.
+            if not other or limit >= other:
+                continue
+            # OpenStreetMap's own limit for the season gives way to the official one, unless it's preferred.
+            season = rule.get("season")
+            same_season = [own for own in entry.get("conditional", []) if season and own.get("season") == season]
+            if same_season and args.prefer == "osm":
+                continue
+            entry = entries.setdefault(way, {"way": way})
+            if osm is not None:
+                entry["maxspeed"] = osm
+            others = [own for own in entry.get("conditional", []) if own not in same_season]
+            entry["conditional"] = others + [{"maxspeed": limit, **rule}]
+    for entry in entries.values():
+        # The first rule that applies wins: where two apply at once, say school hours in winter, the lower limit.
+        if "conditional" in entry:
+            entry["conditional"].sort(key=lambda rule: rule["maxspeed"])
     ways = sorted(entries.values(), key=lambda entry: entry["way"])
     # Ways by limit, each list sorted and stored as differences from the previous ID: compact,
     # since there can be hundreds of thousands.
@@ -346,7 +477,7 @@ def main():
         ids.sort()
         fill_lists[str(limit)] = [ids[0]] + [b - a for a, b in zip(ids, ids[1:])]
     pack = {**header, "ways": ways}
-    if digiroad_limits:
+    if official:
         pack["attribution"] = header["attribution"] + "; " + extra_attribution
         if fill_lists:
             pack["fill"] = fill_lists

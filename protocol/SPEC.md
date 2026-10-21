@@ -23,25 +23,25 @@ If the user typed a bare domain (`maps.example.org`), clients use `https://`.
 
 ### Fields
 
-| Field | Type | Required | Meaning |
-|---|---|---|---|
-| `foxnav` | integer | yes | Format version of this document. This spec describes `1`. |
-| `name` | string | yes | Server name shown in the app. |
-| `privacy` | URL | no | Privacy policy of whoever runs the server. |
-| `realtime` | URL | no | WebSocket endpoint (§2). Absent if the server has no realtime features. |
-| `datapacks` | URL | no | Where the data packs are (§3). Absent if the server has none. |
-| `reports` | URL | no | The reports API (§4). Absent if the server has none. |
-| `invites` | URL | no | The convoy page invite links point to (§2.5). Absent if the server has none. |
-| `styles` | object | no | MapLibre style URLs keyed by theme. Known themes: `night`, `day`. |
-| `routing` | endpoint | no | Routing service, see below. |
-| `search` | endpoint | no | Search service, see below. |
-| `features` | array of strings | no | Optional features the server implements: `convoy`, `reports`, `datapacks`. |
-| `regions` | array of strings | no | ISO 3166-1 alpha-2 codes of the countries the server has map data for. |
+| Field       | Type             | Required | Meaning                                                                      |
+| ----------- | ---------------- | -------- | ---------------------------------------------------------------------------- |
+| `foxnav`    | integer          | yes      | Format version of this document. This spec describes `1`.                    |
+| `name`      | string           | yes      | Server name shown in the app.                                                |
+| `privacy`   | URL              | no       | Privacy policy of whoever runs the server.                                   |
+| `realtime`  | URL              | no       | WebSocket endpoint (§2). Absent if the server has no realtime features.      |
+| `datapacks` | URL              | no       | Where the data packs are (§3). Absent if the server has none.                |
+| `reports`   | URL              | no       | The reports API (§4). Absent if the server has none.                         |
+| `invites`   | URL              | no       | The convoy page invite links point to (§2.5). Absent if the server has none. |
+| `styles`    | object           | no       | MapLibre style URLs keyed by theme. Known themes: `night`, `day`.            |
+| `routing`   | endpoint         | no       | Routing service, see below.                                                  |
+| `search`    | endpoint         | no       | Search service, see below.                                                   |
+| `features`  | array of strings | no       | Optional features the server implements: `convoy`, `reports`, `datapacks`.   |
+| `regions`   | array of strings | no       | ISO 3166-1 alpha-2 codes of the countries the server has map data for.       |
 
-An *endpoint* is `{ "type": "<flavour>", "url": "<URL>" }`. Known flavours:
+An _endpoint_ is `{ "type": "<flavour>", "url": "<URL>" }`. Known flavours:
 
 - routing `valhalla`: the [Valhalla](https://valhalla.github.io/valhalla/api/) HTTP API. Clients call `POST {url}/route` and request OSRM-format responses with banner and voice instructions, which is what the [Ferrostar](https://github.com/stadiamaps/ferrostar) navigation SDK consumes. It may also have `tiles`: where its graph's tiles are, for routing on the phone (§3.3).
-- search `photon`: the [Photon](https://github.com/komoot/photon) API, `GET {url}/api?q=…` and `GET {url}/reverse?lat=…&lon=…`.
+- search `photon`: the [Photon](https://github.com/komoot/photon) API, `GET {url}/api?q=...` and `GET {url}/reverse?lat=...&lon=...`.
 
 ### URLs
 
@@ -52,8 +52,12 @@ Styles are [MapLibre style spec](https://maplibre.org/maplibre-style-spec/) docu
 A style may let apps recolour it in the driver's palette. Each layer whose paint takes a palette colour then has a template of those paint properties in its metadata, with each such colour as `"@<token>"`, a colour token of FoxNav's palettes ([`design/tokens.json`](../design/tokens.json), `color.palette`):
 
 ```json
-{ "id": "water", "type": "fill", "paint": { "fill-color": "#11203F" },
-  "metadata": { "foxnav:paint": { "fill-color": "@map-water" } } }
+{
+  "id": "water",
+  "type": "fill",
+  "paint": { "fill-color": "#11203F" },
+  "metadata": { "foxnav:paint": { "fill-color": "@map-water" } }
+}
 ```
 
 Apps fill the templates with the palette's colours and use the result in place of the paint property; they leave styles without templates as they are. The reference server's styles have templates for the map's land, water, parks, buildings, roads, railways, boundaries and labels.
@@ -73,7 +77,11 @@ What the local stack in `infra/` returns:
   "name": "FoxNav (local)",
   "realtime": "/v1/ws",
   "styles": { "day": "/styles/day.json", "night": "/styles/night.json" },
-  "routing": { "type": "valhalla", "url": "/valhalla", "tiles": "/routing-tiles" },
+  "routing": {
+    "type": "valhalla",
+    "url": "/valhalla",
+    "tiles": "/routing-tiles"
+  },
   "search": { "type": "photon", "url": "/photon" },
   "datapacks": "/datapacks",
   "reports": "/v1/reports",
@@ -115,13 +123,15 @@ A convoy is a room on one server. Its members know each other by their keys (§2
    - `h` is how many handovers there have been (§2.3), left out while there have been none.
    - Everything sits in the URL fragment, which browsers never send to any server. So the operator of the link domain learns nothing, and the link works for convoys on any server.
    - The same string can be shown as a QR code.
-   - Until FoxNav has a link domain, the app uses `foxnav://join#…` with the same fragment.
+   - Until FoxNav has a link domain, the app uses `foxnav://join#...` with the same fragment.
+
 3. **Join.** The client generates its identity (§2.3), connects to the server named in the invite, and sends `JoinConvoy` with the convoy ID, the join token and its member ID. The server answers `Joined`, with:
    - a resume token and the current join token;
    - the members connected to the server, by member ID;
    - the frames it keeps (step 4), oldest first, each with how long ago the server received it. A late joiner gets everyone's card and latest position at once, and can tell a quiet car from a live one.
 
    Other members get `MemberJoined`. A wrong token gets `Error` `FORBIDDEN`, as does a removed member's ID, an unknown convoy `NOT_FOUND`, a full convoy `CONVOY_FULL`, and a member ID already in the convoy `CONFLICT`. After a `CONFLICT`, the client generates a new identity and tries again.
+
 4. **Publish.** Members send `Publish` with a frame (§2.3). The server reads only the frame's header, and forwards the frame to all other members as `Relay`, with its clock (`server_time_ms`) and the member who published it (`from`). That's usually the frame's sender. A gateway, though, publishes frames it heard over a radio, from members who have no connection themselves.
 
    What the server keeps, for those who join later:
@@ -136,6 +146,7 @@ A convoy is a room on one server. Its members know each other by their keys (§2
    - Cards, routes and songs go out when they change, and all of them again on (re)joining and after a key rotation, so that what the server keeps is under the current key. The card goes out on joining even before the member has a profile: the others need its keys.
    - Servers may rate-limit. The reference server relays at most 5 `POSITION` frames per member and sender in any 3 s, since a burst arrives after a network stall, and drops the rest silently.
    - It answers more than 10 frames of other kinds per member and sender in 10 s with `Error` `RATE_LIMITED`.
+
 5. **Leave or remove.**
    - `LeaveConvoy` removes yourself. An owner hands over first (§2.3): the app hands over to whoever has been in the convoy longest, unless the owner picks someone.
    - The owner removes a member with `RemoveMember`: the member ID, the key epoch the removal starts, and the owner's signature (§2.3). The server checks the signature against the owner's key and answers anything else with `Error` `FORBIDDEN`.
@@ -153,7 +164,7 @@ Everything members send each other is a **frame**: signed by its sender, then en
 
 #### Identities
 
-- **Keys.** On creating or joining a convoy, a member's client generates an Ed25519 key pair for signing and an X25519 key pair for receiving keys. A member *is* their signing key.
+- **Keys.** On creating or joining a convoy, a member's client generates an Ed25519 key pair for signing and an X25519 key pair for receiving keys. A member _is_ their signing key.
 - **Member ID.** The first 4 bytes of the SHA-256 of the signing public key, as an unsigned big-endian number. It's a hint for finding the key: receivers check frames against keys, not IDs.
 - **One convoy only.** An identity is used in one convoy, and lives exactly as long as its frame counter. A client that loses its counter, say in a restart, generates a new identity and joins again.
 - **Same ID.** A client that hears another card with its own member ID generates a new identity. With 30 members, that happens in about one convoy in ten million.
@@ -170,13 +181,13 @@ Everything members send each other is a **frame**: signed by its sender, then en
 
 A frame is at most 233 bytes, so that it fits one Meshtastic packet. Numbers are big-endian.
 
-| Bytes | Field |
-|---|---|
-| 1 | kind |
-| 4 | convoy tag |
-| 4 | sender's member ID |
-| 4 | counter |
-| rest | encrypted content and signature, then the 16-byte GCM tag |
+| Bytes | Field                                                     |
+| ----- | --------------------------------------------------------- |
+| 1     | kind                                                      |
+| 4     | convoy tag                                                |
+| 4     | sender's member ID                                        |
+| 4     | counter                                                   |
+| rest  | encrypted content and signature, then the 16-byte GCM tag |
 
 - **Header.** The first 13 bytes. Servers and gateways read it; they can't read the rest.
 - **Counter.** It starts at 1 with a new identity and goes up by one with every frame the member sends, whatever its kind.
@@ -187,14 +198,14 @@ A frame is at most 233 bytes, so that it fits one Meshtastic packet. Numbers are
   - associated data: `convoy_id ‖ header`;
   - plaintext: `content ‖ signature`.
 
-| Kind | Value | Content | Server keeps (§2.2) |
-|---|---|---|---|
-| `CARD` | 1 | `Card` | the latest |
-| `POSITION` | 2 | `Position` | the latest |
-| `ROUTE` | 3 | `RouteShare` | the latest |
-| `SONG` | 4 | `NowPlaying` | the latest |
-| `EVENT` | 5 | `Event` | nothing |
-| `OWNER` | 6 | `KeyRotation` or `Handover` | the latest 64 |
+| Kind       | Value | Content                     | Server keeps (§2.2) |
+| ---------- | ----- | --------------------------- | ------------------- |
+| `CARD`     | 1     | `Card`                      | the latest          |
+| `POSITION` | 2     | `Position`                  | the latest          |
+| `ROUTE`    | 3     | `RouteShare`                | the latest          |
+| `SONG`     | 4     | `NowPlaying`                | the latest          |
+| `EVENT`    | 5     | `Event`                     | nothing             |
+| `OWNER`    | 6     | `KeyRotation` or `Handover` | the latest 64       |
 
 Receiving a frame:
 
@@ -224,6 +235,7 @@ After removing someone, the owner rotates the key:
    - info: `foxnav v0 wrap` ‖ epoch (4 bytes) ‖ member ID (4 bytes).
 
    The new key never travels under the old one, so a removed member who still hears every frame, over a radio, say, can't read on.
+
 3. It sends a `KeyRotation` in `OWNER` frames, under the current key:
    - the new epoch and the removed members;
    - the wrapped keys, as many as fit (two with a member removed);
@@ -257,7 +269,7 @@ Receivers ignore a position older than the one they already have from that membe
 
 ### 2.5 Convoy page
 
-A server may serve a web page at its discovery document's `invites` URL that takes the same fragment as the app's invite links (§2.2): `https://maps.example.org/join#v=0&s=…&c=…&t=…&k=…`. Apps then share that link instead of `foxnav://join#…`, because every chat app and camera opens it. The page:
+A server may serve a web page at its discovery document's `invites` URL that takes the same fragment as the app's invite links (§2.2): `https://maps.example.org/join#v=0&s=...&c=...&t=...&k=...`. Apps then share that link instead of `foxnav://join#...`, because every chat app and camera opens it. The page:
 
 - offers to open the convoy in the app (the `foxnav://` link with the same fragment);
 - or joins the convoy itself, over the same realtime protocol and with the same end-to-end encryption (WebCrypto's AES-GCM, AES-KW, HKDF, Ed25519 and X25519, which current browsers all have), and shows everyone on a map with a timing tower;
@@ -296,20 +308,45 @@ GET {datapacks}/{region}/cameras.json
   "generated": "2026-10-10T18:00:00Z",
   "attribution": "© OpenStreetMap contributors, ODbL",
   "cameras": [
-    { "id": "osm/node/123", "lat": 60.17, "lon": 24.94, "kind": "speed", "bearings": [90], "maxspeed": 50 }
+    {
+      "id": "osm/node/123",
+      "lat": 60.17,
+      "lon": 24.94,
+      "kind": "speed",
+      "bearings": [90],
+      "maxspeed": 50
+    },
+    {
+      "id": "nvdb/823/373723082",
+      "lat": 59.049104,
+      "lon": 10.95147,
+      "kind": "average_speed",
+      "bearings": [162],
+      "line": [
+        [10.95147, 59.0491],
+        [10.95282, 59.04698],
+        [10.95602, 59.04524],
+        [10.96808, 59.04212],
+        [10.97379, 59.03802]
+      ]
+    }
   ]
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `format` | `1`. A client that doesn't know a pack's format ignores the pack. |
-| `id` | Stable across rebuilds, so clients don't warn twice about the same camera. |
-| `kind` | `speed` or `red_light`. Clients skip kinds they don't know. |
-| `bearings` | The travel directions the camera checks, in degrees clockwise from north. Absent means unknown, so any direction. |
-| `maxspeed` | The limit it enforces in km/h, when known. |
+| Field        | Meaning                                                                                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`     | `1`. A client that doesn't know a pack's format ignores the pack.                                                                                                           |
+| `id`         | Stable across rebuilds, so clients don't warn twice about the same camera.                                                                                                  |
+| `kind`       | `speed`, `red_light` or `average_speed`. Clients skip kinds they don't know.                                                                                                |
+| `lat`, `lon` | Where the camera is; for `average_speed`, where the section begins.                                                                                                         |
+| `bearings`   | The travel directions the camera checks, in degrees clockwise from north; for `average_speed`, at the section's start. Absent means unknown, so any direction.              |
+| `maxspeed`   | The limit it enforces in km/h, when known.                                                                                                                                  |
+| `line`       | Only for `average_speed`: the section whose average speed is measured, from the first camera to the last, as `[lon, lat]` pairs (GeoJSON order) in the direction it checks. |
 
-The reference stack builds the pack from OpenStreetMap: `highway=speed_camera` nodes, and `type=enforcement` relations, whose `from` and `to` members give the direction. See `infra/datapacks/`. The app warns only where camera warnings are legal; see [`docs/architecture.md`](../docs/architecture.md#speed-limits-cameras-and-reports).
+**Average speed sections** measure the time a car takes between two cameras, so they need a different warning from a point camera: clients warn as the section's start comes up, and while the car is in it, can show its average so far, the distance travelled along `line` over the time since entering, for the driver alone. Clients that don't know the kind skip such entries.
+
+The reference stack builds the pack from OpenStreetMap: `highway=speed_camera` nodes, and `type=enforcement` relations, whose `from` and `to` members give the direction. For Norway it adds the official cameras and average speed sections from NVDB (Statens vegvesen, NLOD 2.0), with the direction each checks, and leaves out mapped cameras within 50 m of an official one. See `infra/datapacks/`. The app warns only where camera warnings are legal; see [`docs/architecture.md`](../docs/architecture.md#speed-limits-cameras-and-reports).
 
 ### 3.2 Speed limits
 
@@ -330,29 +367,63 @@ What the routing engine's map gets wrong or doesn't know about speed limits, key
   "generated": "2026-10-10T18:00:00Z",
   "attribution": "© OpenStreetMap contributors, ODbL; speed limits from Digiroad (Digitraffic Road Network) © Fintraffic, CC BY 4.0, matched to OpenStreetMap",
   "ways": [
-    { "way": 2287183, "maxspeed": 120,
-      "conditional": [{ "maxspeed": 100, "from": "10-15", "to": "04-30", "season": "winter" }] },
-    { "way": 59591033, "limit": 80,
-      "sections": [{ "maxspeed": 50, "line": [[25.12345, 62.12345], [25.12401, 62.12298], [25.12498, 62.12233]] }] }
+    {
+      "way": 2287183,
+      "maxspeed": 120,
+      "conditional": [
+        { "maxspeed": 100, "from": "10-15", "to": "04-30", "season": "winter" }
+      ]
+    },
+    {
+      "way": 59591033,
+      "limit": 80,
+      "sections": [
+        {
+          "maxspeed": 50,
+          "line": [
+            [25.12345, 62.12345],
+            [25.12401, 62.12298],
+            [25.12498, 62.12233]
+          ]
+        }
+      ]
+    },
+    {
+      "way": 95334658,
+      "maxspeed": 40,
+      "conditional": [
+        {
+          "maxspeed": 30,
+          "from": "01-01",
+          "to": "12-31",
+          "days": ["Mo", "Tu", "We", "Th", "Fr"],
+          "times": [["07:00", "17:00"]]
+        }
+      ]
+    }
   ],
   "fill": { "40": [4234567, 12, 3051], "80": [2287001] }
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `format` | `1`. A client that doesn't know a pack's format ignores the pack. |
-| `way` | The OpenStreetMap way ID. |
-| `maxspeed` | What the routing engine reports for the way, in km/h; absent where it reports none. Clients use the way's entry only while the engine reports this (or nothing): a different value means the engine has moved on to another road, say an exit ramp while the last road lookup still says motorway, or the map has changed since the pack was built. |
-| `limit` | The way's limit in km/h instead of the engine's, or where the engine has none. |
-| `sections` | Stretches of the way with another limit, such as a village's 50 on a long rural road: `maxspeed` and `line`, the stretch as `[lon, lat]` pairs (GeoJSON order). A client on a stretch (within about 25 m of it, and between its ends) uses its limit. |
-| `conditional` | Limits for parts of the year; the first that applies wins, except on a section. `from` and `to` are the first and last day, `MM-DD` every year (a range may wrap round the new year) or `YYYY-MM-DD` once, in local time. `season`, when present, is `winter` or `summer`, for clients to show. Where `limit` replaces the engine's limit, a conditional limit counts only below it. |
-| `fill` | Limits for whole ways the routing engine has none for: km/h → way IDs. Each list is sorted, and every ID after the first is given as the difference from the one before (`[4234567, 12, 3051]` is ways 4234567, 4234579 and 4237630), which keeps a few hundred thousand ways small. Clients use these only where the engine reports no limit. |
-| `attribution` | Credits for the pack's sources, which clients show. |
+| Field         | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`      | `1`. A client that doesn't know a pack's format ignores the pack.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `way`         | The OpenStreetMap way ID.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `maxspeed`    | What the routing engine reports for the way, in km/h; absent where it reports none. Clients use the way's entry only while the engine reports this (or nothing): a different value means the engine has moved on to another road, say an exit ramp while the last road lookup still says motorway, or the map has changed since the pack was built.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `limit`       | The way's limit in km/h instead of the engine's, or where the engine has none.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `sections`    | Stretches of the way with another limit, such as a village's 50 on a long rural road: `maxspeed` and `line`, the stretch as `[lon, lat]` pairs (GeoJSON order). A client on a stretch (within about 25 m of it, and between its ends) uses its limit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `conditional` | Limits for parts of the year, the week or the day; the first that applies wins, except on a section, so builders list the lower limits first: a school zone's 30 in a winter limit's 60. `from` and `to` are the first and last day, `MM-DD` every year (a range may wrap round the new year) or `YYYY-MM-DD` once, in local time. `season`, when present, is `winter` or `summer`, for clients to show. `days`, when present, are the weekdays it holds on, `Mo` to `Su`. `times`, when present, are the hours it holds, `[["07:00", "17:00"]]`, local time, from the first minute until the second (`24:00` is midnight); hours that end before they start run past midnight, and that part belongs to the day they started on. A rule with days or times a client can't read doesn't apply. Where `limit` replaces the engine's limit, a conditional limit counts only below it. |
+| `fill`        | Limits for whole ways the routing engine has none for: km/h → way IDs. Each list is sorted, and every ID after the first is given as the difference from the one before (`[4234567, 12, 3051]` is ways 4234567, 4234579 and 4237630), which keeps a few hundred thousand ways small. Clients use these only where the engine reports no limit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `attribution` | Credits for the pack's sources, which clients show.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
-OpenStreetMap often says only "winter", whose dates vary by year and region. The reference builder (`infra/datapacks/`) turns it into dates per region, erring towards a long winter: a winter limit shown a little early means a slower drive, a summer limit shown too long means a fine. Server operators can set the dates with `--season`. Conditions other than dates (times of day, weekdays, wet roads) are left out for now, as are limits for one direction of a way.
+OpenStreetMap often says only "winter", whose dates vary by year and region. The reference builder (`infra/datapacks/`) turns it into dates per region, erring towards a long winter: a winter limit shown a little early means a slower drive, a summer limit shown too long means a fine. Server operators can set the dates with `--season`. It also reads weekdays and hours, as in `30 @ (Mo-Fr 07:00-17:00)`, and holds such limits on public and school holidays too, which errs towards the lower limit. Other conditions (wet roads, vehicles) are left out for now, as are limits for one direction of a way.
 
 For Finland, the reference builder takes the official limits from [Digiroad](https://www.fintraffic.fi/fi/digitrafficroadnetwork) (Fintraffic's Digitraffic Road Network since 2026, CC BY 4.0), which has a limit for nearly every public road and street. It matches Digiroad's segments to OpenStreetMap ways by position and direction: a way gets its most common limit, and stretches of 60 m or more with another one become sections. Where both sources have a limit, they agree on about 90 % of road length. By default Digiroad wins where they differ, being kept up to date by the road authorities, with `limit` and `sections` on those ways, and its winter limits replace OpenStreetMap's; `--prefer osm` keeps OpenStreetMap's and uses Digiroad only where OpenStreetMap has nothing. Legal default limits ("50 in built-up areas, 80 outside") are deliberately not used: in Finland most streets are in 30 or 40 zones, so the default would usually be wrong.
+
+For Norway, it takes them from [NVDB](https://nvdbapiles.atlas.vegvesen.no), Statens vegvesen's road database (NLOD 2.0), matched the same way: the limits on European, national, county and municipal roads, and limits for part of the year or the day, which become conditional ones: winter and summer limits with their own dates, and school zones on weekdays at set hours. Environmental limits without dates are switched on as the air needs, so they're left out.
+
+The matching is source-neutral (`infra/datapacks/official_limits.py`), with a reader per national database: Fintraffic's own Road Network format, which replaces Digiroad's from 2027, gets one when Fintraffic publishes it.
 
 ### 3.3 Routing tiles
 
@@ -371,24 +442,31 @@ GET {tiles}/{build}/{tile path}.gz
   "build": "758e170c8b3cf751",
   "generated": "2026-10-09T23:57:26Z",
   "attribution": "© OpenStreetMap contributors, ODbL",
-  "levels": [{ "level": 0, "size": 4 }, { "level": 1, "size": 1 }, { "level": 2, "size": 0.25 }],
+  "levels": [
+    { "level": 0, "size": 4 },
+    { "level": 1, "size": 1 },
+    { "level": 2, "size": 0.25 }
+  ],
   "tiles": {
     "0": [[3381, 4886520, 1869545]],
     "1": [[54204, 9032168, 3312542]],
-    "2": [[864819, 35743800, 12125246], [864820, 16303200, 5617922]]
+    "2": [
+      [864819, 35743800, 12125246],
+      [864820, 16303200, 5617922]
+    ]
   }
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `format` | `1`. A client that doesn't know a manifest's format doesn't use the tiles. |
-| `engine` | `valhalla`. |
-| `version` | The engine version that built the tiles. Clients use them only with an engine that reads that version's tiles. |
-| `build` | Names this set of tiles: letters, digits, `.`, `_` and `-`. Tiles from different builds don't fit together, so clients keep one build's tiles and replace them all when the build changes. |
-| `levels` | The graph's hierarchy: each level and the size of its tiles in degrees. Valhalla's are 0 for motorways and trunk roads, 1 for arterials and 2 for local roads. |
-| `tiles` | The tiles of each level that exist (a tile without roads doesn't): `[tile ID, bytes, download bytes]`, by ID. The sizes let clients say what an area costs before downloading it. |
-| `attribution` | Credits for the data, which clients show. |
+| Field         | Meaning                                                                                                                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `format`      | `1`. A client that doesn't know a manifest's format doesn't use the tiles.                                                                                                                 |
+| `engine`      | `valhalla`.                                                                                                                                                                                |
+| `version`     | The engine version that built the tiles. Clients use them only with an engine that reads that version's tiles.                                                                             |
+| `build`       | Names this set of tiles: letters, digits, `.`, `_` and `-`. Tiles from different builds don't fit together, so clients keep one build's tiles and replace them all when the build changes. |
+| `levels`      | The graph's hierarchy: each level and the size of its tiles in degrees. Valhalla's are 0 for motorways and trunk roads, 1 for arterials and 2 for local roads.                             |
+| `tiles`       | The tiles of each level that exist (a tile without roads doesn't): `[tile ID, bytes, download bytes]`, by ID. The sizes let clients say what an area costs before downloading it.          |
+| `attribution` | Credits for the data, which clients show.                                                                                                                                                  |
 
 **Tiles.** A tile's ID is `row × columns + column`, counting rows of `size` degrees from 90° south and columns from 180° west (`columns` = 360 / `size`). Its path is Valhalla's: the level, then the ID padded with zeros to as many digits as the level's largest ID has, rounded up to a multiple of three, in groups of three, plus `.gph`. Level 2's tile 864819 (60°–60.25° N, 24.75°–25° E) is `2/000/864/819.gph`, and `{tiles}/{build}/2/000/864/819.gph.gz` is that tile, gzipped. That's also what Valhalla fetches itself with `mjolnir.tile_url` set to `{tiles}/{build}/{tilePath}` and `tile_url_gz` on.
 
@@ -415,17 +493,20 @@ A region's places, streets, addresses and points of interest, for searching on t
   "generated": "2026-10-03T23:01:00Z",
   "attribution": "© OpenStreetMap contributors, ODbL",
   "size": 0.25,
-  "cells": [[864819, 48408, 923414], [902262, 1783, 23661]]
+  "cells": [
+    [864819, 48408, 923414],
+    [902262, 1783, 23661]
+  ]
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `format` | `1`. A client that doesn't know a manifest's format doesn't use the pack. |
-| `build` | Names this set of cells, like a routing build. Cells change only with the build. |
-| `generated` | When the data was taken from OpenStreetMap. |
-| `size` | The cells' size in degrees: `0.25`. |
-| `cells` | The cells that have anything: `[cell, entries, download bytes]`, by cell. |
+| Field       | Meaning                                                                          |
+| ----------- | -------------------------------------------------------------------------------- |
+| `format`    | `1`. A client that doesn't know a manifest's format doesn't use the pack.        |
+| `build`     | Names this set of cells, like a routing build. Cells change only with the build. |
+| `generated` | When the data was taken from OpenStreetMap.                                      |
+| `size`      | The cells' size in degrees: `0.25`.                                              |
+| `cells`     | The cells that have anything: `[cell, entries, download bytes]`, by cell.        |
 
 A cell is a gzipped JSON file:
 
@@ -434,22 +515,37 @@ A cell is a gzipped JSON file:
   "format": 1,
   "entries": [
     ["street", "Mannerheimintie", "Helsinki", 60.18008, 24.92847, 0.1],
-    ["address", "Mannerheimintie 5", "Helsinki", 60.1696, 24.9405, 0, ["Mannerheimvägen 5"]],
+    [
+      "address",
+      "Mannerheimintie 5",
+      "Helsinki",
+      60.1696,
+      24.9405,
+      0,
+      ["Mannerheimvägen 5"]
+    ],
     ["place", "Kamppi", "Helsinki", 60.1683, 24.9306, 0.25, ["Kampen"]],
-    ["poi", "Kampin keskus", "Urho Kekkosen katu 1, Helsinki", 60.169, 24.933, 0.2]
+    [
+      "poi",
+      "Kampin keskus",
+      "Urho Kekkosen katu 1, Helsinki",
+      60.169,
+      24.933,
+      0.2
+    ]
   ]
 }
 ```
 
 Each entry is `[kind, title, detail, lat, lon, weight, names]`:
 
-| Item | Meaning |
-|---|---|
-| `kind` | `place` (a town, a district, a square), `street`, `address` or `poi` (a named point of interest). Clients skip kinds they don't know. |
-| `title`, `detail` | A search result's two lines, as shown. |
-| `lat`, `lon` | Where it is, in degrees: in the cell. |
-| `weight` | How notable it is, 0–1, for ranking: towns and landmarks above street addresses. |
-| `names` | Optional: other names it's found by, such as the Swedish ones in Finland's bilingual towns. |
+| Item              | Meaning                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`            | `place` (a town, a district, a square), `street`, `address` or `poi` (a named point of interest). Clients skip kinds they don't know. |
+| `title`, `detail` | A search result's two lines, as shown.                                                                                                |
+| `lat`, `lon`      | Where it is, in degrees: in the cell.                                                                                                 |
+| `weight`          | How notable it is, 0–1, for ranking: towns and landmarks above street addresses.                                                      |
+| `names`           | Optional: other names it's found by, such as the Swedish ones in Finland's bilingual towns.                                           |
 
 Cells never change within a build, so servers can send them with `Cache-Control: immutable`; clients revalidate the manifest with its `ETag`. A cell of a build the server no longer has answers `404`: clients then fetch the manifest again. A region without a search pack answers `404` for the manifest, and clients search only online.
 
@@ -473,27 +569,45 @@ Every current report. Clients poll it about once a minute while driving, with `I
 {
   "format": 1,
   "reports": [
-    { "id": "mTHYi9CkVdeQ", "type": "police", "lat": 60.17, "lon": 24.94, "bearing": 180,
-      "reported": "2026-10-10T18:00:00Z", "expires": "2026-10-10T19:00:00Z", "confirmations": 2 },
-    { "id": "fintraffic:GUID50472141", "type": "accident", "lat": 60.21, "lon": 24.80,
-      "reported": "2026-10-10T19:30:31Z", "expires": "2026-10-10T20:00:31Z",
-      "source": { "name": "Fintraffic", "licence": "CC BY 4.0", "url": "https://www.digitraffic.fi" },
-      "text": "Tie 51, Espoo. Liikennetiedote." }
+    {
+      "id": "mTHYi9CkVdeQ",
+      "type": "police",
+      "lat": 60.17,
+      "lon": 24.94,
+      "bearing": 180,
+      "reported": "2026-10-10T18:00:00Z",
+      "expires": "2026-10-10T19:00:00Z",
+      "confirmations": 2
+    },
+    {
+      "id": "fintraffic:GUID50472141",
+      "type": "accident",
+      "lat": 60.21,
+      "lon": 24.8,
+      "reported": "2026-10-10T19:30:31Z",
+      "expires": "2026-10-10T20:00:31Z",
+      "source": {
+        "name": "Fintraffic",
+        "licence": "CC BY 4.0",
+        "url": "https://www.digitraffic.fi"
+      },
+      "text": "Tie 51, Espoo. Liikennetiedote."
+    }
   ]
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `format` | `1`. A client that doesn't know a feed's format ignores the feed. |
-| `id` | Unique, stable for the report's life. |
-| `type` | `police`, `speed_check`, `accident`, `hazard`, `stopped_vehicle`, `roadworks`, `slippery_road`, `animal` or `road_closed`. Clients skip types they don't know. |
-| `lat`, `lon` | Where it is. For a stretch of road, where the stretch begins. |
-| `bearing` | The direction of travel it concerns, in degrees clockwise from north. Absent means both directions. It only matters for `police`, `speed_check`, `accident`, `hazard` and `stopped_vehicle`; the other types concern the whole road. |
-| `reported`, `expires` | ISO 8601 times, UTC. |
-| `confirmations` | How many drivers said it's still there. |
-| `source` | Only for official reports: `name`, `licence` and `url` of where it comes from. Clients show this attribution with the report. |
-| `text` | Only for official reports: the source's description, in the source's language. |
+| Field                 | Meaning                                                                                                                                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `format`              | `1`. A client that doesn't know a feed's format ignores the feed.                                                                                                                                                                    |
+| `id`                  | Unique, stable for the report's life.                                                                                                                                                                                                |
+| `type`                | `police`, `speed_check`, `accident`, `hazard`, `stopped_vehicle`, `roadworks`, `slippery_road`, `animal` or `road_closed`. Clients skip types they don't know.                                                                       |
+| `lat`, `lon`          | Where it is. For a stretch of road, where the stretch begins.                                                                                                                                                                        |
+| `bearing`             | The direction of travel it concerns, in degrees clockwise from north. Absent means both directions. It only matters for `police`, `speed_check`, `accident`, `hazard` and `stopped_vehicle`; the other types concern the whole road. |
+| `reported`, `expires` | ISO 8601 times, UTC.                                                                                                                                                                                                                 |
+| `confirmations`       | How many drivers said it's still there.                                                                                                                                                                                              |
+| `source`              | Only for official reports: `name`, `licence` and `url` of where it comes from. Clients show this attribution with the report.                                                                                                        |
+| `text`                | Only for official reports: the source's description, in the source's language.                                                                                                                                                       |
 
 One feed for the whole server works for the Nordics: hundreds of reports, tens of kilobytes compressed. A later version may add area queries or push (§2.6).
 
@@ -506,7 +620,7 @@ Content-Type: application/json
 { "type": "police", "lat": 60.17, "lon": 24.94, "bearing": 180 }
 ```
 
-`bearing` is the reporter's heading, and may be left out. The server answers `201 Created` with `{ "id": "…" }`, `400 Bad Request` for an unknown type or a position or bearing out of range, or `429 Too Many Requests`.
+`bearing` is the reporter's heading, and may be left out. The server answers `201 Created` with `{ "id": "..." }`, `400 Bad Request` for an unknown type or a position or bearing out of range, or `429 Too Many Requests`.
 
 ### 4.3 Still there?
 
@@ -523,19 +637,19 @@ Clients ask drivers passing a report whether it's still there, at most once per 
 
 Each type lasts a set time unless someone confirms it. In the reference server:
 
-| Type | Lifetime |
-|---|---|
-| `police`, `speed_check`, `hazard` | 60 min |
-| `accident` | 90 min |
-| `stopped_vehicle` | 45 min |
-| `animal` | 30 min |
-| `slippery_road` | 4 h |
-| `road_closed` | 6 h |
-| `roadworks` | 24 h |
+| Type                              | Lifetime |
+| --------------------------------- | -------- |
+| `police`, `speed_check`, `hazard` | 60 min   |
+| `accident`                        | 90 min   |
+| `stopped_vehicle`                 | 45 min   |
+| `animal`                          | 30 min   |
+| `slippery_road`                   | 4 h      |
+| `road_closed`                     | 6 h      |
+| `roadworks`                       | 24 h     |
 
 A "yes" keeps a report for at least half its lifetime from the vote, but no report lasts more than three lifetimes in all. Once "no" votes outnumber "yes" votes, and there are at least two, a driver's report goes. Official reports last as long as their source says. Other servers may tune all of this.
 
-The reference server limits each client address to 5 reports and 30 votes per 10 minutes, and keeps the addresses in memory only. With `FOXNAV_FINTRAFFIC=true` it adds Fintraffic's traffic messages for Finland ([Digitraffic](https://www.digitraffic.fi/en/road-traffic/), CC BY 4.0): accidents, closed roads, animals, slippery roads, and roadworks during phases that restrict traffic.
+The reference server limits each client address to 5 reports and 30 votes per 10 minutes, and keeps the addresses in memory only. With `FOXNAV_FINTRAFFIC=true` it adds Fintraffic's traffic messages for Finland ([Digitraffic](https://www.digitraffic.fi/en/road-traffic/), CC BY 4.0): accidents, closed roads, animals, slippery roads, and roadworks during phases that restrict traffic. With an account for Statens vegvesen's DATEX II feed (`FOXNAV_VEGVESEN_USERNAME` and `FOXNAV_VEGVESEN_PASSWORD`) it adds Norway's (NLOD 2.0): accidents, closed roads, animals, broken-down vehicles, slippery roads, hazards such as rockfalls and landslips, and roadworks while they hold up traffic, with lane closures, traffic lights or a lower limit.
 
 ## 5. Conformance
 

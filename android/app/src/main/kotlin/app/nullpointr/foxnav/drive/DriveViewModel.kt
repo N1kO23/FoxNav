@@ -30,6 +30,7 @@ import app.nullpointr.foxnav.shared.safety.Camera
 import app.nullpointr.foxnav.shared.safety.CameraAhead
 import app.nullpointr.foxnav.shared.safety.CameraRules
 import app.nullpointr.foxnav.shared.safety.CameraWatch
+import app.nullpointr.foxnav.shared.safety.SectionWatch
 import app.nullpointr.foxnav.shared.search.Place
 import app.nullpointr.foxnav.shared.search.PlaceNames
 import app.nullpointr.foxnav.shared.speed.Day
@@ -79,7 +80,7 @@ import uniffi.ferrostar.TripState
 import uniffi.ferrostar.UserLocation
 import uniffi.ferrostar.Waypoint
 import uniffi.ferrostar.WaypointKind
-import java.time.LocalDate
+import java.time.LocalDateTime
 import kotlin.math.roundToInt
 import app.nullpointr.foxnav.data.PlaceStore
 import app.nullpointr.foxnav.data.TravelTimes
@@ -215,8 +216,8 @@ class DriveViewModel(
     private val speedLimits = MutableStateFlow(SpeedLimits())
 
     // The limit where we are: from the route's annotations while navigating, the road otherwise,
-    // corrected for the date where the road has a winter limit (which routing ignores), and from
-    // the speed limit pack where the map has none.
+    // corrected for the date and time where the road has a winter limit or a school zone (which
+    // routing ignores), and from the speed limit pack where the map has none.
     private val limit =
         combine(navigationUiState, _road, speedLimits) { uiState, road, limits ->
             val mapKmh = if (uiState.isNavigating()) {
@@ -225,7 +226,8 @@ class DriveViewModel(
                 road?.speedLimitKmh
             }
             val here = uiState.location?.coordinates?.let { GeoPoint(it.lat, it.lng) }
-            limits.limit(road?.wayId, mapKmh, today(), here)
+            val now = LocalDateTime.now()
+            limits.limit(road?.wayId, mapKmh, now.toDay(), here, minuteOfDay = now.hour * 60 + now.minute)
         }
 
     private val _cameras = MutableStateFlow<List<Camera>>(emptyList())
@@ -234,6 +236,7 @@ class DriveViewModel(
     val cameras: StateFlow<List<Camera>> = _cameras.asStateFlow()
 
     private val cameraWatch = _cameras.map(::CameraWatch)
+    private val sectionWatch = _cameras.map(::SectionWatch)
 
     // Where we are, with speed and heading filled in where the location source leaves them out.
     private val ourFix =
@@ -309,6 +312,21 @@ class DriveViewModel(
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, SpeedReading())
 
+    /**
+     * The average speed section we're in, where camera warnings are on and legal: the distance to
+     * its end, and our average so far against the limit. Kept on the phone only, like our speed.
+     */
+    val section: StateFlow<SectionShown?> =
+        combine(ourFix, sectionWatch, cameraWarnings, _road, speed) { fix, watch, enabled, road, reading ->
+            if (fix == null || !enabled || !CameraRules.warningsAllowed(road?.countryCode)) return@combine null
+            watch.update(fix)?.let { progress ->
+                val units = settings.value.units
+                val average = progress.averageMps?.let { speedIn(it, units) }
+                val limit = reading.limit
+                SectionShown(progress.remainingM, average, over = average != null && limit != null && average >= limit + settings.value.overLimitMargin)
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     init {
         viewModelScope.launch { refreshShortcutMinutes() }
         viewModelScope.launch {
@@ -325,7 +343,11 @@ class DriveViewModel(
         viewModelScope.launch {
             // Once per camera, as it comes into range.
             cameraAhead.distinctUntilChangedBy { it?.camera?.id }.filterNotNull().collect { ahead ->
-                val kind = if (ahead.camera.kind == Camera.RED_LIGHT) "red_light_camera" else "speed_camera"
+                val kind = when (ahead.camera.kind) {
+                    Camera.RED_LIGHT -> "red_light_camera"
+                    Camera.AVERAGE_SPEED -> "average_speed_check"
+                    else -> "speed_camera"
+                }
                 warn(kind, ahead.distanceM, ahead.spoken(settings.value.units), ahead.short())
             }
         }
@@ -665,7 +687,7 @@ private const val PREVIEW_REFRESH_MS = 10_000L
 private const val SHORTCUT_REFRESH_MS = 5 * 60_000L
 private val COURSE_ACCURACY_DEG: UShort = 20u
 
-private fun today(): Day = LocalDate.now().let { Day(it.year, it.monthValue, it.dayOfMonth) }
+private fun LocalDateTime.toDay(): Day = Day(year, monthValue, dayOfMonth)
 
 /** "Accident in 600 metres". */
 private fun ReportAhead.spoken(units: UnitSystem): String = "${ReportLabels.label(report.type)} in ${spokenDistance(distanceM, units)}"
@@ -674,4 +696,8 @@ private fun ReportAhead.spoken(units: UnitSystem): String = "${ReportLabels.labe
 private fun CameraAhead.spoken(units: UnitSystem): String =
     "${short()} in ${spokenDistance(distanceM, units)}" + (camera.maxspeed?.let { ", limit ${limitIn(it, units)}" } ?: "")
 
-private fun CameraAhead.short(): String = if (camera.kind == Camera.RED_LIGHT) "Red light camera" else "Speed camera"
+private fun CameraAhead.short(): String = when (camera.kind) {
+    Camera.RED_LIGHT -> "Red light camera"
+    Camera.AVERAGE_SPEED -> "Average speed check"
+    else -> "Speed camera"
+}
