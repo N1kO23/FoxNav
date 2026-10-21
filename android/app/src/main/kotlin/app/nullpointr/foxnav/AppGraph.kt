@@ -32,8 +32,8 @@ import app.nullpointr.foxnav.ui.theme.LastArea
 import app.nullpointr.foxnav.voice.Chime
 import app.nullpointr.foxnav.voice.ClipPlayer
 import app.nullpointr.foxnav.voice.GuidanceVoice
+import app.nullpointr.foxnav.voice.RouteAnnouncer
 import app.nullpointr.foxnav.voice.VoicePacks
-import uniffi.ferrostar.TripState
 import app.nullpointr.foxnav.shared.discovery.ServiceEndpoint
 import com.stadiamaps.ferrostar.composeui.notification.DefaultForegroundNotificationBuilder
 import com.stadiamaps.ferrostar.core.AndroidTtsObserver
@@ -54,6 +54,7 @@ import java.io.File
 import java.time.Duration
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
@@ -62,9 +63,6 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** App-wide objects, created once in [FoxNavApplication]. Small enough not to need a DI framework. */
 class AppGraph(private val context: Context) {
@@ -182,6 +180,10 @@ class AppGraph(private val context: Context) {
 
     private var navigationCore: Pair<String, FerrostarCore>? = null
 
+    /** Says the navigation core's instructions when it's time. */
+    private val routeAnnouncer by lazy { RouteAnnouncer(guidanceVoice, settings.settings) }
+    private var announcing: Job? = null
+
     private val driveOwner = MutableStateFlow(0L)
     private var lastDriveOwner = 0L
 
@@ -210,6 +212,7 @@ class AppGraph(private val context: Context) {
         navigationCore?.let { (url, existing) ->
             if (url == routing.url) return existing
             existing.spokenInstructionObserver = null
+            announcing?.cancel()
             existing.stopNavigation()
             locationProvider.disableSimulation()
         }
@@ -239,24 +242,9 @@ class AppGraph(private val context: Context) {
                 CourseFiltering.SNAP_TO_ROUTE,
             ),
         ).also { core ->
+            // It stops and mutes the voice; when to speak, the announcer decides.
             core.spokenInstructionObserver = guidanceVoice
-            // What an instruction is about, for voice packs: the manoeuvre of the route step it
-            // belongs to. Starting a trip (or after a new route), the core asks for the first
-            // instruction a moment before it says it's navigating that route: wait for it.
-            guidanceVoice.maneuverFor = { instruction ->
-                withTimeoutOrNull(STEP_LOOKUP_MS) {
-                    core.state
-                        .map { state ->
-                            (state.tripState as? TripState.Navigating)?.remainingSteps
-                                ?.firstOrNull { step -> step.spokenInstructions.any { it.utteranceId == instruction.utteranceId } }
-                        }
-                        .filterNotNull()
-                        .first()
-                }?.visualInstructions?.firstOrNull()?.primaryContent
-                    ?.let { content -> content.maneuverType?.name?.let { it to content.maneuverModifier?.name } }
-            }
+            announcing = routeAnnouncer.follow(core, scope)
         }
     }
 }
-
-private const val STEP_LOOKUP_MS = 500L

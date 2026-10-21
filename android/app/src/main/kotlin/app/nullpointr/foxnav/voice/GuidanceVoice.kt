@@ -3,16 +3,13 @@ package app.nullpointr.foxnav.voice
 import android.util.Log
 import app.nullpointr.foxnav.settings.Settings
 import app.nullpointr.foxnav.shared.voice.Phrases
+import app.nullpointr.foxnav.shared.voice.mendedGuidance
 import com.stadiamaps.ferrostar.core.AndroidTtsObserver
 import com.stadiamaps.ferrostar.core.SpokenInstructionObserver
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import uniffi.ferrostar.SpokenInstruction
 import java.util.UUID
+import kotlin.math.roundToInt
 
 /** Something to say: voice pack phrases if the pack has them all, otherwise [text] for text-to-speech. */
 class Utterance(val phrases: List<String>?, val text: String)
@@ -21,6 +18,8 @@ class Utterance(val phrases: List<String>?, val text: String)
  * The voice FoxNav speaks with: the chosen voice pack where it has every phrase a sentence needs,
  * the phone's text-to-speech otherwise (street names, numbers it hasn't recorded, other languages).
  * Mute is shared, so the mute button silences both.
+ *
+ * Ferrostar's core stops and mutes it, but doesn't say when to speak: [RouteAnnouncer] does.
  */
 class GuidanceVoice(
     private val tts: AndroidTtsObserver,
@@ -28,36 +27,21 @@ class GuidanceVoice(
     private val clips: ClipPlayer,
     private val settings: StateFlow<Settings>,
 ) : SpokenInstructionObserver {
+    /** Ferrostar's timing, where Valhalla placed each instruction: [RouteAnnouncer] times them for the car's speed instead. */
+    override fun onSpokenInstructionTrigger(spokenInstruction: SpokenInstruction) = Unit
+
     /**
-     * The manoeuvre an instruction is about, as type and modifier names like ("TURN", "LEFT"):
-     * its route step's. Set by the navigation core's owner; it may wait a moment for the core.
+     * Says a route instruction, [heardAtM] before its [maneuver] (type and modifier names, like
+     * ("TURN", "LEFT")): from the pack with the distance as it will be heard, or [text] aloud.
      */
-    @Volatile
-    var maneuverFor: suspend (SpokenInstruction) -> Pair<String, String?>? = { null }
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    // One at a time and in order: an instruction may wait a moment to learn its manoeuvre.
-    private val instructions = Channel<SpokenInstruction>(Channel.UNLIMITED)
-
-    init {
-        scope.launch {
-            for (instruction in instructions) speakInstruction(instruction)
-        }
-    }
-
-    override fun onSpokenInstructionTrigger(spokenInstruction: SpokenInstruction) {
+    fun announce(text: String, maneuver: Pair<String, String?>?, heardAtM: Double) {
         if (isMuted) return
-        instructions.trySend(spokenInstruction)
-    }
-
-    private suspend fun speakInstruction(spokenInstruction: SpokenInstruction) {
-        if (isMuted) return
-        val maneuver = maneuverFor(spokenInstruction)
         val phrases = maneuver
             ?.let { (type, modifier) -> Phrases.maneuver(type, modifier) }
-            ?.let { Phrases.guidance(it, spokenInstruction.triggerDistanceBeforeManeuver, settings.value.units) }
-        if (!playFromPack(phrases, spokenInstruction.text, maneuver)) tts.onSpokenInstructionTrigger(spokenInstruction)
+            ?.let { Phrases.guidance(it, heardAtM, settings.value.units) }
+        val spoken = mendedGuidance(text)
+        Log.i(TAG, "Heard ${heardAtM.roundToInt()} m before: $spoken")
+        if (!playFromPack(phrases, spoken, maneuver)) tts.onSpokenInstructionTrigger(SpokenInstruction(spoken, null, heardAtM, UUID.randomUUID()))
     }
 
     /** Says [utterance], from the pack if it can. */
@@ -98,7 +82,6 @@ class GuidanceVoice(
     private var lastPlayedMs = 0L
 
     override fun stopAndClearQueue() {
-        while (instructions.tryReceive().isSuccess) Unit
         clips.stop()
         tts.stopAndClearQueue()
     }
