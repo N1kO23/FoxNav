@@ -273,11 +273,12 @@ A server may serve a web page at its discovery document's `invites` URL that tak
 
 - offers to open the convoy in the app (the `foxnav://` link with the same fragment);
 - or joins the convoy itself, over the same realtime protocol and with the same end-to-end encryption (WebCrypto's AES-GCM, AES-KW, HKDF, Ed25519 and X25519, which current browsers all have), and shows everyone on a map with a timing tower;
-- shares the browser's position if the person chooses to, while the page is open; otherwise its `Profile` says `watching`.
+- shares the browser's position if the person chooses to, while the page is open; otherwise its `Profile` says `watching`;
+- sends quick messages, and a regroup point where the browser is when it shares its position, as `EVENT` frames like the app's (§2.4). Clearing a regroup point clears it on that page only, as in the app: there's no frame that takes one back.
 
 The fragment never reaches the server. The page holds the convoy's key, so servers should send it with a strict content security policy: scripts only from the server itself, no inline scripts, and nothing from other members inserted as HTML. The reference implementation is [`web/`](../web/): plain JavaScript modules with no build step, served by the reference server at `/join`.
 
-The page fetches the discovery document and styles of the invite's server, which may be a different origin than the page's: servers send `Access-Control-Allow-Origin: *` on both. Sharing a position needs a secure context (https, or `localhost`).
+The page fetches the discovery document and styles of the invite's server, which may be a different origin than the page's: servers send `Access-Control-Allow-Origin: *` on both, and on everything the styles load (tiles, fonts, icons). Once: browsers refuse a response that has the header twice. Sharing a position needs a secure context (https, or `localhost`).
 
 ### 2.6 Not yet specified
 
@@ -285,7 +286,6 @@ These arrive in a later version of this document:
 
 - convoys over LoRa radios (Meshtastic): the radio link, how often each kind of frame goes out over it, and what gateways forward;
 - new reports pushed over this connection, instead of clients polling the feed (§4);
-- quick messages and regroup points sent from the convoy page;
 - more data packs (speed-limit fixes, average-speed sections);
 - more for the convoy soundtrack in `NowPlaying` (§2.4): service IDs and ISRC to find the exact recording, and the playback position and state to play in step.
 

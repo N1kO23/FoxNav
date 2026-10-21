@@ -5,11 +5,12 @@
 import * as maplibregl from "../vendor/maplibre-gl.mjs";
 import { ConvoySession, position, waypoint } from "./convoy.js";
 import { base64Url, inviteFragment, parseInvite } from "./invite.js";
-import { MotionTrack, fixOf, signal } from "./motion.js";
+import { MotionTrack, fixOf, moved, signal } from "./motion.js";
 import { QuickMessageKind } from "./protobuf.js";
 import { discover } from "./server.js";
 
 const REFRAME_MS = 8_000;
+const FRAME_ANIMATION_MS = 1_000;
 const PALETTE = [0x4c8dff, 0x3ddc97, 0xff5fa2, 0xb79bff, 0xa8e05f];
 const LABEL_FONT = "Noto Sans Medium"; // the FoxNav styles' label font (infra/styles)
 const QUICK = {
@@ -22,6 +23,18 @@ const QUICK = {
   [QuickMessageKind.ALL_GOOD]: "all good",
 };
 const WARNINGS = new Set([QuickMessageKind.POLICE_AHEAD, QuickMessageKind.HAZARD_AHEAD, QuickMessageKind.SLOW_DOWN]);
+// The app's quick messages in its order, with Regroup among the stops (android/.../convoy/ConvoySheet.kt).
+const QUICK_BUTTONS = [
+  [QuickMessageKind.FUEL, "Fuel"],
+  [QuickMessageKind.BREAK, "Break"],
+  [QuickMessageKind.PULL_OVER, "Pull over"],
+  [QuickMessageKind.POLICE_AHEAD, "Police"],
+  [QuickMessageKind.HAZARD_AHEAD, "Hazard"],
+  ["regroup", "Regroup"],
+  [QuickMessageKind.SLOW_DOWN, "Slow down"],
+  [QuickMessageKind.ALL_GOOD, "All good"],
+];
+const REGROUP_NAME = "Regroup point";
 const ENDINGS = {
   left: ["You left the convoy", "Open the link again to rejoin."],
   removed: ["You were removed", "The convoy's owner removed you from the convoy."],
@@ -136,6 +149,14 @@ function createMap(server) {
     zoom: 5,
     attributionControl: { compact: true },
   });
+  // The map's corner controls (the credits) sit above ours, not behind them.
+  const lift = () => {
+    const controls = $("controls");
+    const height = controls.hidden ? 0 : innerHeight - controls.getBoundingClientRect().top;
+    document.documentElement.style.setProperty("--controls-height", `${Math.ceil(height)}px`);
+  };
+  new ResizeObserver(lift).observe($("controls"));
+  addEventListener("resize", lift);
   map.on("load", () => {
     map.addImage("car", carImage(), { sdf: true, pixelRatio: 2 });
     map.addSource("cars", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -217,8 +238,10 @@ function follow(invite, server, map, name, sharing) {
       ({ coords, timestamp }) => {
         const speed = Number.isFinite(coords.speed) ? coords.speed : null;
         const heading = Number.isFinite(coords.heading) ? coords.heading : null;
+        const first = me === null;
         me = { ...fixOf({ lat: coords.latitude, lon: coords.longitude }, timestamp, speed, heading, me), accuracy: coords.accuracy };
         publish();
+        if (first) renderControls();
       },
       (error) => {
         toast(error.code === error.PERMISSION_DENIED ? "Location access was denied" : "Can't get your location", true);
@@ -239,6 +262,7 @@ function follow(invite, server, map, name, sharing) {
     wakeLock = null;
     $("share-live").checked = false;
     publish();
+    renderControls();
   }
 
   $("share-live").disabled = $("share").disabled;
@@ -248,6 +272,47 @@ function follow(invite, server, map, name, sharing) {
     else stopSharing();
   };
   $("leave").onclick = () => session.leave();
+
+  const quickButtons = QUICK_BUTTONS.map(([kind, label]) => {
+    const button = el("button", `button secondary${WARNINGS.has(kind) ? " warn" : kind === "regroup" ? " regroup" : ""}`, label);
+    button.type = "button";
+    button.onclick = () => {
+      if (kind === "regroup") {
+        if (!me) return;
+        session.dropRegroupPin(me.point, REGROUP_NAME);
+        toast("Regroup point sent");
+      } else {
+        session.sendQuickMessage(kind);
+        toast(`Sent: ${label}`);
+      }
+      showQuick(false);
+    };
+    return { kind, button };
+  });
+  $("quick-buttons").replaceChildren(...quickButtons.map(({ button }) => button));
+  function showQuick(open) {
+    $("quick").hidden = !open;
+    $("quick-toggle").setAttribute("aria-expanded", String(open));
+  }
+  $("quick-toggle").onclick = () => showQuick($("quick").hidden);
+  map.on("click", () => showQuick(false));
+  $("regroup-clear").onclick = () => session.clearRegroup();
+
+  /** What can be sent now, and the regroup point with who set it. */
+  function renderControls() {
+    const live = session.status === "live";
+    for (const { kind, button } of quickButtons) {
+      const here = kind !== "regroup" || me !== null;
+      button.disabled = !live || !here;
+      button.title = here ? "" : "Share your location to set a regroup point where you are";
+    }
+    const regroup = session.regroup;
+    $("regroup").hidden = !regroup;
+    if (regroup) {
+      const by = regroup.mine ? "you" : session.members.get(regroup.by)?.profile?.display_name || "a driver";
+      $("regroup-text").textContent = `Regroup point from ${by}`;
+    }
+  }
   $("recenter").onclick = () => {
     following = true;
     frame(Date.now(), features(Date.now()));
@@ -269,6 +334,7 @@ function follow(invite, server, map, name, sharing) {
     }
     renderTower();
     renderPins();
+    renderControls();
   });
   session.addEventListener("notice", ({ detail }) => {
     const who = detail.member?.profile?.display_name || "Someone";
@@ -340,31 +406,48 @@ function follow(invite, server, map, name, sharing) {
       track.update(member.fix, now);
       const at = track.positionAt(now);
       const state = signal(member, now);
-      out.push(car(at, member.fix.heading, member.profile?.display_name || "Driver", member.profile?.car?.color_rgb ?? PALETTE[0], state));
+      out.push(car(at, member.fix.heading, member.fix.speed, member.profile?.display_name || "Driver", member.profile?.car?.color_rgb ?? PALETTE[0], state));
     }
     for (const id of tracks.keys()) if (!session.members.has(id)) tracks.delete(id);
-    if (me) out.push(car(me.point, me.heading, "You", color, "live"));
+    if (me) out.push(car(me.point, me.heading, me.speed, "You", color, "live"));
     return out;
   }
 
-  function car(at, heading, label, rgb, state) {
+  function car(at, heading, speed, label, rgb, state) {
+    // Where it'll be by the next reframe, so the cars in front don't drive out of view meanwhile.
+    const ahead = state === "live" && speed > 0 ? moved(at, (speed * (REFRAME_MS + FRAME_ANIMATION_MS)) / 1000, heading) : null;
     return {
       type: "Feature",
       geometry: { type: "Point", coordinates: [at.lon, at.lat] },
-      properties: { name: label, heading, color: hexColor(rgb), opacity: state === "lost" ? 0.3 : state === "stale" ? 0.5 : 1 },
+      properties: {
+        name: label,
+        heading,
+        color: hexColor(rgb),
+        opacity: state === "lost" ? 0.3 : state === "stale" ? 0.5 : 1,
+        lost: state === "lost",
+        ahead: ahead && [ahead.lon, ahead.lat],
+      },
     };
   }
 
   /** Fits everyone into view: when someone new shows up, every few seconds while following, and on request. */
   function frame(now, cars) {
-    const points = cars.map((feature) => feature.geometry.coordinates);
-    if (!points.length) return;
+    if (!cars.length) return;
+    // A car that stopped reporting a minute ago doesn't pull the view away from the others.
+    const shown = cars.some((feature) => !feature.properties.lost) ? cars.filter((feature) => !feature.properties.lost) : cars;
+    const points = shown.flatMap((feature) => [feature.geometry.coordinates, feature.properties.ahead].filter(Boolean));
     const first = framedCars === 0;
-    framedCars = points.length;
+    framedCars = cars.length;
     framedAt = now;
     const bounds = points.reduce((b, p) => b.extend(p), new maplibregl.LngLatBounds(points[0], points[0]));
-    const tower = $("tower").getBoundingClientRect();
-    map.fitBounds(bounds, { padding: { top: tower.bottom + 40, bottom: 140, left: 60, right: 60 }, maxZoom: 16, duration: first ? 0 : 1000 });
+    // Clear of the tower above and of whichever panels are open below.
+    const panels = [...$("controls").querySelectorAll(".panel")].filter((panel) => !panel.hidden);
+    let top = $("tower").getBoundingClientRect().bottom + 40;
+    let bottom = innerHeight - Math.min(innerHeight, ...panels.map((panel) => panel.getBoundingClientRect().top)) + 24;
+    // On a short screen there may not be room for both: shrink them alike.
+    const room = innerHeight - 120;
+    if (top + bottom > room) [top, bottom] = [top, bottom].map((side) => (side * room) / (top + bottom));
+    map.fitBounds(bounds, { padding: { top, bottom, left: 60, right: 60 }, maxZoom: 16, duration: first ? 0 : FRAME_ANIMATION_MS });
   }
 
   let last = 0;

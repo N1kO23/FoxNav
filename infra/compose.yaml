@@ -38,10 +38,11 @@ services:
     depends_on: [server, tiles, valhalla, photon]
     restart: unless-stopped
 
-  # Serves the PMTiles archive as {z}/{x}/{y} tiles.
+  # Serves the PMTiles archive as {z}/{x}/{y} tiles. The gateway adds the CORS header: one from
+  # each would be two, which browsers refuse, so a convoy page on another origin got no map.
   tiles:
     image: protomaps/go-pmtiles:v1.31.2
-    command: ["serve", "/tiles", "--port=8080", "--cors=*"]
+    command: ["serve", "/tiles", "--port=8080"]
     volumes:
       - ./data/tiles:/tiles:ro
     restart: unless-stopped

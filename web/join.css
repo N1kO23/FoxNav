@@ -350,6 +350,40 @@ input:focus-visible {
   padding: 10px 12px 10px 16px;
 }
 
+/* Quick messages: big targets, three to a row, as in the app's convoy sheet. */
+#quick {
+  width: 100%;
+  max-width: 520px;
+  justify-self: center;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+#quick-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+#quick-buttons .button {
+  min-height: 52px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+#quick-buttons .button.warn {
+  color: var(--warn);
+}
+#quick-buttons .button.regroup {
+  color: var(--brand);
+}
+.button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+#regroup-text {
+  color: var(--muted);
+  font-size: 14px;
+}
+
 #toasts {
   position: fixed;
   top: calc(var(--gutter) + env(safe-area-inset-top));
@@ -400,12 +434,18 @@ input:focus-visible {
   }
   #toasts {
     top: auto;
-    bottom: calc(96px + env(safe-area-inset-bottom));
+    /* Above the controls, however many are open (--controls-height, from join.js). */
+    bottom: calc(var(--controls-height, 84px) + 12px);
   }
 }
 
 .maplibregl-ctrl-attrib {
   font-size: 11px;
+}
+/* The map's credits stay in sight above the page's controls (--controls-height, from join.js). */
+.maplibregl-ctrl-bottom-right,
+.maplibregl-ctrl-bottom-left {
+  bottom: var(--controls-height, 0px);
 }
 .pin {
   padding: 3px 9px;

@@ -1,6 +1,6 @@
 # Convoy page
 
-The page invite links open: it offers the FoxNav app, or follows the convoy right in the browser, with a map, the timing tower and, if you choose, your own position while the page is open. See [`protocol/SPEC.md`](../protocol/SPEC.md) §2.5.
+The page invite links open: it offers the FoxNav app, or follows the convoy right in the browser, with a map, the timing tower, quick messages and regroup points, and, if you choose, your own position while the page is open. See [`protocol/SPEC.md`](../protocol/SPEC.md) §2.5.
 
 Plain JavaScript modules, no build step, no dependencies besides [MapLibre GL JS](https://maplibre.org) and [PMTiles](https://github.com/protomaps/PMTiles). The reference server serves it at `/join` and `/web/`; its build fetches those two libraries pinned and checked against npm's integrity hashes (`server/build.gradle.kts`).
 

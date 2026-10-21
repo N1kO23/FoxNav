@@ -32,6 +32,7 @@ const TIMING = {
   oldKeyGraceMs: 120_000, // frames under a replaced key still count for this long
 };
 const MAX_EVENT_AGE_MS = 5 * 60_000;
+const MAX_QUEUED_EVENTS = 16;
 const MAX_HELD = 256;
 
 // --- Frames (spec §2.3) ---
@@ -503,6 +504,8 @@ export class ConvoySession extends EventTarget {
     this.connected = []; // members connected to the server, longest in first
     this.sent = {};
     this.republish = true;
+    this.outgoing = []; // events waiting to go out: {event, queuedAt}
+    this.sendingEvents = false;
   }
 
   /** Connects, and keeps reconnecting with backoff until [leave] or the convoy ends. */
@@ -527,6 +530,25 @@ export class ConvoySession extends EventTarget {
   setState(state) {
     this.myState = state;
     this.stateChanged = true;
+  }
+
+  /** Sends the others a quick message (QuickMessageKind). */
+  sendQuickMessage(kind) {
+    this.queueEvent({ quick_message: { kind } });
+  }
+
+  /** Asks everyone to meet at [point] ({lat, lon}), which shows here too, as ours. */
+  dropRegroupPin(point, name) {
+    const location = { lat_e7: Math.round(point.lat * 1e7), lon_e7: Math.round(point.lon * 1e7), name };
+    this.queueEvent({ regroup_pin: { location } });
+    this.regroup = { ...waypoint(location), by: this.memberId, mine: true };
+    this.changed();
+  }
+
+  /** Takes the regroup point off this map. Only here: as in the app, the others keep theirs. */
+  clearRegroup() {
+    this.regroup = null;
+    this.changed();
   }
 
   /** Skips the wait before the next reconnect, e.g. when the network comes back. */
@@ -649,6 +671,7 @@ export class ConvoySession extends EventTarget {
                 ),
               );
               this.publishState(socket);
+              this.sendEvents(socket);
             } else if (result === "close") {
               socket.close();
             }
@@ -676,6 +699,31 @@ export class ConvoySession extends EventTarget {
       content,
     );
     this.send({ publish: { frame } }, socket);
+  }
+
+  /**
+   * Events go out once we're in the convoy, in order, unless they've waited too long by then (as
+   * the app's): a quick message sent while reconnecting still arrives, a stale one doesn't.
+   */
+  queueEvent(event) {
+    const now = this.now();
+    this.outgoing.push({ event: { ...event, sent_ms: BigInt(now) }, queuedAt: now });
+    if (this.outgoing.length > MAX_QUEUED_EVENTS) this.outgoing.shift();
+    this.sendEvents();
+  }
+
+  async sendEvents(socket = this.socket) {
+    if (this.sendingEvents || this.status !== "live" || socket?.readyState !== 1) return;
+    this.sendingEvents = true;
+    try {
+      while (this.outgoing.length && this.socket === socket) {
+        const { event, queuedAt } = this.outgoing.shift();
+        if (this.now() - queuedAt <= MAX_EVENT_AGE_MS)
+          await this.sendFrame(socket, FrameKind.EVENT, encode(EventContent, event));
+      }
+    } finally {
+      this.sendingEvents = false;
+    }
   }
 
   /** Our card when it changed (or, without a position, as a sign of life), and our position when due. */
