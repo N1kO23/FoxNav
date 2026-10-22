@@ -96,9 +96,11 @@ services:
     build: ./photon
     <<: *host-user
     environment:
-      # Names in Finnish, Swedish, Norwegian (Bokmål, Nynorsk), Northern Sami and English.
-      PHOTON_LANGUAGES: fi,sv,nb,nn,se,en
-      JAVA_TOOL_OPTIONS: -Xmx3g
+      # Names in Finnish, Swedish, Norwegian (Bokmål, Nynorsk), Northern Sami and English. With more
+      # countries, add their languages in infra/.env, e.g. FOXNAV_PHOTON_LANGUAGES=fi,sv,nb,nn,se,en,de,fr.
+      PHOTON_LANGUAGES: ${FOXNAV_PHOTON_LANGUAGES:-fi,sv,nb,nn,se,en}
+      # Enough for the Nordics; all of Europe wants about FOXNAV_PHOTON_MEMORY=12g.
+      JAVA_TOOL_OPTIONS: -Xmx${FOXNAV_PHOTON_MEMORY:-3g}
     volumes:
       # Imports every data/photon/<region>.jsonl.zst into data/photon/photon_data on first start,
       # and again when the dumps change.
@@ -135,15 +137,16 @@ services:
         "/out",
       ]
 
-  # Merges the regions' OpenStreetMap extracts into one for Valhalla, which can't take extracts that
-  # overlap at their borders. fetch-data.sh runs it whenever the extracts change.
-  osm-merge:
+  # osmium, for fetch-data.sh: merges the regions' OpenStreetMap extracts into one for Valhalla, which
+  # can't take extracts that overlap at their borders, and cuts Europe's into what each country's data
+  # packs need.
+  osmium:
     build: ./datapacks
     <<: *host-user
     profiles: [tools]
-    entrypoint: ["osmium", "merge", "--overwrite"]
+    entrypoint: ["osmium"]
     volumes:
-      - ./data/osm:/osm:ro
+      - ./data/osm:/osm
       - ./data/valhalla:/valhalla
 
   # Publishes Valhalla's graph as tiles for routing on the phone without a connection (protocol/SPEC.md
@@ -158,7 +161,7 @@ services:
     volumes:
       - ./data/valhalla:/valhalla:ro
       - ./data/routing-tiles:/out
-    command: ["/valhalla/valhalla_tiles", "/out"]
+    command: ["/valhalla/valhalla_tiles.tar", "/out"]
 
   # Builds a region's search pack from its Photon dump, for searching on the phone without a
   # connection (protocol/SPEC.md §3.4). Run it after fetching a new dump (fetch-data.sh does), e.g.
