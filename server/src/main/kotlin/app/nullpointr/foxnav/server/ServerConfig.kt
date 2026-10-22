@@ -53,7 +53,7 @@ data class ServerConfig(
                 host = env["FOXNAV_HOST"] ?: defaults.host,
                 port = env["FOXNAV_PORT"]?.toInt() ?: defaults.port,
                 name = env["FOXNAV_NAME"] ?: defaults.name,
-                privacyUrl = env["FOXNAV_PRIVACY_URL"],
+                privacyUrl = env["FOXNAV_PRIVACY_URL"]?.takeIf { it.isNotBlank() },
                 routingUrl = env["FOXNAV_ROUTING_URL"] ?: defaults.routingUrl,
                 routingTilesUrl = env["FOXNAV_ROUTING_TILES_URL"]?.takeIf { it.isNotBlank() },
                 searchUrl = env["FOXNAV_SEARCH_URL"] ?: defaults.searchUrl,

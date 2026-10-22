@@ -22,11 +22,14 @@ services:
   gateway:
     image: caddy:2.11
     ports:
-      - "8080:8080"
+      # Behind a reverse proxy on the same machine, FOXNAV_HTTP_PORT=127.0.0.1:8080 keeps it off the network.
+      - "${FOXNAV_HTTP_PORT:-8080}:8080"
       - "8443:8443"
     environment:
       # This machine's name on your network, for the HTTPS site. Set it in infra/.env.
       FOXNAV_LAN_HOST: ${FOXNAV_LAN_HOST:-localhost}
+      # A reverse proxy in front, whose forwarded headers count (see the Caddyfile). Set it in infra/.env.
+      FOXNAV_TRUSTED_PROXIES: ${FOXNAV_TRUSTED_PROXIES:-127.0.0.1/32}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/tiles:/srv/tiles:ro
@@ -56,14 +59,16 @@ services:
       - path: ./data/regions.env
         required: false
     environment:
-      FOXNAV_NAME: FoxNav (local)
+      # What the app and the convoy page call this server, and its privacy policy. Set them in infra/.env.
+      FOXNAV_NAME: ${FOXNAV_NAME:-FoxNav (local)}
+      FOXNAV_PRIVACY_URL: ${FOXNAV_PRIVACY_URL:-}
       FOXNAV_STYLES_DIR: /srv/styles
       FOXNAV_DATAPACKS_URL: /datapacks
       FOXNAV_ROUTING_TILES_URL: /routing-tiles
       # Drivers' reports survive restarts; Fintraffic's traffic messages seed them (Finland), and
       # Statens vegvesen's (Norway) with an account, set in infra/.env.
       FOXNAV_REPORTS_FILE: /var/lib/foxnav/reports.json
-      FOXNAV_FINTRAFFIC: "true"
+      FOXNAV_FINTRAFFIC: ${FOXNAV_FINTRAFFIC:-true}
       FOXNAV_VEGVESEN_USERNAME: ${FOXNAV_VEGVESEN_USERNAME:-}
       FOXNAV_VEGVESEN_PASSWORD: ${FOXNAV_VEGVESEN_PASSWORD:-}
     volumes:

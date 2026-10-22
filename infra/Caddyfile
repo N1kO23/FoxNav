@@ -4,6 +4,16 @@
 	auto_https disable_redirects
 	# Caddy's local CA lives in the container: installing it into the container's trust store is pointless.
 	skip_install_trust
+	servers {
+		# A reverse proxy in front that terminates TLS (nginx, say): its X-Forwarded-* headers are believed,
+		# so the server knows the address drivers use (https://, for the map styles) and who each driver is
+		# (for the reports' rate limit). Set FOXNAV_TRUSTED_PROXIES in infra/.env to its address, or to
+		# private_ranges; see README.md. By default nobody is trusted: clients connect here directly.
+		trusted_proxies static {$FOXNAV_TRUSTED_PROXIES:127.0.0.1/32}
+		# The client is the first address from the right that isn't a trusted proxy's, so one put first
+		# by the client itself counts for nothing.
+		trusted_proxies_strict
+	}
 }
 
 (foxnav) {
@@ -68,11 +78,19 @@
 	# The report feed is JSON polled by every driver: compress it.
 	handle /v1/reports* {
 		encode gzip
-		reverse_proxy server:8080
+		import server
 	}
 
 	handle {
-		reverse_proxy server:8080
+		import server
+	}
+}
+
+# The FoxNav server, told the client's address as worked out above: just that one, whatever chain
+# of addresses a proxy in front sent.
+(server) {
+	reverse_proxy server:8080 {
+		header_up X-Forwarded-For {client_ip}
 	}
 }
 

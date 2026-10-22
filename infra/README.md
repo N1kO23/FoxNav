@@ -97,11 +97,57 @@ These are starting points. The FoxNav look gets applied once the design is settl
 
 ## Running a public server
 
-The same stack works on a server:
+The same stack works on a server. Its settings go in `infra/.env`, which stays out of git:
 
-1. In the `Caddyfile`, replace the HTTPS site's address (`{$FOXNAV_LAN_HOST:localhost}:8443`) with your domain, and remove its `tls internal` and the global `auto_https` option. Caddy then gets TLS certificates from Let's Encrypt automatically, and redirects plain HTTP to HTTPS. Publish ports 80 and 443 instead of 8080 and 8443.
-2. Set `FOXNAV_NAME` and `FOXNAV_PRIVACY_URL` for the `server` service in `compose.yaml`. Drivers' reports are kept in the `reports` volume (`FOXNAV_REPORTS_FILE`); `FOXNAV_FINTRAFFIC=true` adds Fintraffic's traffic messages for Finland, fetched every 5 minutes. Turn it off for a server outside Finland. For Norway's, from Statens vegvesen's DATEX II feed, [ask Statens vegvesen for an account](https://www.vegvesen.no/en/fag/technology/open-data/a-selection-of-open-data/what-is-datex/get-access/) and put it in `infra/.env` as `FOXNAV_VEGVESEN_USERNAME` and `FOXNAV_VEGVESEN_PASSWORD`.
-3. Users type your domain into the app, and the app reads `https://your.domain/.well-known/foxnav`.
+```sh
+FOXNAV_NAME=FoxNav Helsinki                       # what the app and the convoy page call it
+FOXNAV_PRIVACY_URL=https://example.org/privacy    # your privacy policy, linked from the app
+FOXNAV_FINTRAFFIC=true                            # Fintraffic's traffic messages; false outside Finland
+```
+
+For Norway's traffic messages, from Statens vegvesen's DATEX II feed, [ask Statens vegvesen for an account](https://www.vegvesen.no/en/fag/technology/open-data/a-selection-of-open-data/what-is-datex/get-access/) and add `FOXNAV_VEGVESEN_USERNAME` and `FOXNAV_VEGVESEN_PASSWORD`. Drivers' reports are kept in the `reports` volume. Then `docker compose -f infra/compose.yaml up -d`, and users type your domain into the app, which reads `https://your.domain/.well-known/foxnav`.
+
+### Behind a reverse proxy
+
+With nginx (or another proxy) in front doing TLS, the gateway serves plain HTTP to it. The proxy tells it the address drivers used, so that map styles point at `https://your.domain`, and who each driver is, for the reports' rate limit. The gateway believes that only from the proxy:
+
+```sh
+FOXNAV_HTTP_PORT=127.0.0.1:8080        # reachable only from this machine, so only through the proxy
+FOXNAV_TRUSTED_PROXIES=private_ranges  # the proxy's address as the gateway sees it
+```
+
+A proxy on the same machine reaches the gateway from Docker's network, a private address, hence `private_ranges`; with the port bound to `127.0.0.1` nothing else gets there. A proxy on another machine: its address instead, e.g. `FOXNAV_TRUSTED_PROXIES=192.168.1.5/32`, and `FOXNAV_HTTP_PORT` on an address it reaches.
+
+The proxy passes the host, the scheme and WebSockets (for convoys) on. For nginx:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl;
+    server_name your.domain;
+    # ssl_certificate ...
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}
+```
+
+Check it with `infra/scripts/smoke-test.sh https://your.domain`, and that `https://your.domain/styles/night.json` names `https://` URLs. Ones with `http://` mean the gateway doesn't believe the proxy: check `FOXNAV_TRUSTED_PROXIES`, and that the proxy sends `X-Forwarded-Proto`.
+
+### Without one
+
+The gateway can get TLS certificates itself: in the `Caddyfile`, replace the HTTPS site's address (`{$FOXNAV_LAN_HOST:localhost}:8443`) with your domain, and remove its `tls internal` and the global `auto_https` option. Caddy then gets certificates from Let's Encrypt and redirects plain HTTP to HTTPS. Publish ports 80 and 443 instead of 8080 and 8443.
 
 ## Attribution
 

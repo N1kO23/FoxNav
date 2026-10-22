@@ -13,6 +13,7 @@ import java.nio.file.Files
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServerTest {
@@ -118,5 +119,14 @@ class ServerTest {
         assertEquals("Env", parsed.name)
         assertEquals(listOf("FI", "SE"), parsed.regions)
         assertEquals("/srv/styles", parsed.stylesDir.toString())
+    }
+
+    @Test
+    fun settingsLeftEmptyAreUnset() {
+        // compose.yaml passes FOXNAV_PRIVACY_URL through as "" when infra/.env doesn't set it.
+        val parsed = ServerConfig.fromEnvironment(mapOf("FOXNAV_PRIVACY_URL" to "", "FOXNAV_REPORTS_FILE" to " "))
+        assertNull(parsed.privacyUrl)
+        assertNull(parsed.reportsFile)
+        assertEquals("https://example.org/privacy", ServerConfig.fromEnvironment(mapOf("FOXNAV_PRIVACY_URL" to "https://example.org/privacy")).privacyUrl)
     }
 }
